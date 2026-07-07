@@ -34,6 +34,12 @@ The service layer exposes a `TransmissionRPCServicing` protocol only for tests a
 
 The UI calls services; it does not own RPC, profile persistence, keychain, trashing, or session-token policy.
 
+## App Target
+
+`Apps/Glass/Glass.xcodeproj` is the real macOS app target. It owns the bundle identifier, Info.plist, entitlements reference, document and URL registrations, signing configuration, and the Icon Composer app icon package at `Apps/Glass/Transmission_Tahoe.icon`.
+
+`Scripts/build-mac-app.sh` delegates to that Xcode target. It does not manually assemble an app bundle or generate legacy icon resources.
+
 ## Platform Adapters
 
 `GlassMac` is the only target that imports AppKit for app lifecycle and pasteboard/open-file hooks. Keychain lives behind `CredentialStore`; file trashing lives behind `TorrentSourceFileDisposing`.

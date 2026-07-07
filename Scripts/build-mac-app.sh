@@ -14,19 +14,18 @@ case "$CONFIGURATION" in
 esac
 
 cd "$ROOT_DIR"
-swift build --product GlassMac -c "$CONFIGURATION"
-BIN_DIR="$(swift build --product GlassMac -c "$CONFIGURATION" --show-bin-path)"
+XCODE_CONFIGURATION="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIGURATION:0:1}")${CONFIGURATION:1}"
+DERIVED_DATA="$ROOT_DIR/.build/Xcode"
 
-APP_DIR="$ROOT_DIR/.build/Glass.app"
-CONTENTS_DIR="$APP_DIR/Contents"
-MACOS_DIR="$CONTENTS_DIR/MacOS"
-RESOURCES_DIR="$CONTENTS_DIR/Resources"
+xcodebuild \
+    -project "$ROOT_DIR/Apps/Glass/Glass.xcodeproj" \
+    -scheme Glass \
+    -configuration "$XCODE_CONFIGURATION" \
+    -derivedDataPath "$DERIVED_DATA" \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+    build
 
-rm -rf "$APP_DIR"
-mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
-cp "$BIN_DIR/GlassMac" "$MACOS_DIR/GlassMac"
-cp "$ROOT_DIR/Resources/Info.plist" "$CONTENTS_DIR/Info.plist"
-
-codesign --force --sign "$SIGN_IDENTITY" --entitlements "$ROOT_DIR/Resources/Glass.entitlements" "$APP_DIR"
+APP_DIR="$DERIVED_DATA/Build/Products/$XCODE_CONFIGURATION/Glass.app"
 
 echo "$APP_DIR"
