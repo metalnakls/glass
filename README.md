@@ -12,13 +12,14 @@ swift build --product GlassMac
 ./Scripts/build-mac-app.sh debug
 ```
 
-The app target is package-first. `Scripts/build-mac-app.sh` wraps the SwiftPM product in a signed macOS `.app` bundle with the Glass bundle identifier, document type support for `.torrent`, and the `magnet:` URL scheme.
+The packaged app is owned by `Apps/Glass/Glass.xcodeproj`. That target owns the bundle identifier, entitlements, document type support for `.torrent`, the `magnet:` URL scheme, and the app icon. `Scripts/build-mac-app.sh` is only a thin wrapper around the Xcode app build.
 
 ## Shape
 
 - `GlassRemoteCore`: Transmission RPC models, request surface, profile store, credential store.
 - `GlassRemoteServices`: remote app model, refresh/cache behavior, profile client pooling, source-file cleanup.
 - `GlassRemoteUI`: native SwiftUI views only.
-- `GlassMac`: macOS executable target and narrow platform adapters.
+- `Apps/Glass`: signed macOS app target, Info.plist, entitlements reference, and `Transmission_Tahoe.icon`.
+- `GlassMac`: SwiftPM executable target for package-level builds and narrow platform adapters.
 
 AppKit is limited to app lifecycle, pasteboard, document opening, keychain, and file trashing. Layout, toolbar, sidebar, list, inspector, and chrome are SwiftUI.
