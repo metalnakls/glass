@@ -19,10 +19,6 @@ let package = Package(
         .library(
             name: "GlassRemoteUI",
             targets: ["GlassRemoteUI"]
-        ),
-        .executable(
-            name: "GlassMac",
-            targets: ["GlassMac"]
         )
     ],
     targets: [
@@ -37,10 +33,6 @@ let package = Package(
                 "GlassRemoteCore",
                 "GlassRemoteServices"
             ]
-        ),
-        .executableTarget(
-            name: "GlassMac",
-            dependencies: ["GlassRemoteUI"]
         ),
         .testTarget(
             name: "GlassRemoteCoreTests",

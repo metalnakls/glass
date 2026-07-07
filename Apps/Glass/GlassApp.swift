@@ -5,7 +5,7 @@ import GlassRemoteUI
 import SwiftUI
 
 @main
-struct GlassMacApp: App {
+struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
     @StateObject private var model = Self.makeModel()
 

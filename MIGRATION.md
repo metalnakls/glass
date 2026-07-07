@@ -102,12 +102,6 @@ Package tests:
 swift test --package-path ~/glass
 ```
 
-Package executable:
-
-```sh
-swift build --package-path ~/glass --product GlassMac
-```
-
 Signed debug app:
 
 ```sh

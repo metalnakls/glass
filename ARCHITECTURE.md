@@ -8,7 +8,6 @@ Glass is a fresh macOS app. The tree is split by runtime responsibility, not by 
 - `Sources/GlassRemoteCore`: pure Transmission RPC/backend primitives.
 - `Sources/GlassRemoteServices`: app-facing state and remote orchestration.
 - `Sources/GlassRemoteUI`: SwiftUI views and UI-only helpers.
-- `Sources/GlassMac`: SwiftPM executable entry point for package-level builds.
 - `Tests`: core and service tests.
 - `Scripts`: build wrappers.
 - `Resources`: shared app resources referenced by the app target, currently entitlements.
@@ -51,6 +50,6 @@ SwiftUI is the layout and chrome owner. AppKit must not own titlebar layout, too
 
 ## Platform Adapters
 
-`GlassMac` is the only target that imports AppKit for app lifecycle and pasteboard/open-file hooks. Keychain lives behind `CredentialStore`; file trashing lives behind `TorrentSourceFileDisposing`.
+`Apps/Glass` is the only app target that imports AppKit for app lifecycle and pasteboard/open-file hooks. Keychain lives behind `CredentialStore`; file trashing lives behind `TorrentSourceFileDisposing`.
 
 Seeing `AppKit-*.pcm` under `.build/Xcode/ModuleCache.noindex` is expected. It is a compiler cache, not app source. macOS SwiftUI itself depends on AppKit, and the app target uses narrow AppKit adapters for lifecycle, open-file, and pasteboard integration.
