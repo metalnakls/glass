@@ -1,2 +1,0 @@
-[commands]
-run = "script/build_and_run.sh"

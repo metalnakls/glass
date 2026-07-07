@@ -1,15 +1,18 @@
 # Glass Migration
 
+This is a temporary migration/provenance note. Durable structure belongs in `ARCHITECTURE.md`.
+
 ## Current State
 
-`~/glass` is the new clean Glass repository. It starts fresh on `main` with no Transmission history.
+`~/glass` is the clean Glass repository on `main`, with no Transmission history.
+
+The private GitHub remote is:
+
+```text
+git@github.com:USER/glass.git
+```
 
 `~/trans` stays intact as the Transmission/upstream reference checkout. Keep using it for upstream source inspection and fetches, but do not use it as the active Glass working tree.
-
-Current local Glass commits:
-
-- `glass`: fresh repo, backend/service/UI scaffold
-- `icon`: real macOS Xcode app target with `Transmission_Tahoe.icon`
 
 ## Codex Project
 
@@ -19,38 +22,63 @@ That keeps search, build commands, git status, and patches scoped to the new app
 
 Do not keep doing app rebuild work from `~/trans`; that repo is now reference material.
 
-## Git Setup
+## Migration Boundary
 
-The local repo is already initialized:
+The old Glass UI experiments were intentionally not copied forward as the frontend foundation.
 
-```sh
-git -C ~/glass status
-git -C ~/glass log --oneline --decorate --max-count=8
-```
+Carried forward:
 
-The only missing setup is the remote.
+- Transmission RPC models and client behavior.
+- Profile and credential persistence.
+- Backend refresh/cache/action behavior.
+- Import parsing and source-file cleanup semantics.
+- Product requirements from the native Glass work.
 
-For an existing empty GitHub repo:
+Not carried forward:
 
-```sh
-git -C ~/glass remote add origin git@github.com:USER/glass.git
-git -C ~/glass push -u origin main
-```
+- Old `GlassRootView`.
+- Old torrent row/list layout.
+- Fake chrome experiments.
+- Fake toolbar/header views.
+- Layout-owned AppKit representables.
+- Dirty `~/trans` frontend churn.
 
-If `origin` already exists:
+The fresh app keeps the feature stack but rebuilds placement through native SwiftUI surfaces.
 
-```sh
-git -C ~/glass remote set-url origin git@github.com:USER/glass.git
-git -C ~/glass push -u origin main
-```
+## Product Requirements
 
-With GitHub CLI, create and push a new repo:
+Glass is a quiet macOS desktop client for Transmission RPC servers. It should feel native in the same family as Finder, Mail, and Notes: system-owned chrome, predictable selection, toolbar customization, source-list sidebar, detail list, and attached inspector.
 
-```sh
-gh repo create glass --private --source ~/glass --remote origin --push
-```
+Primary workflows:
 
-Use `--public` instead of `--private` only if the repo should be public.
+- Manage multiple remote Transmission profiles with credentials stored in Keychain.
+- Refresh torrents manually or automatically while reusing the same RPC session token per profile.
+- Add magnet links from the toolbar, menu, Cmd+V, or `magnet:` open events.
+- Add `.torrent` files from the toolbar, menu, file open, or drag/drop.
+- Move source `.torrent` files to Trash only after the server successfully accepts them.
+- Start, pause, verify, reannounce, prioritize, queue-move, rename, remove, and delete torrent data.
+- Inspect server stats, torrent facts, files, peers, trackers, pieces, and settings.
+
+Native UI requirements:
+
+- One native title only.
+- No fake chrome, custom window frame mutation, fake toolbar rows, or layout-owned AppKit views.
+- Root scene uses `WindowGroup`.
+- Main window uses `NavigationSplitView` for sidebar/detail.
+- Inspector is attached with SwiftUI `.inspector`.
+- Torrent list starts as native `List(selection:)` with native context menus, keyboard selection, and swipe actions where available.
+- Toolbar uses SwiftUI `.toolbar(id:)` for customization. Filter belongs to the main/detail toolbar.
+- On macOS 27 and newer, the top scroll edge uses `.scrollEdgeEffectStyle(.soft, for: .top)` on the actual scrollable list.
+
+Backend requirements:
+
+- Keep Transmission raw status values while exposing typed status helpers.
+- Downloading filter follows Transmission status `4`, not current transfer speed.
+- Queued/running state remains separate from downloading state so queued torrents can still stop.
+- Fetch `queuePosition`.
+- Support queue move RPCs, session settings get/set, free-space fallback, and session token reuse.
+- Coalesce overlapping refreshes per profile.
+- Merge fresh torrent snapshots by server order while reusing unchanged values.
 
 ## Upstream Reference
 
@@ -62,7 +90,9 @@ git -C ~/trans fetch --all --tags
 
 Glass should not add Transmission as a git remote unless there is a very specific reason. Keeping `~/trans` as the reference checkout avoids mixing unrelated histories.
 
-See `UPSTREAM.md` for provenance and reference rules.
+Backend material was lifted behavior-preserving from the Glass package inside `~/trans/glass` during the fresh rebuild.
+
+`mveinot/transmission-control` was reviewed as a modern Transmission RPC reference. Useful backend ideas carried into this direction are explicit queue RPC support, centralized session-token reuse, update coalescing, and cleanup only after successful `torrent-add`.
 
 ## Build Commands
 
