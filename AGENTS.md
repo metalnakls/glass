@@ -43,3 +43,5 @@ Bundle metadata:
 
 - bundle id: `org.transmissionbt.glass.mac`
 - entitlements: `~/glass/Resources/Glass.entitlements`
+
+Run SwiftPM tests with: swift test --package-path ~/glass --disable-sandbox
