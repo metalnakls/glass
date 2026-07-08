@@ -370,6 +370,30 @@ public struct TorrentPeer: Sendable, Hashable, Codable {
     public let isEncrypted: Bool?
     public let isIncoming: Bool?
     public let isUTP: Bool?
+
+    public init(
+        address: String? = nil,
+        port: Int? = nil,
+        clientName: String? = nil,
+        flagStr: String? = nil,
+        progress: Double? = nil,
+        rateToClient: Double? = nil,
+        rateToPeer: Double? = nil,
+        isEncrypted: Bool? = nil,
+        isIncoming: Bool? = nil,
+        isUTP: Bool? = nil
+    ) {
+        self.address = address
+        self.port = port
+        self.clientName = clientName
+        self.flagStr = flagStr
+        self.progress = progress
+        self.rateToClient = rateToClient
+        self.rateToPeer = rateToPeer
+        self.isEncrypted = isEncrypted
+        self.isIncoming = isIncoming
+        self.isUTP = isUTP
+    }
 }
 
 public struct TorrentTracker: Sendable, Hashable, Codable, Identifiable {
@@ -386,6 +410,36 @@ public struct TorrentTracker: Sendable, Hashable, Codable, Identifiable {
     public let leecherCount: Int?
     public let downloadCount: Int?
     public let nextAnnounceTime: Int?
+
+    public init(
+        id: Int? = nil,
+        announce: String? = nil,
+        scrape: String? = nil,
+        host: String? = nil,
+        tier: Int? = nil,
+        lastAnnounceResult: String? = nil,
+        lastAnnounceSucceeded: Bool? = nil,
+        lastScrapeResult: String? = nil,
+        lastScrapeSucceeded: Bool? = nil,
+        seederCount: Int? = nil,
+        leecherCount: Int? = nil,
+        downloadCount: Int? = nil,
+        nextAnnounceTime: Int? = nil
+    ) {
+        self.id = id
+        self.announce = announce
+        self.scrape = scrape
+        self.host = host
+        self.tier = tier
+        self.lastAnnounceResult = lastAnnounceResult
+        self.lastAnnounceSucceeded = lastAnnounceSucceeded
+        self.lastScrapeResult = lastScrapeResult
+        self.lastScrapeSucceeded = lastScrapeSucceeded
+        self.seederCount = seederCount
+        self.leecherCount = leecherCount
+        self.downloadCount = downloadCount
+        self.nextAnnounceTime = nextAnnounceTime
+    }
 }
 
 public struct CachedTorrentList: Sendable, Hashable, Codable {
@@ -413,6 +467,11 @@ public struct DownloadDirectoryHistory: Sendable, Hashable, Codable {
 public struct SessionStats: Sendable, Equatable, Codable {
     public let downloadSpeed: Double
     public let uploadSpeed: Double
+
+    public init(downloadSpeed: Double, uploadSpeed: Double) {
+        self.downloadSpeed = downloadSpeed
+        self.uploadSpeed = uploadSpeed
+    }
 }
 
 public struct ServerFreeSpace: Sendable, Equatable, Codable {

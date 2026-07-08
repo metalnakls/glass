@@ -1,6 +1,6 @@
 # Glass Migration
 
-This is a temporary migration/provenance note. Durable structure belongs in `ARCHITECTURE.md`.
+This is a temporary migration/provenance note. Durable structure belongs in `README.md`.
 
 ## Current State
 
@@ -13,6 +13,8 @@ git@swagless:metalnakls/glass.git
 ```
 
 `/Users/wsb/trans` stays intact as the Transmission/upstream reference checkout. Keep using it for upstream source inspection and fetches, but do not use it as the active Glass working tree.
+
+Use this file for temporary migration/provenance and `README.md` for the durable project map.
 
 ## Codex Project
 
@@ -47,15 +49,16 @@ The fresh app keeps the feature stack but rebuilds placement through native Swif
 
 ## Product Requirements
 
-Glass is a quiet macOS desktop client for Transmission RPC servers. It should feel native in the same family as Finder, Mail, and Notes: system-owned chrome, predictable selection, toolbar customization, source-list sidebar, detail list, and attached inspector.
+Glass is a quiet macOS desktop client for local torrents and remote Transmission RPC servers. It should feel native in the same family as Finder, Mail, and Notes: system-owned chrome, predictable selection, toolbar customization, source-list sidebar, detail list, and attached inspector.
 
 Primary workflows:
 
+- Download local torrents through an embedded libtransmission session owned by Glass, without requiring Transmission.app or `transmission-daemon`.
 - Manage multiple remote Transmission profiles with credentials stored in Keychain.
 - Refresh torrents manually or automatically while reusing the same RPC session token per profile.
-- Add magnet links from the toolbar, menu, Cmd+V, or `magnet:` open events.
-- Add `.torrent` files from the toolbar, menu, file open, or drag/drop.
-- Move source `.torrent` files to Trash only after the server successfully accepts them.
+- Add magnet links from the toolbar, menu, Cmd+V, or `magnet:` open events to the selected source.
+- Add `.torrent` files from the toolbar, menu, file open, or drag/drop to the selected source.
+- Move source `.torrent` files to Trash only after the selected source successfully accepts them.
 - Start, pause, verify, reannounce, prioritize, queue-move, rename, remove, and delete torrent data.
 - Inspect server stats, torrent facts, files, peers, trackers, pieces, and settings.
 
@@ -79,6 +82,8 @@ Backend requirements:
 - Support queue move RPCs, session settings get/set, free-space fallback, and session token reuse.
 - Coalesce overlapping refreshes per profile.
 - Merge fresh torrent snapshots by server order while reusing unchanged values.
+- Keep the local source keyed by its source ID in the same cache/history paths as remote profiles.
+- Local source behavior is libtransmission-backed, not loopback RPC to `127.0.0.1:9091`.
 
 ## Upstream Reference
 
@@ -91,6 +96,14 @@ git -C /Users/wsb/trans fetch --all --tags
 Glass should not add Transmission as a git remote unless there is a very specific reason. Keeping `/Users/wsb/trans` as the reference checkout avoids mixing unrelated histories.
 
 Backend material was lifted behavior-preserving from the Glass package inside `/Users/wsb/trans/glass` during the fresh rebuild.
+
+The old tree also contains iOS intent and iOS-target residue:
+
+- `/Users/wsb/trans/glass/README.md` describes `apps/Glass` as an iOS app target.
+- `/Users/wsb/trans/glass/apps/Glass/Glass.xcodeproj` contains `IPHONEOS_DEPLOYMENT_TARGET`.
+- The same old app entry currently imports AppKit, so it is not a clean source of truth.
+
+Treat the old iOS material as requirements/provenance only. Rebuild the iOS app as a native iOS target in the fresh repo instead of copying that target forward.
 
 `mveinot/transmission-control` was reviewed as a modern Transmission RPC reference. Useful backend ideas carried into this direction are explicit queue RPC support, centralized session-token reuse, update coalescing, and cleanup only after successful `torrent-add`.
 
@@ -117,15 +130,57 @@ The real app bundle is:
 
 The old manual bundle path `/Users/wsb/glass/.build/Glass.app` is obsolete and should not reappear.
 
+Local libtransmission source is pinned by:
+
+```text
+/Users/wsb/glass/Vendor/transmission/REVISION
+```
+
+The build script fetches `Vendor/transmission/source` inside `/Users/wsb/glass`. `/Users/wsb/trans` remains reference/provenance only and is not a build input.
+
 ## App Target Rules
 
 - `Apps/Glass/Glass.xcodeproj` owns the packaged macOS app.
+- A future iOS app target should be native iOS, not Catalyst.
+- The macOS and iOS app targets should share core/services and reusable SwiftUI code, but each target owns its own scene setup and platform adapters.
 - `Apps/Glass/Transmission_Tahoe.icon` is the app icon source of truth.
 - Do not generate or commit `.icns`.
 - Do not bring back manual app-bundle assembly.
 - Do not move old frontend files back into the new app.
 - Layout, toolbar, sidebar, list, inspector, and chrome stay SwiftUI-owned.
 - AppKit is allowed only for narrow platform adapters such as lifecycle, pasteboard, open-file hooks, keychain, and file trashing.
+- UIKit follows the same rule for iOS: narrow adapters only, not shared flow/layout/business logic.
+
+## Cross-Platform Handoff
+
+Copy/paste this block when starting the next implementation pass:
+
+```text
+Work in /Users/wsb/glass, not /Users/wsb/trans. /Users/wsb/trans is only the upstream/reference checkout.
+
+Glass is a native SwiftUI app family:
+- macOS target: Apps/Glass.
+- future iOS target: rebuild as native iOS, not Catalyst.
+- do not copy old frontend files or the old mixed iOS/AppKit target.
+
+Keep shared code honest:
+- GlassRemoteCore: Transmission models, RPC client, profile/credential abstractions.
+- GlassRemoteServices: provider orchestration, refresh coalescing, client pooling, source cleanup.
+- GlassRemoteUI: reusable SwiftUI views and UI state that are actually shared.
+- platform targets: scene setup, commands, toolbar placement, file/open-url/pasteboard/device adapters.
+
+Avoid broad #if os(...) hacks in shared logic. If behavior differs by platform, inject an adapter protocol from the app target.
+
+Do not split TransmissionRPCClient just because it is long. Split only if separating real responsibilities: transport/session-token retry, RPC DTOs, and high-level method surface.
+
+Do not split RemoteAppModel just for tidiness. The useful next split is provider-driven:
+- GlassAppModel owns selected source, source list, cross-source commands, and shared undo/toast state.
+- TorrentProvider is the common interface for remote and local torrent sources.
+- RemoteTorrentProvider wraps current Transmission RPC behavior.
+- LocalTorrentProvider wraps the embedded local libtransmission session.
+
+Local wiring is a product requirement. Glass should handle local torrent downloads and remote Transmission RPC profiles in one app.
+```
 
 ## Next Work
 

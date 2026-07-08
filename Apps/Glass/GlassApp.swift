@@ -12,17 +12,17 @@ struct GlassApp: App {
     var body: some Scene {
         WindowGroup("Glass", id: "main") {
             GlassRootView(model: model)
-                .frame(minWidth: 960, minHeight: 620)
+                .frame(minWidth: 560, minHeight: 260)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
-        .defaultSize(width: 1280, height: 780)
+        .defaultSize(width: 760, height: 460)
         .commands {
-            CommandGroup(after: .newItem) {
+            CommandGroup(replacing: .newItem) {
                 Button("Add Magnet...") {
                     NotificationCenter.default.post(name: .glassCommandAddMagnet, object: nil)
                 }
-                .keyboardShortcut("n", modifiers: [.command, .shift])
+                .keyboardShortcut("n", modifiers: [.command])
 
                 Button("Add Torrent File...") {
                     NotificationCenter.default.post(name: .glassCommandAddTorrentFile, object: nil)
@@ -38,11 +38,6 @@ struct GlassApp: App {
             }
 
             CommandMenu("Torrent") {
-                Button("Refresh") {
-                    NotificationCenter.default.post(name: .glassCommandRefresh, object: nil)
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-
                 Button("Show Downloading Torrents") {
                     NotificationCenter.default.post(name: .glassCommandToggleDownloadingFilter, object: nil)
                 }
@@ -67,7 +62,16 @@ struct GlassApp: App {
         }
         return RemoteAppModel(
             profileStore: profileStore,
-            credentialStore: KeychainCredentialStore()
+            credentialStore: KeychainCredentialStore(),
+            localSessionFactory: {
+                do {
+                    return try LocalTransmissionSession()
+                } catch {
+                    return UnavailableLocalTransmissionSession(
+                        errorDescription: "Local torrent engine could not start: \(error.localizedDescription)"
+                    )
+                }
+            }
         )
     }
 
@@ -80,18 +84,36 @@ struct GlassApp: App {
         else {
             return
         }
-        NotificationCenter.default.post(name: .glassOpenURLs, object: [url])
+        Task { @MainActor in
+            GlassOpenURLRouter.shared.open([url])
+        }
     }
 }
 
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldSaveApplicationState(_ sender: NSApplication) -> Bool {
+        false
+    }
+
+    func applicationShouldRestoreApplicationState(_ sender: NSApplication) -> Bool {
+        false
+    }
+
     func application(_ application: NSApplication, open urls: [URL]) {
-        NotificationCenter.default.post(name: .glassOpenURLs, object: urls)
+        Task { @MainActor in
+            GlassOpenURLRouter.shared.open(urls)
+        }
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
         let urls = filenames.map(URL.init(fileURLWithPath:))
-        NotificationCenter.default.post(name: .glassOpenURLs, object: urls)
+        Task { @MainActor in
+            GlassOpenURLRouter.shared.open(urls)
+        }
         sender.reply(toOpenOrPrint: .success)
     }
 }

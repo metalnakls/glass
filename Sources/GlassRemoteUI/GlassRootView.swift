@@ -8,12 +8,13 @@ public struct GlassRootView: View {
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedTorrentHash: String?
-    @State private var isInspectorPresented = true
+    @State private var isInspectorPresented = false
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
     @State private var pendingProfileDeletion: RemoteProfile?
     @State private var pendingRemoval: PendingRemoval?
     @State private var pendingRemovalTask: Task<Void, Never>?
+    @State private var availableWidth: CGFloat = 760
 
     public init(model: RemoteAppModel) {
         self.model = model
@@ -46,36 +47,28 @@ public struct GlassRootView: View {
                     TorrentInspectorView(model: model, selectedTorrent: selectedTorrent)
                 }
         }
-        .navigationTitle(model.selectedSourceProfile?.name ?? "Glass")
+        .navigationTitle(model.selectedSourceName)
         .navigationSubtitle(navigationSubtitle)
-        .toolbar(id: "glass.main") {
-            ToolbarItem(id: "refresh", placement: .primaryAction, showsByDefault: true) {
-                Button {
-                    Task { await model.refresh() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
-                }
-                .help("Refresh")
-            }
-            ToolbarItem(id: "add-magnet", placement: .primaryAction, showsByDefault: true) {
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     activeSheet = .addMagnet("")
                 } label: {
                     Label("Add Magnet", systemImage: "link.badge.plus")
                 }
-                .disabled(model.selectedSourceProfile == nil)
+                .disabled(!model.canAddToSelectedSource)
                 .help("Add Magnet")
             }
-            ToolbarItem(id: "add-torrent", placement: .primaryAction, showsByDefault: true) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     isFileImporterPresented = true
                 } label: {
                     Label("Add Torrent File", systemImage: "doc.badge.plus")
                 }
-                .disabled(model.selectedSourceProfile == nil)
+                .disabled(!model.canAddToSelectedSource)
                 .help("Add Torrent File")
             }
-            ToolbarItem(id: "filter-downloading", placement: .primaryAction, showsByDefault: true) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
                     toggleDownloadingFilter()
                 } label: {
@@ -83,13 +76,27 @@ public struct GlassRootView: View {
                 }
                 .help("Show Downloading Torrents")
             }
-            ToolbarItem(id: "inspector", placement: .primaryAction, showsByDefault: true) {
+            ToolbarItem(placement: .primaryAction) {
                 Button {
-                    isInspectorPresented.toggle()
+                    if canShowInspector {
+                        isInspectorPresented.toggle()
+                    }
                 } label: {
                     Label("Inspector", systemImage: "sidebar.right")
                 }
-                .help("Inspector")
+                .disabled(!canShowInspector)
+                .help(canShowInspector ? "Inspector" : "Widen the window to show the inspector")
+            }
+        }
+        .background {
+            GeometryReader { proxy in
+                Color.clear
+                    .onAppear {
+                        updateResponsiveChrome(for: proxy.size.width)
+                    }
+                    .onChange(of: proxy.size.width) { _, width in
+                        updateResponsiveChrome(for: width)
+                    }
             }
         }
         .sheet(item: $activeSheet) { sheet in
@@ -114,6 +121,13 @@ public struct GlassRootView: View {
         } message: { profile in
             Text("Remove \(profile.name) from Glass. Transmission data on the server is not changed.")
         }
+        .alert("Glass", isPresented: errorAlertBinding) {
+            Button("OK") {
+                model.errorMessage = nil
+            }
+        } message: {
+            Text(model.errorMessage ?? "")
+        }
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: [.torrentFile],
@@ -123,8 +137,13 @@ public struct GlassRootView: View {
                 openURLs(urls)
             }
         }
-        .onAppear {
-            Task { await model.refresh() }
+        .task {
+            await MainActor.run {
+                GlassOpenURLRouter.shared.register { urls in
+                    openURLs(urls)
+                }
+            }
+            await model.runAutoRefresh()
         }
         .onChange(of: model.selectedProfileID) { _, _ in
             selectedTorrentHash = nil
@@ -139,15 +158,8 @@ public struct GlassRootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .glassCommandAddTorrentFile)) { _ in
             isFileImporterPresented = true
         }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandRefresh)) { _ in
-            Task { await model.refresh() }
-        }
         .onReceive(NotificationCenter.default.publisher(for: .glassCommandToggleDownloadingFilter)) { _ in
             toggleDownloadingFilter()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassOpenURLs)) { notification in
-            guard let urls = notification.object as? [URL] else { return }
-            openURLs(urls)
         }
     }
 
@@ -193,14 +205,18 @@ public struct GlassRootView: View {
         return model.torrents.first { $0.hashString == selectedTorrentHash }
     }
 
+    private var canShowInspector: Bool {
+        availableWidth >= 880
+    }
+
     private var navigationSubtitle: String {
-        guard let profile = model.selectedSourceProfile else {
-            return "Select a Transmission server"
-        }
-        if let freeSpace = model.serverFreeSpace[profile.id]?.availableBytes {
+        if let freeSpace = model.serverFreeSpace[model.selectedSourceID]?.availableBytes {
             return "\(formatBytes(freeSpace)) free"
         }
-        return profile.rpcURL.host(percentEncoded: false) ?? profile.rpcURL.absoluteString
+        if model.isLocalSourceSelected {
+            return "Local downloads on this Mac"
+        }
+        return model.selectedSourceRPCURL.host(percentEncoded: false) ?? model.selectedSourceRPCURL.absoluteString
     }
 
     private var deleteProfileAlertBinding: Binding<Bool> {
@@ -210,8 +226,29 @@ public struct GlassRootView: View {
         )
     }
 
+    private var errorAlertBinding: Binding<Bool> {
+        Binding(
+            get: { model.errorMessage != nil },
+            set: { if !$0 { model.errorMessage = nil } }
+        )
+    }
+
     private func toggleDownloadingFilter() {
         model.selectedTorrentGroup = model.selectedTorrentGroup == .downloading ? .all : .downloading
+    }
+
+    private func updateResponsiveChrome(for width: CGFloat) {
+        availableWidth = width
+
+        if width < 880 {
+            isInspectorPresented = false
+        }
+
+        if width < 680 {
+            columnVisibility = .detailOnly
+        } else if columnVisibility == .detailOnly {
+            columnVisibility = .automatic
+        }
     }
 
     private func openURLs(_ urls: [URL]) {

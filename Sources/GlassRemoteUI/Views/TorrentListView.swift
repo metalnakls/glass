@@ -43,14 +43,27 @@ struct TorrentListView: View {
         .listStyle(.plain)
         .overlay {
             if model.filteredTorrents.isEmpty {
-                ContentUnavailableView(
-                    model.isLocalSourceSelected ? "Select a Remote" : "No Torrents",
-                    systemImage: model.isLocalSourceSelected ? "server.rack" : "tray",
-                    description: Text(model.isLocalSourceSelected ? "Add or select a Transmission server in the sidebar." : "This filter has no matching torrents.")
-                )
+                emptyState
             }
         }
         .glassSoftTopScrollEdge()
+    }
+
+    @ViewBuilder
+    private var emptyState: some View {
+        if let message = model.refreshErrorMessage, !model.isLocalSourceSelected {
+            ContentUnavailableView(
+                "Couldn’t Reach Server",
+                systemImage: "wifi.exclamationmark",
+                description: Text(message)
+            )
+        } else {
+            ContentUnavailableView(
+                "No Torrents",
+                systemImage: "tray",
+                description: Text(model.isLocalSourceSelected ? "Add a torrent to this Mac." : "This filter has no matching torrents.")
+            )
+        }
     }
 
     @ViewBuilder

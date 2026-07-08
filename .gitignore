@@ -4,6 +4,7 @@
 .swiftpm/
 DerivedData/
 Apps/Glass/build/
+Vendor/transmission/source/
 *.xcworkspace/
 *.xcuserstate
 xcuserdata/
