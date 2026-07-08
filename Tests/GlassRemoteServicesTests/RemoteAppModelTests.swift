@@ -67,6 +67,21 @@ struct RemoteAppModelTests {
         #expect(await client.fetchTorrentsCount == 1)
     }
 
+    @Test("refresh failures are inline state instead of alert errors")
+    func refreshFailuresAreInlineStateInsteadOfAlertErrors() async throws {
+        let profile = makeProfile()
+        let failingClient = StubRPCClient()
+        await failingClient.setFetchTorrentsError(TestError.failed)
+        let factory = StubRPCClientFactory { _ in failingClient }
+        let model = makeModel(profile: profile, factory: factory)
+
+        await model.refresh()
+
+        #expect(model.errorMessage == nil)
+        #expect(model.refreshErrorMessage != nil)
+        #expect(model.torrents.isEmpty)
+    }
+
     @Test("trashes source torrent only after successful add")
     func trashesSourceTorrentOnlyAfterSuccessfulAdd() async throws {
         let profile = makeProfile()
@@ -99,6 +114,42 @@ struct RemoteAppModelTests {
         #expect(succeeded)
         #expect(disposer.trashedURLs == [sourceURL])
     }
+
+    @Test("local source refresh uses local session and not RPC")
+    func localSourceRefreshUsesLocalSessionAndNotRPC() async throws {
+        let factory = StubRPCClientFactory()
+        let localSession = StubLocalTransmissionSession()
+        let model = makeModel(profiles: [], factory: factory, localSession: localSession)
+
+        await model.refresh()
+
+        #expect(model.isLocalSourceSelected)
+        #expect(model.torrents.isEmpty == false)
+        #expect(factory.createdCount == 0)
+        #expect(await localSession.fetchSnapshotCount == 1)
+    }
+
+    @Test("local source imports torrent files and trashes source after success")
+    func localSourceImportsTorrentFilesAndTrashesSourceAfterSuccess() async throws {
+        let sourceURL = URL(fileURLWithPath: "/tmp/local-source.torrent")
+        let disposer = RecordingTorrentSourceFileDisposer()
+        let factory = StubRPCClientFactory()
+        let localSession = StubLocalTransmissionSession()
+        let model = makeModel(profiles: [], factory: factory, disposer: disposer, localSession: localSession)
+
+        let succeeded = await model.addTorrentFile(
+            Data([0x03]),
+            downloadDirectory: "/Users/me/Downloads",
+            sourceURL: sourceURL,
+            trashSourceOnSuccess: true
+        )
+
+        #expect(succeeded)
+        #expect(disposer.trashedURLs == [sourceURL])
+        #expect(model.downloadDirectoriesForSelectedProfile() == ["/Users/me/Downloads"])
+        #expect(await localSession.addTorrentFileCount == 1)
+        #expect(factory.createdCount == 0)
+    }
 }
 
 @MainActor
@@ -112,6 +163,22 @@ private func makeModel(
         credentialStore: MemoryCredentialStore(password: "secret"),
         torrentSourceFileDisposer: disposer,
         rpcClientFactory: factory.make(config:)
+    )
+}
+
+@MainActor
+private func makeModel(
+    profiles: [RemoteProfile],
+    factory: StubRPCClientFactory,
+    disposer: RecordingTorrentSourceFileDisposer = RecordingTorrentSourceFileDisposer(),
+    localSession: StubLocalTransmissionSession = StubLocalTransmissionSession()
+) -> RemoteAppModel {
+    RemoteAppModel(
+        profileStore: MemoryProfileStore(profiles: profiles),
+        credentialStore: MemoryCredentialStore(password: "secret"),
+        torrentSourceFileDisposer: disposer,
+        rpcClientFactory: factory.make(config:),
+        localSessionFactory: { localSession }
     )
 }
 
@@ -132,6 +199,7 @@ private final class StubRPCClientFactory: @unchecked Sendable {
     private let lock = NSLock()
     var makeClient: @Sendable (TransmissionRPCConfig) -> StubRPCClient
     private(set) var clients: [StubRPCClient] = []
+    private(set) var configs: [TransmissionRPCConfig] = []
 
     init(makeClient: @escaping @Sendable (TransmissionRPCConfig) -> StubRPCClient = { _ in StubRPCClient() }) {
         self.makeClient = makeClient
@@ -144,6 +212,7 @@ private final class StubRPCClientFactory: @unchecked Sendable {
     func make(config: TransmissionRPCConfig) -> any TransmissionRPCServicing {
         let client = makeClient(config)
         lock.withLock {
+            configs.append(config)
             clients.append(client)
         }
         return client
@@ -152,6 +221,7 @@ private final class StubRPCClientFactory: @unchecked Sendable {
 
 private actor StubRPCClient: TransmissionRPCServicing {
     private let fetchDelay: Duration?
+    private var fetchTorrentsError: (any Error)?
     private var addTorrentError: (any Error)?
     private(set) var fetchTorrentsCount = 0
 
@@ -161,6 +231,10 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func setAddTorrentError(_ error: (any Error)?) {
         addTorrentError = error
+    }
+
+    func setFetchTorrentsError(_ error: (any Error)?) {
+        fetchTorrentsError = error
     }
 
     func testConnection() async throws {}
@@ -193,6 +267,9 @@ private actor StubRPCClient: TransmissionRPCServicing {
         fetchTorrentsCount += 1
         if let fetchDelay {
             try await Task.sleep(for: fetchDelay)
+        }
+        if let fetchTorrentsError {
+            throw fetchTorrentsError
         }
         return [
             TorrentSummary(
@@ -239,6 +316,79 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}
     func setTorrentPriority(ids: [String], priority: Int) async throws {}
+}
+
+private actor StubLocalTransmissionSession: LocalTransmissionServicing {
+    private(set) var fetchSnapshotCount = 0
+    private(set) var addTorrentFileCount = 0
+
+    func fetchSnapshot() async throws -> TorrentProviderSnapshot {
+        fetchSnapshotCount += 1
+        return TorrentProviderSnapshot(
+            stats: try JSONDecoder().decode(
+                SessionStats.self,
+                from: #"{"downloadSpeed":1,"uploadSpeed":2}"#.data(using: .utf8)!
+            ),
+            torrents: [makeLocalTorrent()],
+            freeSpace: ServerFreeSpace(path: "/Users/me/Downloads", sizeBytes: 1024)
+        )
+    }
+
+    func fetchDefaultDownloadDirectory() async throws -> String? {
+        "/Users/me/Downloads"
+    }
+
+    func fetchSessionSettings() async throws -> TransmissionSessionSettings {
+        try JSONDecoder().decode(
+            TransmissionSessionSettings.self,
+            from: #"{"version":"local-test","download-dir":"/Users/me/Downloads"}"#.data(using: .utf8)!
+        )
+    }
+
+    func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
+
+    func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
+        TorrentDetails(id: 7, hashString: hashString, name: "Local")
+    }
+
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}
+
+    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws {
+        addTorrentFileCount += 1
+    }
+
+    func start(ids: [String]) async throws {}
+    func stop(ids: [String]) async throws {}
+    func remove(ids: [String], deleteLocalData: Bool) async throws {}
+    func verify(ids: [String]) async throws {}
+    func reannounce(ids: [String]) async throws {}
+    func queueMoveTop(ids: [String]) async throws {}
+    func queueMoveUp(ids: [String]) async throws {}
+    func queueMoveDown(ids: [String]) async throws {}
+    func queueMoveBottom(ids: [String]) async throws {}
+    func renamePath(id: String, path: String, name: String) async throws {}
+    func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
+    func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}
+    func setTorrentPriority(ids: [String], priority: Int) async throws {}
+
+    private func makeLocalTorrent() -> TorrentSummary {
+        TorrentSummary(
+            id: 7,
+            hashString: "local-hash",
+            name: "Local",
+            status: TransmissionTorrentStatus.downloading.rawValue,
+            percentDone: 0.1,
+            rateDownload: 3,
+            rateUpload: 4,
+            sizeWhenDone: 100,
+            leftUntilDone: 90,
+            eta: 60,
+            uploadRatio: 0,
+            peersConnected: 2,
+            downloadDir: "/Users/me/Downloads",
+            queuePosition: 0
+        )
+    }
 }
 
 private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {

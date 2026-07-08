@@ -54,7 +54,7 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Glass connects to Transmission RPC servers on your local network.</string>
+	<string>Glass connects to remote Transmission sessions you add on your local network.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>UTImportedTypeDeclarations</key>

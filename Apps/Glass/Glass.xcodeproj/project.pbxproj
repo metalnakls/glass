@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		101000000000000000000001 /* GlassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000001 /* GlassApp.swift */; };
+		10100000000000000000000C /* LocalTransmissionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000C /* LocalTransmissionSession.swift */; };
+		10100000000000000000000D /* LocalTransmissionBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000D /* LocalTransmissionBridge.mm */; };
 		101000000000000000000008 /* GlassRemoteCore in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000002 /* GlassRemoteCore */; };
 		101000000000000000000009 /* GlassRemoteUI in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000003 /* GlassRemoteUI */; };
 		10100000000000000000000A /* Transmission_Tahoe.icon in Resources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000A /* Transmission_Tahoe.icon */; };
@@ -16,6 +18,10 @@
 
 /* Begin PBXFileReference section */
 		102000000000000000000001 /* GlassApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassApp.swift; sourceTree = "<group>"; };
+		10200000000000000000000B /* Glass-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Glass-Bridging-Header.h"; sourceTree = "<group>"; };
+		10200000000000000000000C /* LocalTransmissionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTransmissionSession.swift; sourceTree = "<group>"; };
+		10200000000000000000000D /* LocalTransmissionBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LocalTransmissionBridge.mm; sourceTree = "<group>"; };
+		10200000000000000000000E /* LocalTransmissionBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = LocalTransmissionBridge.h; sourceTree = "<group>"; };
 		102000000000000000000002 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = Models.swift; path = ../../Sources/GlassRemoteCore/Models.swift; sourceTree = "<group>"; };
 		102000000000000000000003 /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ProfileStore.swift; path = ../../Sources/GlassRemoteCore/ProfileStore.swift; sourceTree = "<group>"; };
 		102000000000000000000004 /* CredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = CredentialStore.swift; path = ../../Sources/GlassRemoteCore/CredentialStore.swift; sourceTree = "<group>"; };
@@ -53,6 +59,10 @@
 			isa = PBXGroup;
 			children = (
 				102000000000000000000001 /* GlassApp.swift */,
+				10200000000000000000000C /* LocalTransmissionSession.swift */,
+				10200000000000000000000D /* LocalTransmissionBridge.mm */,
+				10200000000000000000000E /* LocalTransmissionBridge.h */,
+				10200000000000000000000B /* Glass-Bridging-Header.h */,
 				102000000000000000000008 /* Info.plist */,
 				10200000000000000000000A /* Transmission_Tahoe.icon */,
 				104000000000000000000004 /* Shared Core */,
@@ -96,6 +106,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 10A000000000000000000001 /* Build configuration list for PBXNativeTarget "Glass" */;
 			buildPhases = (
+				106000000000000000000002 /* Build libtransmission */,
 				106000000000000000000001 /* Sources */,
 				103000000000000000000001 /* Frameworks */,
 				107000000000000000000001 /* Resources */,
@@ -161,12 +172,39 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		106000000000000000000002 /* Build libtransmission */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(SRCROOT)/../../Vendor/transmission/REVISION",
+				"$(SRCROOT)/../../Scripts/build-libtransmission.sh",
+			);
+			name = "Build libtransmission";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(SRCROOT)/../../.build/libtransmission/$(CONFIGURATION)/install/lib/libGlassTransmission.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${SRCROOT}/../../Scripts/build-libtransmission.sh\" \"${CONFIGURATION}\"";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		106000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
 				101000000000000000000001 /* GlassApp.swift in Sources */,
+				10100000000000000000000C /* LocalTransmissionSession.swift in Sources */,
+				10100000000000000000000D /* LocalTransmissionBridge.mm in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -296,19 +334,48 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../Vendor/transmission/source",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/fmt/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/fast_float/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/rapidjson/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/sigslot/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/small/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/utfcpp/source",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/wide-integer",
+					"$(SRCROOT)/../../.build/libtransmission/$(CONFIGURATION)/build",
+				);
 				INFOPLIST_FILE = Info.plist;
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../.build/libtransmission/$(CONFIGURATION)/install/lib";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lGlassTransmission",
+					"-lcurl",
+					"-lz",
+					"-lbz2",
+					"-liconv",
+					"-lresolv",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.transmissionbt.glass.mac;
 				PRODUCT_NAME = Glass;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Glass-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
@@ -322,19 +389,48 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_DEBUG_DYLIB = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../Vendor/transmission/source",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/fmt/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/fast_float/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/rapidjson/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/sigslot/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/small/include",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/utfcpp/source",
+					"$(SRCROOT)/../../Vendor/transmission/source/third-party/wide-integer",
+					"$(SRCROOT)/../../.build/libtransmission/$(CONFIGURATION)/build",
+				);
 				INFOPLIST_FILE = Info.plist;
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/../../.build/libtransmission/$(CONFIGURATION)/install/lib";
 				MACOSX_DEPLOYMENT_TARGET = 15.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
+				OTHER_LDFLAGS = (
+					"$(inherited)",
+					"-lGlassTransmission",
+					"-lcurl",
+					"-lz",
+					"-lbz2",
+					"-liconv",
+					"-lresolv",
+					"-framework",
+					SystemConfiguration,
+					"-framework",
+					Security,
+					"-framework",
+					CoreFoundation,
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = org.transmissionbt.glass.mac;
 				PRODUCT_NAME = Glass;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "Glass-Bridging-Header.h";
 				SWIFT_VERSION = 6.0;
 				VALIDATE_PRODUCT = YES;
 			};

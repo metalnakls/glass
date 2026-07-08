@@ -19,17 +19,17 @@ struct TorrentInspectorView: View {
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationSplitViewColumnWidth(min: 260, ideal: 320, max: 420)
+        .navigationSplitViewColumnWidth(min: 180, ideal: 260, max: 380)
     }
 
     private var serverSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(model.selectedSourceProfile?.name ?? "Glass")
+            Text(model.selectedSourceName)
                 .font(.title2.bold())
 
-            InspectorField("Address", model.selectedSourceProfile?.rpcURL.host(percentEncoded: false) ?? "Local")
-            InspectorField("RPC", model.selectedSourceProfile?.rpcURL.absoluteString ?? "Unavailable")
-            InspectorField("User", model.selectedSourceProfile?.username.isEmpty == false ? model.selectedSourceProfile!.username : "None")
+            InspectorField("Address", model.selectedSourceRPCURL.host(percentEncoded: false) ?? "Local")
+            InspectorField("RPC", model.selectedSourceRPCURL.absoluteString)
+            InspectorField("User", model.selectedSourceUsername.isEmpty ? "None" : model.selectedSourceUsername)
             InspectorField("Space", serverSpace)
             InspectorField("Download", model.stats.map { formatRate($0.downloadSpeed) } ?? "0 KB/s")
             InspectorField("Upload", model.stats.map { formatRate($0.uploadSpeed) } ?? "0 KB/s")
@@ -138,8 +138,7 @@ struct TorrentInspectorView: View {
     }
 
     private var serverSpace: String {
-        guard let profile = model.selectedSourceProfile,
-              let bytes = model.serverFreeSpace[profile.id]?.availableBytes
+        guard let bytes = model.serverFreeSpace[model.selectedSourceID]?.availableBytes
         else {
             return "Unavailable"
         }
@@ -220,7 +219,8 @@ private struct InspectorField: View {
                     .frame(minWidth: 86, alignment: .leading)
                 Text(value)
                     .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
             }
         }
         .font(.callout)

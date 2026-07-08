@@ -22,41 +22,9 @@ public struct SystemTorrentSourceFileDisposer: TorrentSourceFileDisposing {
     }
 }
 
-public protocol TransmissionRPCServicing: Sendable {
-    func testConnection() async throws
-    func fetchDefaultDownloadDirectory() async throws -> String?
-    func fetchDefaultFreeSpace() async throws -> ServerFreeSpace?
-    func fetchSessionStats() async throws -> SessionStats
-    func fetchSessionSettings() async throws -> TransmissionSessionSettings
-    func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
-    func fetchTorrents() async throws -> [TorrentSummary]
-    func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
-    func addTorrentFile(
-        data: Data,
-        downloadDirectory: String?,
-        fileSelection: TorrentAddFileSelection?
-    ) async throws
-    func start(ids: [String]) async throws
-    func stop(ids: [String]) async throws
-    func remove(ids: [String], deleteLocalData: Bool) async throws
-    func verify(ids: [String]) async throws
-    func reannounce(ids: [String]) async throws
-    func queueMoveTop(ids: [String]) async throws
-    func queueMoveUp(ids: [String]) async throws
-    func queueMoveDown(ids: [String]) async throws
-    func queueMoveBottom(ids: [String]) async throws
-    func renamePath(id: String, path: String, name: String) async throws
-    func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
-    func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
-    func setTorrentPriority(ids: [String], priority: Int) async throws
-}
-
-extension TransmissionRPCClient: TransmissionRPCServicing {}
-
 @MainActor
 public final class RemoteAppModel: ObservableObject {
-    public static let autoRefreshInterval: Duration = .seconds(5)
+    public static let autoRefreshInterval: Duration = .seconds(2)
 
     @Published public private(set) var profiles: [RemoteProfile] = []
     @Published public var selectedProfileID: UUID?
@@ -69,6 +37,7 @@ public final class RemoteAppModel: ObservableObject {
     @Published public private(set) var loadingProfileID: UUID?
     @Published public private(set) var isShowingCachedTorrents = false
     @Published public private(set) var isSessionStale = false
+    @Published public private(set) var refreshErrorMessage: String?
     @Published public var selectedTorrentGroup: TorrentGroup = .all
     @Published public private(set) var preferences = GlassRemotePreferences()
     @Published public private(set) var downloadDirectoryHistory: [UUID: [String]] = [:]
@@ -79,10 +48,11 @@ public final class RemoteAppModel: ObservableObject {
     private let credentialStore: CredentialStore
     private let torrentSourceFileDisposer: TorrentSourceFileDisposing
     private let rpcClientFactory: @Sendable (TransmissionRPCConfig) -> any TransmissionRPCServicing
+    private let localSessionFactory: @Sendable () -> any LocalTransmissionServicing
     private var torrentCache: [UUID: CachedTorrentList] = [:]
-    private var clientsByProfileID: [UUID: any TransmissionRPCServicing] = [:]
-    private var refreshTasksByProfileID: [UUID: Task<Void, Never>] = [:]
-    private var displayedTorrentProfileID: UUID?
+    private var providersBySourceID: [UUID: any TorrentProvider] = [:]
+    private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
+    private var displayedTorrentSourceID: UUID?
     private var selectedDetailsTorrentHash: String?
 
     public init(
@@ -91,17 +61,21 @@ public final class RemoteAppModel: ObservableObject {
         torrentSourceFileDisposer: TorrentSourceFileDisposing = SystemTorrentSourceFileDisposer(),
         rpcClientFactory: @escaping @Sendable (TransmissionRPCConfig) -> any TransmissionRPCServicing = {
             TransmissionRPCClient(config: $0)
+        },
+        localSessionFactory: @escaping @Sendable () -> any LocalTransmissionServicing = {
+            UnavailableLocalTransmissionSession()
         }
     ) {
         self.profileStore = profileStore
         self.credentialStore = credentialStore
         self.torrentSourceFileDisposer = torrentSourceFileDisposer
         self.rpcClientFactory = rpcClientFactory
+        self.localSessionFactory = localSessionFactory
         loadProfiles()
     }
 
     public var localSourceName: String {
-        Self.localDeviceName()
+        "This Mac"
     }
 
     public var localSourceSystemImage: String {
@@ -129,14 +103,34 @@ public final class RemoteAppModel: ObservableObject {
         return selectedProfile
     }
 
+    public var selectedSourceID: UUID {
+        selectedSourceProfile?.id ?? Self.localProfileID
+    }
+
+    public var selectedSourceName: String {
+        selectedSourceProfile?.name ?? localSourceName
+    }
+
+    public var selectedSourceRPCURL: URL {
+        selectedSourceProfile?.rpcURL ?? URL(string: "glass-local://this-mac")!
+    }
+
+    public var selectedSourceUsername: String {
+        selectedSourceProfile?.username ?? ""
+    }
+
     public var isLocalSourceSelected: Bool {
         selectedProfileID == Self.localProfileID || selectedProfileID == nil
+    }
+
+    public var canAddToSelectedSource: Bool {
+        true
     }
 
     public func canAddToRemote(using destination: TorrentAddDestination) -> Bool {
         switch destination {
         case .selectedSource:
-            return selectedSourceProfile != nil
+            return canAddToSelectedSource
         }
     }
 
@@ -156,7 +150,7 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func saveProfile(_ profile: RemoteProfile, password: String) {
-        invalidateClient(for: profile.id)
+        invalidateProvider(for: profile.id)
         if let index = profiles.firstIndex(where: { $0.id == profile.id }) {
             profiles[index] = profile
         } else {
@@ -174,7 +168,7 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func deleteProfile(_ profile: RemoteProfile) {
-        invalidateClient(for: profile.id)
+        invalidateProvider(for: profile.id)
         cancelRefresh(for: profile.id)
         profiles.removeAll { $0.id == profile.id }
         try? credentialStore.deletePassword(for: profile.id)
@@ -183,10 +177,11 @@ public final class RemoteAppModel: ObservableObject {
             torrents = []
             stats = nil
             serverFreeSpace[profile.id] = nil
-            displayedTorrentProfileID = nil
+            displayedTorrentSourceID = nil
             clearTorrentDetails()
             isShowingCachedTorrents = false
             isSessionStale = false
+            refreshErrorMessage = nil
             loadingProfileID = nil
         }
         torrentCache[profile.id] = nil
@@ -198,12 +193,15 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func refresh() async {
-        guard let profile = selectedSourceProfile else {
+        let sourceID = selectedSourceID
+        let provider: any TorrentProvider
+        do {
+            provider = try providerForSelectedSource()
+        } catch {
             torrents = []
             stats = nil
-            serverFreeSpace = [:]
-            displayedTorrentProfileID = nil
-            errorMessage = nil
+            displayedTorrentSourceID = nil
+            refreshErrorMessage = error.localizedDescription
             clearTorrentDetails()
             isShowingCachedTorrents = false
             isSessionStale = false
@@ -211,50 +209,46 @@ public final class RemoteAppModel: ObservableObject {
             return
         }
 
-        if let existingTask = refreshTasksByProfileID[profile.id] {
+        if let existingTask = refreshTasksBySourceID[sourceID] {
             await existingTask.value
             return
         }
 
         let task = Task { @MainActor in
-            await self.performRefresh(profile: profile)
+            await self.performRefresh(sourceID: sourceID, provider: provider)
         }
-        refreshTasksByProfileID[profile.id] = task
+        refreshTasksBySourceID[sourceID] = task
         await task.value
-        refreshTasksByProfileID[profile.id] = nil
+        refreshTasksBySourceID[sourceID] = nil
     }
 
-    private func performRefresh(profile: RemoteProfile) async {
-        guard selectedProfileID == profile.id else { return }
+    private func performRefresh(sourceID: UUID, provider: any TorrentProvider) async {
+        guard selectedSourceID == sourceID else { return }
 
-        prepareVisibleTorrentsForRefresh(of: profile)
+        prepareVisibleTorrentsForRefresh(of: sourceID)
         isLoading = true
-        loadingProfileID = profile.id
-        errorMessage = nil
+        loadingProfileID = sourceID
         defer {
             isLoading = false
             loadingProfileID = nil
         }
 
         do {
-            let client = try client(for: profile)
-            async let fetchedStats = client.fetchSessionStats()
-            async let fetchedTorrents = client.fetchTorrents()
-            async let fetchedFreeSpace = defaultFreeSpace(using: client)
-            let (freshStats, freshTorrents, freshFreeSpace) = try await (fetchedStats, fetchedTorrents, fetchedFreeSpace)
-            guard selectedProfileID == profile.id else { return }
-            let mergedTorrents = TorrentListMerger.merge(existing: torrents, incoming: freshTorrents)
-            self.stats = freshStats
+            let snapshot = try await provider.fetchSnapshot()
+            guard selectedSourceID == sourceID else { return }
+            let mergedTorrents = TorrentListMerger.merge(existing: torrents, incoming: snapshot.torrents)
+            self.stats = snapshot.stats
             self.torrents = mergedTorrents
-            self.serverFreeSpace[profile.id] = freshFreeSpace
-            self.displayedTorrentProfileID = profile.id
+            self.serverFreeSpace[sourceID] = snapshot.freeSpace
+            self.displayedTorrentSourceID = sourceID
             self.isShowingCachedTorrents = false
             self.isSessionStale = false
-            updateTorrentCache(mergedTorrents, for: profile.id)
+            self.refreshErrorMessage = nil
+            updateTorrentCache(mergedTorrents, for: sourceID)
         } catch {
-            guard selectedProfileID == profile.id else { return }
+            guard selectedSourceID == sourceID else { return }
             self.isSessionStale = !self.torrents.isEmpty
-            errorMessage = error.localizedDescription
+            self.refreshErrorMessage = error.localizedDescription
         }
     }
 
@@ -293,10 +287,10 @@ public final class RemoteAppModel: ObservableObject {
 
     @discardableResult
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async -> Bool {
-        guard let profile = selectedSourceProfile else { return false }
-        rememberDownloadDirectory(downloadDirectory, for: profile.id)
-        return await performRemoteAction(profile: profile) { client in
-            try await client.addMagnet(magnet, downloadDirectory: downloadDirectory)
+        let sourceID = selectedSourceID
+        rememberDownloadDirectory(downloadDirectory, for: sourceID)
+        return await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
         }
     }
 
@@ -308,10 +302,10 @@ public final class RemoteAppModel: ObservableObject {
         sourceURL: URL? = nil,
         trashSourceOnSuccess: Bool = false
     ) async -> Bool {
-        guard let profile = selectedSourceProfile else { return false }
-        rememberDownloadDirectory(downloadDirectory, for: profile.id)
-        let didAdd = await performRemoteAction(profile: profile) { client in
-            try await client.addTorrentFile(data: data, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+        let sourceID = selectedSourceID
+        rememberDownloadDirectory(downloadDirectory, for: sourceID)
+        let didAdd = await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.addTorrentFile(data: data, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
         }
         if didAdd, trashSourceOnSuccess {
             torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL)
@@ -320,25 +314,22 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func downloadDirectoriesForSelectedProfile() -> [String] {
-        guard let profile = selectedSourceProfile else { return [] }
-        return downloadDirectoryHistory[profile.id] ?? []
+        downloadDirectoryHistory[selectedSourceID] ?? []
     }
 
     public func defaultDownloadDirectoryForSelectedProfile() async -> String? {
-        guard let profile = selectedSourceProfile else { return nil }
         do {
-            let client = try client(for: profile)
-            return try await client.fetchDefaultDownloadDirectory()
+            let provider = try providerForSelectedSource()
+            return try await provider.fetchDefaultDownloadDirectory()
         } catch {
             return nil
         }
     }
 
     public func fetchSessionSettingsForSelectedProfile() async -> TransmissionSessionSettings? {
-        guard let profile = selectedSourceProfile else { return nil }
         do {
-            let client = try client(for: profile)
-            let settings = try await client.fetchSessionSettings()
+            let provider = try providerForSelectedSource()
+            let settings = try await provider.fetchSessionSettings()
             errorMessage = nil
             return settings
         } catch {
@@ -349,17 +340,18 @@ public final class RemoteAppModel: ObservableObject {
 
     @discardableResult
     public func setSessionSettingsForSelectedProfile(_ patch: TransmissionSessionSettingsPatch) async -> Bool {
-        guard let profile = selectedSourceProfile else { return false }
-        return await performRemoteAction(profile: profile) { client in
-            try await client.setSessionSettings(patch)
+        let sourceID = selectedSourceID
+        return await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.setSessionSettings(patch)
         }
     }
 
     public func loadDetails(for torrent: TorrentSummary?, force: Bool = false) async {
-        guard let torrent, let profile = selectedSourceProfile else {
+        guard let torrent else {
             clearTorrentDetails()
             return
         }
+        let sourceID = selectedSourceID
 
         if !force, selectedDetailsTorrentHash == torrent.hashString, selectedTorrentDetails != nil {
             return
@@ -371,51 +363,53 @@ public final class RemoteAppModel: ObservableObject {
         defer { isLoadingTorrentDetails = false }
 
         do {
-            let client = try client(for: profile)
-            let details = try await client.fetchTorrentDetails(hashString: torrent.hashString)
-            guard selectedProfileID == profile.id, selectedDetailsTorrentHash == torrent.hashString else { return }
+            let provider = try providerForSelectedSource()
+            let details = try await provider.fetchTorrentDetails(hashString: torrent.hashString)
+            guard selectedSourceID == sourceID, selectedDetailsTorrentHash == torrent.hashString else { return }
             selectedTorrentDetails = details
         } catch {
-            guard selectedProfileID == profile.id, selectedDetailsTorrentHash == torrent.hashString else { return }
+            guard selectedSourceID == sourceID, selectedDetailsTorrentHash == torrent.hashString else { return }
             torrentDetailsError = error.localizedDescription
         }
     }
 
     public func setFileWanted(_ torrent: TorrentSummary, fileIndices: [Int], wanted: Bool) async {
-        guard let profile = selectedSourceProfile, !fileIndices.isEmpty else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
+        let sourceID = selectedSourceID
+        guard !fileIndices.isEmpty else { return }
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
         }
         await loadDetails(for: torrent, force: true)
     }
 
     public func setFilePriority(_ torrent: TorrentSummary, fileIndices: [Int], priority: Int) async {
-        guard let profile = selectedSourceProfile, !fileIndices.isEmpty else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.setFilePriority(ids: [torrent.hashString], fileIndices: fileIndices, priority: priority)
+        let sourceID = selectedSourceID
+        guard !fileIndices.isEmpty else { return }
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.setFilePriority(ids: [torrent.hashString], fileIndices: fileIndices, priority: priority)
         }
         await loadDetails(for: torrent, force: true)
     }
 
     public func setTorrentPriority(_ torrent: TorrentSummary, priority: Int) async {
-        guard let profile = selectedSourceProfile else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.setTorrentPriority(ids: [torrent.hashString], priority: priority)
+        let sourceID = selectedSourceID
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.setTorrentPriority(ids: [torrent.hashString], priority: priority)
         }
         await loadDetails(for: torrent, force: true)
     }
 
     public func start(_ torrent: TorrentSummary) async {
-        guard let profile = selectedSourceProfile else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.start(ids: [torrent.hashString])
+        let sourceID = selectedSourceID
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.start(ids: [torrent.hashString])
         }
     }
 
     public func stop(_ torrent: TorrentSummary) async {
-        guard let profile = selectedSourceProfile else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.stop(ids: [torrent.hashString])
+        let sourceID = selectedSourceID
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.stop(ids: [torrent.hashString])
         }
     }
 
@@ -424,11 +418,11 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async {
-        guard let profile = selectedSourceProfile else { return }
+        let sourceID = selectedSourceID
         let ids = torrents.map(\.hashString)
         guard !ids.isEmpty else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.remove(ids: ids, deleteLocalData: deleteData)
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.remove(ids: ids, deleteLocalData: deleteData)
         }
         if let selectedDetailsTorrentHash, ids.contains(selectedDetailsTorrentHash) {
             clearTorrentDetails()
@@ -436,42 +430,43 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     public func verify(_ torrent: TorrentSummary) async {
-        guard let profile = selectedSourceProfile else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.verify(ids: [torrent.hashString])
+        let sourceID = selectedSourceID
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.verify(ids: [torrent.hashString])
         }
     }
 
     public func reannounce(_ torrent: TorrentSummary) async {
-        guard let profile = selectedSourceProfile else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.reannounce(ids: [torrent.hashString])
+        let sourceID = selectedSourceID
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.reannounce(ids: [torrent.hashString])
         }
     }
 
     public func moveInQueue(_ torrents: [TorrentSummary], direction: TorrentQueueMove) async {
-        guard let profile = selectedSourceProfile else { return }
+        let sourceID = selectedSourceID
         let ids = torrents.map(\.hashString)
         guard !ids.isEmpty else { return }
-        await performRemoteAction(profile: profile) { client in
+        await performProviderAction(sourceID: sourceID) { provider in
             switch direction {
             case .top:
-                try await client.queueMoveTop(ids: ids)
+                try await provider.queueMoveTop(ids: ids)
             case .up:
-                try await client.queueMoveUp(ids: ids)
+                try await provider.queueMoveUp(ids: ids)
             case .down:
-                try await client.queueMoveDown(ids: ids)
+                try await provider.queueMoveDown(ids: ids)
             case .bottom:
-                try await client.queueMoveBottom(ids: ids)
+                try await provider.queueMoveBottom(ids: ids)
             }
         }
     }
 
     public func rename(_ torrent: TorrentSummary, to name: String) async {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let profile = selectedSourceProfile, !trimmedName.isEmpty else { return }
-        await performRemoteAction(profile: profile) { client in
-            try await client.renamePath(id: torrent.hashString, path: torrent.name, name: trimmedName)
+        let sourceID = selectedSourceID
+        guard !trimmedName.isEmpty else { return }
+        await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.renamePath(id: torrent.hashString, path: torrent.name, name: trimmedName)
         }
         if selectedDetailsTorrentHash == torrent.hashString {
             await loadDetails(for: torrent, force: true)
@@ -559,36 +554,64 @@ public final class RemoteAppModel: ObservableObject {
         torrentDetailsError = nil
     }
 
-    private func client(for profile: RemoteProfile) throws -> any TransmissionRPCServicing {
-        if let client = clientsByProfileID[profile.id] {
-            return client
-        }
-        let password = profile.id == Self.localProfileID ? "" : try credentialStore.password(for: profile.id)
-        let client = rpcClientFactory(TransmissionRPCConfig(profile: profile, password: password))
-        clientsByProfileID[profile.id] = client
-        return client
+    private func providerForSelectedSource() throws -> any TorrentProvider {
+        try provider(for: selectedSourceID)
     }
 
-    private func invalidateClient(for profileID: UUID) {
-        clientsByProfileID[profileID] = nil
+    private func provider(for sourceID: UUID) throws -> any TorrentProvider {
+        if sourceID == Self.localProfileID {
+            return localProvider()
+        }
+        guard let profile = profiles.first(where: { $0.id == sourceID }) else {
+            throw RemoteAppModelError.sourceUnavailable
+        }
+        return try provider(for: profile)
+    }
+
+    private func provider(for profile: RemoteProfile) throws -> any TorrentProvider {
+        if let provider = providersBySourceID[profile.id] {
+            return provider
+        }
+        let password = try credentialStore.password(for: profile.id)
+        let provider = RemoteTorrentProvider(
+            profile: profile,
+            password: password,
+            clientFactory: rpcClientFactory
+        )
+        providersBySourceID[profile.id] = provider
+        return provider
+    }
+
+    private func localProvider() -> any TorrentProvider {
+        if let provider = providersBySourceID[Self.localProfileID] {
+            return provider
+        }
+        let provider = LocalTorrentProvider(
+            id: Self.localProfileID,
+            name: localSourceName,
+            systemImage: localSourceSystemImage,
+            session: localSessionFactory()
+        )
+        providersBySourceID[Self.localProfileID] = provider
+        return provider
+    }
+
+    private func invalidateProvider(for sourceID: UUID) {
+        providersBySourceID[sourceID] = nil
     }
 
     private func cancelRefresh(for profileID: UUID) {
-        refreshTasksByProfileID[profileID]?.cancel()
-        refreshTasksByProfileID[profileID] = nil
-    }
-
-    private func defaultFreeSpace(using client: any TransmissionRPCServicing) async -> ServerFreeSpace? {
-        try? await client.fetchDefaultFreeSpace()
+        refreshTasksBySourceID[profileID]?.cancel()
+        refreshTasksBySourceID[profileID] = nil
     }
 
     @discardableResult
-    private func performRemoteAction(
-        profile: RemoteProfile,
-        action: (any TransmissionRPCServicing) async throws -> Void
+    private func performProviderAction(
+        sourceID: UUID,
+        action: (any TorrentProvider) async throws -> Void
     ) async -> Bool {
         isLoading = true
-        loadingProfileID = profile.id
+        loadingProfileID = sourceID
         errorMessage = nil
         defer {
             isLoading = false
@@ -596,8 +619,8 @@ public final class RemoteAppModel: ObservableObject {
         }
 
         do {
-            let client = try client(for: profile)
-            try await action(client)
+            let provider = try provider(for: sourceID)
+            try await action(provider)
             await refresh()
             return true
         } catch {
@@ -606,21 +629,22 @@ public final class RemoteAppModel: ObservableObject {
         }
     }
 
-    private func prepareVisibleTorrentsForRefresh(of profile: RemoteProfile) {
-        if displayedTorrentProfileID == profile.id, !torrents.isEmpty {
+    private func prepareVisibleTorrentsForRefresh(of sourceID: UUID) {
+        if displayedTorrentSourceID == sourceID, !torrents.isEmpty {
             isShowingCachedTorrents = true
             return
         }
 
-        guard preferences.isTorrentCachingEnabled, let cached = torrentCache[profile.id] else {
+        guard preferences.isTorrentCachingEnabled, let cached = torrentCache[sourceID] else {
             torrents = []
-            displayedTorrentProfileID = nil
+            displayedTorrentSourceID = nil
             isShowingCachedTorrents = false
             isSessionStale = false
+            refreshErrorMessage = nil
             return
         }
         torrents = cached.torrents
-        displayedTorrentProfileID = profile.id
+        displayedTorrentSourceID = sourceID
         isShowingCachedTorrents = true
     }
 
@@ -632,8 +656,8 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     private func trimTorrentCache() {
-        let allowedProfileIDs = Set(profiles.map(\.id))
-        torrentCache = torrentCache.filter { allowedProfileIDs.contains($0.key) }
+        let allowedSourceIDs = Set(profiles.map(\.id) + [Self.localProfileID])
+        torrentCache = torrentCache.filter { allowedSourceIDs.contains($0.key) }
 
         let limit = max(1, preferences.cachedServerLimit)
         let sortedIDs = torrentCache.values
@@ -657,18 +681,8 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     private func trimDownloadDirectoryHistory() {
-        let allowedProfileIDs = Set(profiles.map(\.id))
-        downloadDirectoryHistory = downloadDirectoryHistory.filter { allowedProfileIDs.contains($0.key) }
-    }
-
-    private static func localDeviceName() -> String {
-        #if os(macOS)
-        return Host.current().localizedName ?? ProcessInfo.processInfo.hostName
-        #elseif os(iOS)
-        return UIDevice.current.name
-        #else
-        return "This Device"
-        #endif
+        let allowedSourceIDs = Set(profiles.map(\.id) + [Self.localProfileID])
+        downloadDirectoryHistory = downloadDirectoryHistory.filter { allowedSourceIDs.contains($0.key) }
     }
 
     private static func localDeviceSystemImage() -> String {
@@ -745,4 +759,15 @@ public enum TorrentQueueMove: Sendable {
     case up
     case down
     case bottom
+}
+
+private enum RemoteAppModelError: LocalizedError {
+    case sourceUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .sourceUnavailable:
+            return "The selected torrent source is unavailable."
+        }
+    }
 }
