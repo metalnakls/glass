@@ -7,7 +7,7 @@ import SwiftUI
 @main
 struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
-    @StateObject private var model = Self.makeModel()
+    @State private var model = Self.makeModel()
 
     var body: some Scene {
         WindowGroup("Glass", id: "main") {

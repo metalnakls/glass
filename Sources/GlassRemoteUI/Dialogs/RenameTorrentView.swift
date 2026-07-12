@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct RenameTorrentView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     @Environment(\.dismiss) private var dismiss
     let torrent: TorrentSummary
     @State private var name: String

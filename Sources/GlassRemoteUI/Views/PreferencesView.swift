@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 public struct PreferencesView: View {
-    @ObservedObject private var model: RemoteAppModel
+    private let model: RemoteAppModel
     @State private var isTorrentCachingEnabled: Bool
     @State private var cachedServerLimit: Int
 

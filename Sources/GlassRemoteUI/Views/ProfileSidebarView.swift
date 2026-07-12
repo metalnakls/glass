@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct ProfileSidebarView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     @Binding var selection: UUID?
     let editProfile: (RemoteProfile) -> Void
     let deleteProfile: (RemoteProfile) -> Void

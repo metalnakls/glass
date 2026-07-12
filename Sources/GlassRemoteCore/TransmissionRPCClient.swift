@@ -126,7 +126,7 @@ public actor TransmissionRPCClient {
 
     public func fetchTorrents() async throws -> [TorrentSummary] {
         let fields = [
-            "id", "hashString", "name", "status", "percentDone", "rateDownload", "rateUpload",
+            "id", "hashString", "name", "status", "percentDone", "metadataPercentComplete", "rateDownload", "rateUpload",
             "sizeWhenDone", "leftUntilDone", "eta", "uploadRatio", "peersConnected", "downloadDir",
             "bandwidthPriority", "queuePosition"
         ]

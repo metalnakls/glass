@@ -4,7 +4,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 public struct GlassRootView: View {
-    @ObservedObject private var model: RemoteAppModel
+    private let model: RemoteAppModel
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var selectedTorrentHash: String?

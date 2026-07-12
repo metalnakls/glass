@@ -248,6 +248,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
             name: dictionary.string("name") ?? "Torrent",
             status: dictionary.int("status"),
             percentDone: dictionary.double("percentDone"),
+            metadataPercentComplete: dictionary.optionalDouble("metadataPercentComplete"),
             rateDownload: dictionary.double("rateDownload"),
             rateUpload: dictionary.double("rateUpload"),
             sizeWhenDone: dictionary.uint64("sizeWhenDone"),

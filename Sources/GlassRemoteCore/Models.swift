@@ -102,6 +102,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let name: String
     public let status: Int
     public let percentDone: Double
+    public let metadataPercentComplete: Double?
     public let rateDownload: Double
     public let rateUpload: Double
     public let sizeWhenDone: UInt64
@@ -119,6 +120,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         name: String,
         status: Int,
         percentDone: Double,
+        metadataPercentComplete: Double? = nil,
         rateDownload: Double,
         rateUpload: Double,
         sizeWhenDone: UInt64,
@@ -135,6 +137,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         self.name = name
         self.status = status
         self.percentDone = percentDone
+        self.metadataPercentComplete = metadataPercentComplete
         self.rateDownload = rateDownload
         self.rateUpload = rateUpload
         self.sizeWhenDone = sizeWhenDone
@@ -159,6 +162,10 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         transmissionStatus?.isDownloading == true
     }
 
+    public var isDownloadingMetadata: Bool {
+        isDownloading && metadataPercentComplete.map { $0 < 1 } == true
+    }
+
     public var isRunningOrQueued: Bool {
         transmissionStatus?.isRunningOrQueued ?? (status != TransmissionTorrentStatus.stopped.rawValue)
     }
@@ -174,10 +181,20 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
 
 public enum TorrentListMerger {
     public static func merge(existing: [TorrentSummary], incoming: [TorrentSummary]) -> [TorrentSummary] {
+        let existingByHash = Dictionary(
+            existing.lazy.filter { !$0.hashString.isEmpty }.map { ($0.hashString, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        let existingByID = Dictionary(
+            existing.map { ($0.id, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+
         return incoming.map { incomingTorrent in
-            let existingTorrent = existing.first {
-                (!$0.hashString.isEmpty && $0.hashString == incomingTorrent.hashString)
-                    || $0.id == incomingTorrent.id
+            let existingTorrent = if incomingTorrent.hashString.isEmpty {
+                existingByID[incomingTorrent.id]
+            } else {
+                existingByHash[incomingTorrent.hashString] ?? existingByID[incomingTorrent.id]
             }
             if let existingTorrent, existingTorrent == incomingTorrent {
                 return existingTorrent

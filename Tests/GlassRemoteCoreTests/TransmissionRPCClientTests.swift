@@ -208,8 +208,8 @@ struct TransmissionRPCClientTests {
         }
     }
 
-    @Test("torrent summary request includes queuePosition")
-    func fetchTorrentsRequestsQueuePosition() async throws {
+    @Test("torrent summary request includes queue and metadata progress")
+    func fetchTorrentsRequestsQueueAndMetadataProgress() async throws {
         let transport = URLProtocolStubTransport(responses: [
             .http(status: 200, headers: [:], body: #"{"result":"success","arguments":{"torrents":[]}}"#)
         ])
@@ -227,6 +227,7 @@ struct TransmissionRPCClientTests {
             return
         }
         #expect(values.contains(.string("queuePosition")))
+        #expect(values.contains(.string("metadataPercentComplete")))
     }
 
     @Test("decodes session settings")
