@@ -8,6 +8,8 @@ public struct GlassRootView: View {
 
     @SceneStorage("GlassRoot.columnVisibility") private var storedColumnVisibility = "automatic"
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
+    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
+    @State private var didRestoreColumnVisibility = false
     @State private var isInspectorPresented = true
     @State private var selectedTorrentHash: String?
     @State private var isFileImporterPresented = false
@@ -26,7 +28,7 @@ public struct GlassRootView: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: columnVisibilityBinding) {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             ProfileSidebarView(
                 model: model,
                 selection: Binding(
@@ -106,6 +108,7 @@ public struct GlassRootView: View {
             }
         }
         .task {
+            restoreColumnVisibilityIfNeeded()
             persistSelectedSourceID()
             await MainActor.run {
                 GlassOpenURLRouter.shared.register { urls in
@@ -118,6 +121,9 @@ public struct GlassRootView: View {
             persistSelectedSourceID()
             selectedTorrentHash = nil
             Task { await model.refresh() }
+        }
+        .onChange(of: columnVisibility) { _, visibility in
+            storedColumnVisibility = key(for: visibility)
         }
         .onChange(of: selectedTorrentHash) { _, _ in
             Task { await loadSelectedTorrentDetails() }
@@ -234,11 +240,14 @@ public struct GlassRootView: View {
         storedSelectedSourceID = model.selectedSourceID.uuidString
     }
 
-    private var columnVisibilityBinding: Binding<NavigationSplitViewVisibility> {
-        Binding(
-            get: { visibility(for: storedColumnVisibility) },
-            set: { storedColumnVisibility = key(for: $0) }
-        )
+    private func restoreColumnVisibilityIfNeeded() {
+        guard !didRestoreColumnVisibility else { return }
+        didRestoreColumnVisibility = true
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            columnVisibility = visibility(for: storedColumnVisibility)
+        }
     }
 
     private func key(for visibility: NavigationSplitViewVisibility) -> String {
