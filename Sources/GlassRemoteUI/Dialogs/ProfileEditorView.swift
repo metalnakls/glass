@@ -40,8 +40,6 @@ struct ProfileEditorView: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
-        .frame(width: 440)
         .navigationTitle(profile.name.isEmpty ? "New Server" : profile.name)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {

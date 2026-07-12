@@ -1,22 +1,44 @@
 import Foundation
 import GlassRemoteCore
 
-func formatBytes(_ bytes: UInt64) -> String {
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    return formatter.string(fromByteCount: Int64(bytes))
+@MainActor
+private enum SharedGlassFormatters {
+    static let byteCount: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        return formatter
+    }()
+
+    static let shortDuration: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.minute, .second]
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
+
+    static let longDuration: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.hour, .minute]
+        formatter.unitsStyle = .abbreviated
+        return formatter
+    }()
 }
 
+@MainActor
+func formatBytes(_ bytes: UInt64) -> String {
+    SharedGlassFormatters.byteCount.string(fromByteCount: Int64(bytes))
+}
+
+@MainActor
 func formatBytes(_ bytes: UInt64?) -> String {
     guard let bytes else { return "Unavailable" }
     return formatBytes(bytes)
 }
 
+@MainActor
 func formatRate(_ bytesPerSecond: Double) -> String {
     guard bytesPerSecond > 0 else { return "0 KB/s" }
-    let formatter = ByteCountFormatter()
-    formatter.countStyle = .file
-    return "\(formatter.string(fromByteCount: Int64(bytesPerSecond)))/s"
+    return "\(SharedGlassFormatters.byteCount.string(fromByteCount: Int64(bytesPerSecond)))/s"
 }
 
 func formatPercent(_ value: Double) -> String {
@@ -54,11 +76,12 @@ func formatTimestamp(_ timestamp: Int?) -> String {
     return Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(date: .abbreviated, time: .shortened)
 }
 
+@MainActor
 func formatDuration(_ seconds: Int?) -> String {
     guard let seconds, seconds > 0 else { return "Unavailable" }
-    let formatter = DateComponentsFormatter()
-    formatter.allowedUnits = seconds >= 3_600 ? [.hour, .minute] : [.minute, .second]
-    formatter.unitsStyle = .abbreviated
+    let formatter = seconds >= 3_600
+        ? SharedGlassFormatters.longDuration
+        : SharedGlassFormatters.shortDuration
     return formatter.string(from: TimeInterval(seconds)) ?? "Unavailable"
 }
 

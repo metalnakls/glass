@@ -1,8 +1,16 @@
+import AppKit
 import GlassRemoteCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TorrentRowView: View {
     let torrent: TorrentSummary
+    var isGroup = false
+    var isNested = false
+    var isSelected = false
+    var pendingOldName: String?
+    var iconAnimationNamespace: Namespace.ID?
+    var iconAnimationID: String?
     let toggleTransfer: () -> Void
 
     var body: some View {
@@ -10,15 +18,23 @@ struct TorrentRowView: View {
             regularRow
             compactRow
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, 6)
+        .padding(.horizontal, 10)
+        .frame(minHeight: 68, alignment: .center)
+        .background {
+            if isSelected {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.secondary.opacity(0.14))
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .focusable(false)
+        .focusEffectDisabled()
     }
 
     private var regularRow: some View {
-        HStack(spacing: 14) {
-            Image(systemName: iconName)
-                .font(.system(size: 32))
-                .symbolRenderingMode(.multicolor)
-                .frame(width: 44)
+        HStack(alignment: .center, spacing: 16) {
+            leadingIcon
 
             torrentContent
 
@@ -27,29 +43,84 @@ struct TorrentRowView: View {
     }
 
     private var compactRow: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 10) {
+            if isGroup {
+                Color.clear
+                    .frame(width: 42, height: 50)
+            } else if showsActivityIcon {
+                activityProgress
+            }
             torrentContent
             transferButton
         }
+    }
+
+    @ViewBuilder
+    private var leadingIcon: some View {
+        if isGroup {
+            Color.clear
+                .frame(width: 42, height: 50)
+        } else if showsActivityIcon {
+            activityProgress
+        } else {
+            animatedFileIcon
+        }
+    }
+
+    @ViewBuilder
+    private var animatedFileIcon: some View {
+        if let iconAnimationNamespace, let iconAnimationID {
+            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike)
+                .matchedGeometryEffect(
+                    id: iconAnimationID,
+                    in: iconAnimationNamespace,
+                    isSource: false
+                )
+                .frame(width: 42, height: 50, alignment: .center)
+        } else {
+            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike)
+                .frame(width: 42, height: 50, alignment: .center)
+        }
+    }
+
+    private var activityProgress: some View {
+        GlassActivityIndicator(
+            label: pendingOldName == nil ? "Downloading torrent metadata" : "Renaming torrent"
+        )
+            .font(.system(size: 19, weight: .medium))
+            .foregroundStyle(.secondary)
+            .frame(width: 42, height: 50, alignment: .center)
+    }
+
+    private var showsActivityIcon: Bool {
+        pendingOldName != nil || torrent.isDownloadingMetadata
     }
 
     private var torrentContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(torrent.name)
-                    .font(.headline)
+                    .font(.body)
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .layoutPriority(1)
                 Text(formatBytes(torrent.sizeWhenDone))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextStyle)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
+                if let pendingOldName {
+                    Text(pendingOldName)
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                        .strikethrough()
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
                 Spacer(minLength: 8)
                 Text(formatPercent(torrent.percentDone))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .foregroundStyle(secondaryTextStyle)
                     .monospacedDigit()
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -71,35 +142,80 @@ struct TorrentRowView: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+            .font(.caption)
+            .foregroundStyle(secondaryTextStyle)
             .labelStyle(.titleAndIcon)
             .monospacedDigit()
 
             ProgressView(value: torrent.percentDone, total: 1)
                 .controlSize(.small)
         }
+        .foregroundStyle(Color.primary)
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var transferButton: some View {
         Button(action: toggleTransfer) {
             Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
-                .frame(width: 28, height: 28)
+                .font(.system(size: 15, weight: .semibold))
+                .frame(width: 20, height: 20)
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.circle)
         .controlSize(.large)
+        .foregroundStyle(Color.primary)
+        .frame(width: 42, height: 50, alignment: .center)
         .help(torrent.canStopTransfer ? "Pause" : "Resume")
+        .focusable(false)
+        .focusEffectDisabled()
     }
 
-    private var iconName: String {
-        let lowercasedName = torrent.name.lowercased()
-        if lowercasedName.hasSuffix(".mkv") || lowercasedName.hasSuffix(".mp4") || lowercasedName.hasSuffix(".mov") {
-            return "doc.richtext"
+    private var isFolderLike: Bool {
+        URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
+    }
+
+    private var secondaryTextStyle: Color {
+        Color.secondary
+    }
+}
+
+struct TorrentFileIcon: View {
+    let fileName: String
+    let isFolder: Bool
+    var size: CGFloat = 36
+
+    var body: some View {
+        Image(nsImage: nativeIcon)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .frame(width: size, height: size)
+    }
+
+    private var nativeIcon: NSImage {
+        TorrentFileIconCache.icon(fileName: fileName, isFolder: isFolder)
+    }
+}
+
+@MainActor
+private enum TorrentFileIconCache {
+    private static let icons = NSCache<NSString, NSImage>()
+
+    static func icon(fileName: String, isFolder: Bool) -> NSImage {
+        let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
+        let key = (isFolder ? "folder" : "file:\(fileExtension)") as NSString
+        if let cached = icons.object(forKey: key) {
+            return cached
         }
-        if lowercasedName.hasSuffix(".mp3") || lowercasedName.hasSuffix(".flac") {
-            return "waveform"
+
+        let source: NSImage
+        if isFolder {
+            source = NSWorkspace.shared.icon(for: .folder)
+        } else {
+            source = NSWorkspace.shared.icon(for: UTType(filenameExtension: fileExtension) ?? .data)
         }
-        return torrent.isCompleted ? "folder" : "folder.badge.arrow.down"
+        let icon = source.copy() as? NSImage ?? source
+        icon.size = NSSize(width: 32, height: 32)
+        icons.setObject(icon, forKey: key)
+        return icon
     }
 }

@@ -25,8 +25,6 @@ struct AddMagnetView: View {
             }
         }
         .formStyle(.grouped)
-        .padding()
-        .frame(width: 520)
         .navigationTitle("Add Magnet")
         .task {
             if downloadDirectory.isEmpty {

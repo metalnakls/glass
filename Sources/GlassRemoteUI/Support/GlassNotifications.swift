@@ -28,8 +28,11 @@ public final class GlassOpenURLRouter {
 }
 
 extension Notification.Name {
+    public static let glassCommandAddServer = Notification.Name("GlassCommandAddServer")
     public static let glassCommandAddMagnet = Notification.Name("GlassCommandAddMagnet")
     public static let glassCommandAddTorrentFile = Notification.Name("GlassCommandAddTorrentFile")
     public static let glassCommandToggleDownloadingFilter = Notification.Name("GlassCommandToggleDownloadingFilter")
+    public static let glassCommandRemoveSelectedTorrent = Notification.Name("GlassCommandRemoveSelectedTorrent")
+    public static let glassCommandRemoveSelectedTorrentAndData = Notification.Name("GlassCommandRemoveSelectedTorrentAndData")
     public static let glassOpenURLs = Notification.Name("GlassOpenURLs")
 }

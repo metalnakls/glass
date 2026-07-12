@@ -9,30 +9,28 @@ struct ProfileSidebarView: View {
     let deleteProfile: (RemoteProfile) -> Void
 
     var body: some View {
-        List(selection: $selection) {
-            Section("Local") {
-                Label {
-                    Text(model.localSourceName)
-                } icon: {
-                    Image(systemName: model.localSourceSystemImage)
-                }
+        List(selection: sidebarSelection) {
+            Section {
+                sidebarRow(
+                    title: model.localSourceName,
+                    subtitle: nil,
+                    systemImage: model.localSourceSystemImage
+                )
                 .tag(model.localSourceID)
+                .listRowInsets(sidebarRowInsets)
+            } header: {
+                Text("local")
             }
 
-            Section("Remote") {
+            Section {
                 ForEach(model.profiles) { profile in
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(profile.name)
-                            Text(profile.rpcURL.host(percentEncoded: false) ?? profile.rpcURL.absoluteString)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    } icon: {
-                        Image(systemName: "server.rack")
-                    }
+                    sidebarRow(
+                        title: profile.name,
+                        subtitle: profile.rpcURL.host(percentEncoded: false) ?? profile.rpcURL.absoluteString,
+                        systemImage: "server.rack"
+                    )
                     .tag(profile.id)
+                    .listRowInsets(sidebarRowInsets)
                     .contextMenu {
                         Button("Edit") {
                             editProfile(profile)
@@ -42,9 +40,48 @@ struct ProfileSidebarView: View {
                         }
                     }
                 }
+            } header: {
+                Text("remote")
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 340)
+        .navigationSplitViewColumnWidth(min: 150, ideal: 220, max: 320)
+        .glassSoftTopScrollEdge()
+    }
+
+    private func sidebarRow(title: String, subtitle: String?, systemImage: String) -> some View {
+        HStack(alignment: .center, spacing: 10) {
+            Image(systemName: systemImage)
+                .symbolRenderingMode(.hierarchical)
+                .foregroundStyle(.secondary)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+            }
+
+            Spacer(minLength: 8)
+        }
+        .frame(minHeight: 36)
+        .contentShape(Rectangle())
+    }
+
+    private var sidebarSelection: Binding<UUID> {
+        Binding(
+            get: { selection ?? model.localSourceID },
+            set: { selection = $0 }
+        )
+    }
+
+    private var sidebarRowInsets: EdgeInsets {
+        EdgeInsets(top: 5, leading: 12, bottom: 5, trailing: 10)
     }
 }

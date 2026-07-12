@@ -4,49 +4,248 @@ import SwiftUI
 
 struct TorrentListView: View {
     let model: RemoteAppModel
+    let torrents: [TorrentSummary]
+    let pendingRenameOldNames: [String: String]
     @Binding var selection: String?
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
+    let removeSelected: (Bool) -> Void
+    @State private var collapsedAutoGroupIDs = Set<String>()
+    @FocusState private var isTorrentListFocused: Bool
+    @Namespace private var groupFolderNamespace
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(model.filteredTorrents) { torrent in
-                TorrentRowView(torrent: torrent) {
-                    Task {
-                        if torrent.canStopTransfer {
-                            await model.stop(torrent)
-                        } else {
-                            await model.start(torrent)
-                        }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(groupedItems) { item in
+                        torrentListItem(item)
                     }
                 }
-                .tag(torrent.hashString)
-                .contextMenu {
-                    torrentContextMenu(for: torrent)
-                }
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    Button("Remove", role: .destructive) {
-                        remove(torrent, false)
-                    }
-                    Button(torrent.canStopTransfer ? "Pause" : "Resume") {
-                        Task {
-                            if torrent.canStopTransfer {
-                                await model.stop(torrent)
-                            } else {
-                                await model.start(torrent)
-                            }
-                        }
-                    }
+                .padding(.vertical, 8)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .glassSwipeActionsContainer()
+            .focusable()
+            .focusEffectDisabled()
+            .focused($isTorrentListFocused)
+            .onMoveCommand(perform: moveSelection)
+            .onKeyPress(.delete, phases: [.down]) { keyPress in
+                guard selectedTorrent != nil else { return .ignored }
+                removeSelected(keyPress.modifiers.contains(.command))
+                return .handled
+            }
+            .onChange(of: selection) { _, id in
+                guard let id else { return }
+                withAnimation(.snappy(duration: 0.24)) {
+                    proxy.scrollTo(id, anchor: .center)
                 }
             }
         }
-        .listStyle(.plain)
         .overlay {
-            if model.filteredTorrents.isEmpty {
+            if torrents.isEmpty, model.filteredTorrents.isEmpty {
                 emptyState
             }
         }
-        .glassSoftTopScrollEdge()
+    }
+
+    private var groupedItems: [TorrentListItem] {
+        TorrentNameSequenceGrouper.items(for: torrents)
+    }
+
+    private var visibleSelectionIDs: [String] {
+        groupedItems.flatMap { item -> [String] in
+            switch item {
+            case let .torrent(torrent):
+                return [torrent.hashString]
+            case let .group(group):
+                let isExpanded = !collapsedAutoGroupIDs.contains(group.id)
+                return isExpanded ? [group.id] + group.torrents.map(\.hashString) : [group.id]
+            }
+        }
+    }
+
+    private var selectedTorrent: TorrentSummary? {
+        guard let selection else { return nil }
+        return torrents.first { $0.hashString == selection }
+    }
+
+    @ViewBuilder
+    private func torrentListItem(_ item: TorrentListItem) -> some View {
+        switch item {
+        case let .torrent(torrent):
+            torrentRow(torrent)
+        case let .group(group):
+            torrentGroupRows(group)
+        }
+    }
+
+    @ViewBuilder
+    private func torrentGroupRows(_ group: TorrentNameSequenceGroup) -> some View {
+        let isExpanded = !collapsedAutoGroupIDs.contains(group.id)
+
+        VStack(spacing: 0) {
+        TorrentRowView(
+            torrent: group.summary,
+            isGroup: true,
+            isSelected: selection == group.id
+            ) {
+                Task { await toggleGroupTransfers(group) }
+            }
+            .id(group.id)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
+            .padding(.leading, 16)
+            .padding(.trailing, 16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                isTorrentListFocused = true
+                selection = group.id
+            }
+            .glassSelectOnSecondaryClick {
+                isTorrentListFocused = true
+                selection = group.id
+            }
+            .overlay(alignment: .leading) {
+                autoGroupFolderButton(group, isExpanded: isExpanded)
+                    .frame(width: 42, height: 50, alignment: .center)
+                    .padding(.leading, 26)
+            }
+
+            if isExpanded {
+                ForEach(Array(group.torrents.enumerated()), id: \.offset) { index, torrent in
+                    torrentRow(
+                        torrent,
+                        isNested: true,
+                        iconAnimationID: index < 3 ? groupFolderAnimationID(group.id, index: index) : nil
+                    )
+                    .transition(.identity)
+                }
+            }
+        }
+    }
+
+    private func torrentRow(
+        _ torrent: TorrentSummary,
+        isNested: Bool = false,
+        iconAnimationID: String? = nil
+    ) -> some View {
+        TorrentRowView(
+            torrent: torrent,
+            isNested: isNested,
+            isSelected: selection == torrent.hashString,
+            pendingOldName: pendingRenameOldNames[torrent.hashString],
+            iconAnimationNamespace: iconAnimationID == nil ? nil : groupFolderNamespace,
+            iconAnimationID: iconAnimationID
+        ) {
+            Task { await toggleTransfer(torrent) }
+        }
+        .id(torrent.hashString)
+        .padding(.top, 8)
+        .padding(.bottom, 8)
+        .padding(.leading, isNested ? 58 : 16)
+        .padding(.trailing, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isTorrentListFocused = true
+            selection = torrent.hashString
+        }
+        .glassSelectOnSecondaryClick {
+            isTorrentListFocused = true
+            selection = torrent.hashString
+        }
+        .contextMenu {
+            torrentContextMenu(for: torrent)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("Remove", role: .destructive) {
+                remove(torrent, false)
+            }
+            Button(torrent.canStopTransfer ? "Pause" : "Resume") {
+                Task { await toggleTransfer(torrent) }
+            }
+        }
+    }
+
+    private func moveSelection(_ direction: MoveCommandDirection) {
+        let ids = visibleSelectionIDs
+        guard !ids.isEmpty else {
+            selection = nil
+            return
+        }
+
+        let currentIndex = selection.flatMap { ids.firstIndex(of: $0) }
+        switch direction {
+        case .up:
+            selection = ids[max((currentIndex ?? ids.count) - 1, 0)]
+        case .down:
+            selection = ids[min((currentIndex ?? -1) + 1, ids.count - 1)]
+        default:
+            return
+        }
+    }
+
+    private func autoGroupFolderButton(
+        _ group: TorrentNameSequenceGroup,
+        isExpanded: Bool
+    ) -> some View {
+        Button {
+            isTorrentListFocused = true
+            selection = group.id
+            toggleAutoGroup(group.id)
+        } label: {
+            GroupFolderFanIcon(
+                groupID: group.id,
+                count: min(group.torrents.count, 3),
+                namespace: groupFolderNamespace,
+                isExpanded: isExpanded
+            )
+        }
+        .buttonStyle(.plain)
+        .help(isExpanded ? "Hide Torrents" : "Show Torrents")
+        .accessibilityLabel("\(group.displayName) group")
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .focusable(false)
+        .focusEffectDisabled()
+    }
+
+    private func toggleAutoGroup(_ id: String) {
+        withAnimation(.smooth(duration: 0.32)) {
+            if collapsedAutoGroupIDs.contains(id) {
+                collapsedAutoGroupIDs.remove(id)
+            } else {
+                collapsedAutoGroupIDs.insert(id)
+            }
+        }
+    }
+
+    private func groupFolderAnimationID(_ groupID: String, index: Int) -> String {
+        "\(groupID):folder:\(index)"
+    }
+
+    private func toggleTransfer(_ torrent: TorrentSummary) async {
+        if torrent.canStopTransfer {
+            await model.stop(torrent)
+        } else {
+            await model.start(torrent)
+        }
+    }
+
+    private func toggleGroupTransfers(_ group: TorrentNameSequenceGroup) async {
+        let liveTorrents = group.torrents.filter { $0.id >= 0 }
+        guard !liveTorrents.isEmpty else { return }
+
+        if liveTorrents.contains(where: \.canStopTransfer) {
+            for torrent in liveTorrents where torrent.canStopTransfer {
+                await model.stop(torrent)
+            }
+        } else {
+            for torrent in liveTorrents {
+                await model.start(torrent)
+            }
+        }
     }
 
     @ViewBuilder
@@ -118,5 +317,53 @@ struct TorrentListView: View {
         Button("Remove and Delete Data", role: .destructive) {
             remove(torrent, true)
         }
+    }
+}
+
+private struct GroupFolderFanIcon: View {
+    let groupID: String
+    let count: Int
+    let namespace: Namespace.ID
+    let isExpanded: Bool
+
+    var body: some View {
+        ZStack {
+            TorrentFileIcon(fileName: "", isFolder: true, size: 29)
+                .zIndex(-1)
+
+            if !isExpanded {
+                ForEach(0..<count, id: \.self) { index in
+                    folder(at: index)
+                        .matchedGeometryEffect(
+                            id: "\(groupID):folder:\(index)",
+                            in: namespace,
+                            isSource: true
+                        )
+                }
+            }
+        }
+        .frame(width: 42, height: 50)
+        .contentShape(Rectangle())
+    }
+
+    private func folder(at index: Int) -> some View {
+        TorrentFileIcon(fileName: "", isFolder: true, size: 29)
+            .rotationEffect(rotation(for: index), anchor: .bottom)
+            .offset(offset(for: index))
+            .zIndex(Double(index))
+    }
+
+    private func rotation(for index: Int) -> Angle {
+        guard count > 1 else { return .zero }
+        let progress = Double(index) / Double(count - 1)
+        return .degrees(-10 + (20 * progress))
+    }
+
+    private func offset(for index: Int) -> CGSize {
+        guard count > 1 else { return .zero }
+        let progress = CGFloat(index) / CGFloat(count - 1)
+        let horizontal = -6 + (12 * progress)
+        let vertical = abs(progress - 0.5) * 3
+        return CGSize(width: horizontal, height: vertical)
     }
 }
