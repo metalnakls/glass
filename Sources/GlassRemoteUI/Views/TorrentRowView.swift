@@ -8,15 +8,19 @@ struct TorrentRowView: View {
     var isGroup = false
     var isNested = false
     var isSelected = false
+    var usesCompactLayout = false
     var pendingOldName: String?
     var iconAnimationNamespace: Namespace.ID?
     var iconAnimationID: String?
     let toggleTransfer: () -> Void
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            regularRow
-            compactRow
+        Group {
+            if usesCompactLayout {
+                compactRow
+            } else {
+                regularRow
+            }
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 10)

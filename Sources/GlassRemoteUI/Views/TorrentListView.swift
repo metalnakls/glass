@@ -11,8 +11,29 @@ struct TorrentListView: View {
     let remove: (TorrentSummary, Bool) -> Void
     let removeSelected: (Bool) -> Void
     @State private var collapsedAutoGroupIDs = Set<String>()
+    @State private var groupedItems: [TorrentListItem]
+    @State private var usesCompactRows = false
     @FocusState private var isTorrentListFocused: Bool
     @Namespace private var groupFolderNamespace
+
+    init(
+        model: RemoteAppModel,
+        torrents: [TorrentSummary],
+        pendingRenameOldNames: [String: String],
+        selection: Binding<String?>,
+        rename: @escaping (TorrentSummary) -> Void,
+        remove: @escaping (TorrentSummary, Bool) -> Void,
+        removeSelected: @escaping (Bool) -> Void
+    ) {
+        self.model = model
+        self.torrents = torrents
+        self.pendingRenameOldNames = pendingRenameOldNames
+        self._selection = selection
+        self.rename = rename
+        self.remove = remove
+        self.removeSelected = removeSelected
+        self._groupedItems = State(initialValue: TorrentNameSequenceGrouper.items(for: torrents))
+    }
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -26,6 +47,9 @@ struct TorrentListView: View {
             }
             .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
+            .onGeometryChange(for: Bool.self, of: { proxy in
+                proxy.size.width < 430
+            }) { usesCompactRows = $0 }
             .focusable()
             .focusEffectDisabled()
             .focused($isTorrentListFocused)
@@ -41,16 +65,15 @@ struct TorrentListView: View {
                     proxy.scrollTo(id, anchor: .center)
                 }
             }
+            .onChange(of: torrents) { _, torrents in
+                groupedItems = TorrentNameSequenceGrouper.items(for: torrents)
+            }
         }
         .overlay {
             if torrents.isEmpty, model.filteredTorrents.isEmpty {
                 emptyState
             }
         }
-    }
-
-    private var groupedItems: [TorrentListItem] {
-        TorrentNameSequenceGrouper.items(for: torrents)
     }
 
     private var visibleSelectionIDs: [String] {
@@ -88,7 +111,8 @@ struct TorrentListView: View {
         TorrentRowView(
             torrent: group.summary,
             isGroup: true,
-            isSelected: selection == group.id
+            isSelected: selection == group.id,
+            usesCompactLayout: usesCompactRows
             ) {
                 Task { await toggleGroupTransfers(group) }
             }
@@ -135,6 +159,7 @@ struct TorrentListView: View {
             torrent: torrent,
             isNested: isNested,
             isSelected: selection == torrent.hashString,
+            usesCompactLayout: usesCompactRows,
             pendingOldName: pendingRenameOldNames[torrent.hashString],
             iconAnimationNamespace: iconAnimationID == nil ? nil : groupFolderNamespace,
             iconAnimationID: iconAnimationID
