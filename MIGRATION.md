@@ -55,12 +55,12 @@ Primary workflows:
 
 - Download local torrents through an embedded libtransmission session owned by Glass, without requiring Transmission.app or `transmission-daemon`.
 - Manage multiple remote Transmission profiles with credentials stored in Keychain.
-- Refresh torrents manually or automatically while reusing the same RPC session token per profile.
+- Refresh torrents automatically at a quiet two-second cadence while reusing the same RPC session token per profile.
 - Add magnet links from the toolbar, menu, Cmd+V, or `magnet:` open events to the selected source.
 - Add `.torrent` files from the toolbar, menu, file open, or drag/drop to the selected source.
 - Move source `.torrent` files to Trash only after the selected source successfully accepts them.
 - Start, pause, verify, reannounce, prioritize, queue-move, rename, remove, and delete torrent data.
-- Inspect server stats, torrent facts, files, peers, trackers, pieces, and settings.
+- Inspect torrent facts, files, peers, trackers, pieces, and settings.
 
 Native UI requirements:
 
@@ -69,8 +69,8 @@ Native UI requirements:
 - Root scene uses `WindowGroup`.
 - Main window uses `NavigationSplitView` for sidebar/detail.
 - Inspector is attached with SwiftUI `.inspector`.
-- Torrent list starts as native `List(selection:)` with native context menus, keyboard selection, and swipe actions where available.
-- Toolbar uses SwiftUI `.toolbar(id:)` for customization. Filter belongs to the main/detail toolbar.
+- Torrent list uses the native macOS 27 `ScrollView` + `LazyVStack` + `swipeActionsContainer()` path, with context menus, keyboard selection, and swipe actions.
+- The detail leaf owns its standard SwiftUI toolbar and title. The inspector is attached to the complete split view.
 - On macOS 27 and newer, the top scroll edge uses `.scrollEdgeEffectStyle(.soft, for: .top)` on the actual scrollable list.
 
 Backend requirements:
@@ -82,6 +82,7 @@ Backend requirements:
 - Support queue move RPCs, session settings get/set, free-space fallback, and session token reuse.
 - Coalesce overlapping refreshes per profile.
 - Merge fresh torrent snapshots by server order while reusing unchanged values.
+- Do not republish equal snapshots or perform cache file writes on every two-second poll.
 - Keep the local source keyed by its source ID in the same cache/history paths as remote profiles.
 - Local source behavior is libtransmission-backed, not loopback RPC to `127.0.0.1:9091`.
 

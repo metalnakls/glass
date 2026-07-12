@@ -23,7 +23,7 @@ There should be no lowercase `script/` directory and no manual app-bundle assemb
 The three library modules are intentional:
 
 - `GlassRemoteCore` owns value types, Codable mapping, profile persistence protocols, credential protocols, and `TransmissionRPCClient`.
-- `GlassRemoteServices` owns `RemoteAppModel`: source selection, provider routing, profile CRUD, per-profile client pooling, refresh coalescing, cached snapshots, action-triggered refresh, and `.torrent` source cleanup.
+- `GlassRemoteServices` owns `RemoteAppModel`: source selection, provider routing, profile CRUD, per-profile client pooling, refresh coalescing, cached snapshots, action-triggered refresh, and `.torrent` source cleanup. The model uses Swift Observation so each pane invalidates only for state it reads.
 - `GlassRemoteUI` owns SwiftUI presentation and calls services. It does not own RPC, profile persistence, keychain, trashing, or session-token policy.
 
 This split keeps the UI rebuild from contaminating backend tests. If the app stays small after the native UI settles, `Core` and `Services` can be collapsed later.
@@ -54,11 +54,14 @@ The app target exposes local libtransmission through `LocalTransmissionSession` 
 
 `GlassRemoteUI` composes:
 
-- `GlassRootView`: scene composition, toolbar, importer, drag/drop, sheets, inspector attachment.
+- `GlassRootView`: stable split-view composition, importer, sheets, commands, and whole-split inspector attachment.
 - `ProfileSidebarView`: native source-list sidebar.
-- `TorrentListView`: native selectable torrent list.
+- `TorrentWorkspaceView`: detail title, toolbar, drag/drop, torrent surface, and removal toast ownership.
+- `TorrentListView`: native macOS 27 scroll view and lazy stack with `swipeActionsContainer()`, keyboard selection, context menus, and swipe actions.
 - `TorrentInspectorView`: attached inspector content and controls.
 - Dialog views for profile, magnet, and rename workflows.
+
+The two-second provider refresh updates in-memory state. Equal snapshots are not republished, cached snapshots are persisted at a much lower cadence off the main actor, and Finder icons and formatters are reused. High-frequency torrent rates must not invalidate the sidebar or outer split-view shell.
 
 SwiftUI is the layout and chrome owner. AppKit must not own titlebar layout, toolbar placement, split-view geometry, list layout, or inspector attachment.
 
