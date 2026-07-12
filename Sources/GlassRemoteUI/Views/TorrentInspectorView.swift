@@ -4,36 +4,24 @@ import SwiftUI
 
 struct TorrentInspectorView: View {
     let model: RemoteAppModel
-    let selectedTorrent: TorrentSummary?
+    let selectedTorrentHash: String?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
-                serverSection
-
-                if selectedTorrent != nil {
-                    Divider()
-                    torrentSection
-                }
+            VStack(alignment: .leading, spacing: 14) {
+                torrentSection
             }
-            .padding(20)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .navigationSplitViewColumnWidth(min: 180, ideal: 260, max: 380)
+        .inspectorColumnWidth(min: 180, ideal: 260, max: 380)
+        .glassSoftTopScrollEdge()
     }
 
-    private var serverSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(model.selectedSourceName)
-                .font(.title2.bold())
-
-            InspectorField("Address", model.selectedSourceRPCURL.host(percentEncoded: false) ?? "Local")
-            InspectorField("RPC", model.selectedSourceRPCURL.absoluteString)
-            InspectorField("User", model.selectedSourceUsername.isEmpty ? "None" : model.selectedSourceUsername)
-            InspectorField("Space", serverSpace)
-            InspectorField("Download", model.stats.map { formatRate($0.downloadSpeed) } ?? "0 KB/s")
-            InspectorField("Upload", model.stats.map { formatRate($0.uploadSpeed) } ?? "0 KB/s")
-        }
+    private var selectedTorrent: TorrentSummary? {
+        guard let selectedTorrentHash else { return nil }
+        return model.filteredTorrents.first { $0.hashString == selectedTorrentHash }
     }
 
     @ViewBuilder
@@ -123,7 +111,11 @@ struct TorrentInspectorView: View {
                 }
             }
         } else if model.isLoadingTorrentDetails {
-            ProgressView("Loading details...")
+            HStack(spacing: 8) {
+                GlassActivityIndicator(label: "Loading torrent details")
+                    .foregroundStyle(.secondary)
+                Text("Loading details...")
+            }
         } else if let error = model.torrentDetailsError {
             Text(error)
                 .foregroundStyle(.secondary)
@@ -134,15 +126,13 @@ struct TorrentInspectorView: View {
                 Text("Select a torrent to load details.")
                     .foregroundStyle(.secondary)
             }
+        } else {
+            ContentUnavailableView(
+                "No Torrent Selected",
+                systemImage: "info.circle",
+                description: Text("Select a torrent to show details.")
+            )
         }
-    }
-
-    private var serverSpace: String {
-        guard let bytes = model.serverFreeSpace[model.selectedSourceID]?.availableBytes
-        else {
-            return "Unavailable"
-        }
-        return formatBytes(bytes)
     }
 
     private func limitText(limit: Int?, enabled: Bool?) -> String {
@@ -235,6 +225,7 @@ private extension TorrentDetails {
             name: name,
             status: status ?? TransmissionTorrentStatus.stopped.rawValue,
             percentDone: percentDone ?? 0,
+            metadataPercentComplete: 1,
             rateDownload: 0,
             rateUpload: 0,
             sizeWhenDone: sizeWhenDone ?? totalSize ?? 0,

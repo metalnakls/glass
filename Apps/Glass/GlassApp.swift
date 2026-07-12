@@ -19,6 +19,13 @@ struct GlassApp: App {
         .defaultSize(width: 760, height: 460)
         .commands {
             CommandGroup(replacing: .newItem) {
+                Button("Add Server...") {
+                    NotificationCenter.default.post(name: .glassCommandAddServer, object: nil)
+                }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
+
+                Divider()
+
                 Button("Add Magnet...") {
                     NotificationCenter.default.post(name: .glassCommandAddMagnet, object: nil)
                 }
@@ -42,6 +49,18 @@ struct GlassApp: App {
                     NotificationCenter.default.post(name: .glassCommandToggleDownloadingFilter, object: nil)
                 }
                 .keyboardShortcut("d", modifiers: [.command])
+
+                Divider()
+
+                Button("Remove Torrent") {
+                    NotificationCenter.default.post(name: .glassCommandRemoveSelectedTorrent, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: [])
+
+                Button("Remove and Delete Data") {
+                    NotificationCenter.default.post(name: .glassCommandRemoveSelectedTorrentAndData, object: nil)
+                }
+                .keyboardShortcut(.delete, modifiers: [.command])
             }
         }
 
@@ -63,6 +82,9 @@ struct GlassApp: App {
         return RemoteAppModel(
             profileStore: profileStore,
             credentialStore: KeychainCredentialStore(),
+            initialSourceID: UserDefaults.standard
+                .string(forKey: "GlassRoot.selectedSourceID")
+                .flatMap(UUID.init(uuidString:)),
             localSessionFactory: {
                 do {
                     return try LocalTransmissionSession()
@@ -92,15 +114,15 @@ struct GlassApp: App {
 
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
-        false
+        true
     }
 
     func applicationShouldSaveApplicationState(_ sender: NSApplication) -> Bool {
-        false
+        true
     }
 
     func applicationShouldRestoreApplicationState(_ sender: NSApplication) -> Bool {
-        false
+        true
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {

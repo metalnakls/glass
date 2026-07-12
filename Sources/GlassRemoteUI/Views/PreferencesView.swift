@@ -19,7 +19,6 @@ public struct PreferencesView: View {
             Stepper("Cached servers: \(cachedServerLimit)", value: $cachedServerLimit, in: 1...12)
         }
         .formStyle(.grouped)
-        .padding()
         .frame(width: 420)
         .onChange(of: isTorrentCachingEnabled) { _, _ in save() }
         .onChange(of: cachedServerLimit) { _, _ in save() }
