@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct ProfileEditorView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     @Environment(\.dismiss) private var dismiss
 
     @State private var profile: RemoteProfile

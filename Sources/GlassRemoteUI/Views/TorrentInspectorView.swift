@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct TorrentInspectorView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     let selectedTorrent: TorrentSummary?
 
     var body: some View {
@@ -152,7 +152,7 @@ struct TorrentInspectorView: View {
 }
 
 private struct TorrentFilesSection: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     let details: TorrentDetails
 
     var body: some View {

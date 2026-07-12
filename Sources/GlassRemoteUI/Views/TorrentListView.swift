@@ -3,7 +3,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct TorrentListView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     @Binding var selection: String?
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void

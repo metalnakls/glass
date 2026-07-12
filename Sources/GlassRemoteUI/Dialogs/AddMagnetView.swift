@@ -2,7 +2,7 @@ import GlassRemoteServices
 import SwiftUI
 
 struct AddMagnetView: View {
-    @ObservedObject var model: RemoteAppModel
+    let model: RemoteAppModel
     @Environment(\.dismiss) private var dismiss
 
     @State var magnet: String

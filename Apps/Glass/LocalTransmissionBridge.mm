@@ -376,6 +376,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         @"name": StringFromCString(view.name),
         @"status": @(stat.activity),
         @"percentDone": @(stat.percent_done),
+        @"metadataPercentComplete": @(stat.metadata_percent_complete),
         @"rateDownload": BytesPerSecond(stat.piece_download_speed),
         @"rateUpload": BytesPerSecond(stat.piece_upload_speed),
         @"sizeWhenDone": @(stat.size_when_done),

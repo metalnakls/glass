@@ -163,8 +163,17 @@ public enum LocalTransmissionSessionError: LocalizedError {
 }
 
 public actor RemoteTorrentProvider: TorrentProvider {
+    private struct SupplementalSnapshot {
+        let fetchedAt: Date
+        let stats: SessionStats
+        let freeSpace: ServerFreeSpace?
+    }
+
+    private static let supplementalRefreshInterval: TimeInterval = 30
+
     public nonisolated let source: TorrentSourceInfo
     private let client: any TransmissionRPCServicing
+    private var cachedSupplementalSnapshot: SupplementalSnapshot?
 
     public init(
         profile: RemoteProfile,
@@ -198,11 +207,14 @@ public actor RemoteTorrentProvider: TorrentProvider {
     }
 
     public func fetchSnapshot() async throws -> TorrentProviderSnapshot {
-        async let fetchedStats = client.fetchSessionStats()
         async let fetchedTorrents = client.fetchTorrents()
-        async let fetchedFreeSpace = defaultFreeSpace()
-        let (stats, torrents, freeSpace) = try await (fetchedStats, fetchedTorrents, fetchedFreeSpace)
-        return TorrentProviderSnapshot(stats: stats, torrents: torrents, freeSpace: freeSpace)
+        async let fetchedSupplemental = supplementalSnapshot()
+        let (torrents, supplemental) = try await (fetchedTorrents, fetchedSupplemental)
+        return TorrentProviderSnapshot(
+            stats: supplemental.stats,
+            torrents: torrents,
+            freeSpace: supplemental.freeSpace
+        )
     }
 
     public func fetchDefaultDownloadDirectory() async throws -> String? {
@@ -287,6 +299,25 @@ public actor RemoteTorrentProvider: TorrentProvider {
 
     private func defaultFreeSpace() async -> ServerFreeSpace? {
         try? await client.fetchDefaultFreeSpace()
+    }
+
+    private func supplementalSnapshot() async throws -> SupplementalSnapshot {
+        let now = Date()
+        if let cachedSupplementalSnapshot,
+           now.timeIntervalSince(cachedSupplementalSnapshot.fetchedAt) < Self.supplementalRefreshInterval {
+            return cachedSupplementalSnapshot
+        }
+
+        async let fetchedStats = client.fetchSessionStats()
+        async let fetchedFreeSpace = defaultFreeSpace()
+        let (stats, freeSpace) = try await (fetchedStats, fetchedFreeSpace)
+        let snapshot = SupplementalSnapshot(
+            fetchedAt: now,
+            stats: stats,
+            freeSpace: freeSpace
+        )
+        cachedSupplementalSnapshot = snapshot
+        return snapshot
     }
 }
 

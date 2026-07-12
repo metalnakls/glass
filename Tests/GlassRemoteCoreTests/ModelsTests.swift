@@ -33,6 +33,27 @@ struct ModelsTests {
         #expect(seedingWithDownloadRate.isDownloading == false)
     }
 
+    @Test("detects active metadata downloads")
+    func detectsActiveMetadataDownloads() {
+        let downloadingMetadata = makeTorrent(
+            status: TransmissionTorrentStatus.downloading.rawValue,
+            metadataPercentComplete: 0.4
+        )
+        let metadataComplete = makeTorrent(
+            status: TransmissionTorrentStatus.downloading.rawValue,
+            metadataPercentComplete: 1
+        )
+        let stoppedMetadata = makeTorrent(
+            status: TransmissionTorrentStatus.stopped.rawValue,
+            metadataPercentComplete: 0.4
+        )
+
+        #expect(downloadingMetadata.isDownloadingMetadata)
+        #expect(metadataComplete.isDownloadingMetadata == false)
+        #expect(stoppedMetadata.isDownloadingMetadata == false)
+        #expect(makeTorrent().isDownloadingMetadata == false)
+    }
+
     @Test("preserves incoming order and drops stale torrents")
     func mergerPreservesIncomingOrder() {
         let firstExisting = makeTorrent(id: 1, hashString: "first", name: "First")
@@ -73,6 +94,7 @@ private func makeTorrent(
     name: String = "Torrent",
     status: Int = TransmissionTorrentStatus.stopped.rawValue,
     percentDone: Double = 0,
+    metadataPercentComplete: Double? = nil,
     rateDownload: Double = 0,
     queuePosition: Int? = nil
 ) -> TorrentSummary {
@@ -82,6 +104,7 @@ private func makeTorrent(
         name: name,
         status: status,
         percentDone: percentDone,
+        metadataPercentComplete: metadataPercentComplete,
         rateDownload: rateDownload,
         rateUpload: 0,
         sizeWhenDone: 100,

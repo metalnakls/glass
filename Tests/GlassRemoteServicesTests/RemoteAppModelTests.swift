@@ -1,5 +1,6 @@
 import Foundation
 import GlassRemoteCore
+import Observation
 @testable import GlassRemoteServices
 import Testing
 
@@ -18,6 +19,8 @@ struct RemoteAppModelTests {
         #expect(factory.createdCount == 1)
         let client = try #require(factory.clients.first)
         #expect(await client.fetchTorrentsCount == 2)
+        #expect(await client.fetchSessionStatsCount == 1)
+        #expect(await client.fetchFreeSpaceCount == 1)
     }
 
     @Test("saving profile invalidates pooled client")
@@ -65,6 +68,77 @@ struct RemoteAppModelTests {
         #expect(factory.createdCount == 1)
         let client = try #require(factory.clients.first)
         #expect(await client.fetchTorrentsCount == 1)
+    }
+
+    @Test("torrent refresh does not invalidate sidebar-facing observation")
+    func torrentRefreshDoesNotInvalidateSidebarObservation() async {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        let invalidated = LockedFlag()
+
+        withObservationTracking {
+            _ = model.profiles
+            _ = model.selectedProfileID
+        } onChange: {
+            invalidated.set()
+        }
+
+        await model.refresh()
+
+        #expect(invalidated.value == false)
+    }
+
+    @Test("identical refresh does not republish torrents")
+    func identicalRefreshDoesNotRepublishTorrents() async {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let invalidated = LockedFlag()
+
+        withObservationTracking {
+            _ = model.torrents
+        } onChange: {
+            invalidated.set()
+        }
+
+        await model.refresh()
+
+        #expect(invalidated.value == false)
+    }
+
+    @Test("refresh defers torrent cache persistence")
+    func refreshDefersTorrentCachePersistence() async {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let store = MemoryProfileStore(profiles: [profile])
+        let model = RemoteAppModel(
+            profileStore: store,
+            credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: factory.make(config:)
+        )
+
+        await model.refresh()
+
+        #expect(store.torrentCacheSaveCount == 0)
+    }
+
+    @Test("rename accepts a confirmed change after an RPC error")
+    func renameAcceptsConfirmedChangeAfterRPCError() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let client = try #require(factory.clients.first)
+        await client.setRenameBehavior(error: TestError.failed, appliesBeforeThrow: true)
+
+        let didRename = await model.rename(torrent, to: "Spider-Gwen")
+
+        #expect(didRename)
+        #expect(model.errorMessage == nil)
+        #expect(model.torrents.first?.name == "Spider-Gwen")
     }
 
     @Test("refresh failures are inline state instead of alert errors")
@@ -223,7 +297,12 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private let fetchDelay: Duration?
     private var fetchTorrentsError: (any Error)?
     private var addTorrentError: (any Error)?
+    private var renameError: (any Error)?
+    private var renameAppliesBeforeThrow = false
+    private var torrentName = "Spider-Noir"
     private(set) var fetchTorrentsCount = 0
+    private(set) var fetchSessionStatsCount = 0
+    private(set) var fetchFreeSpaceCount = 0
 
     init(fetchDelay: Duration? = nil) {
         self.fetchDelay = fetchDelay
@@ -237,6 +316,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
         fetchTorrentsError = error
     }
 
+    func setRenameBehavior(error: (any Error)?, appliesBeforeThrow: Bool) {
+        renameError = error
+        renameAppliesBeforeThrow = appliesBeforeThrow
+    }
+
     func testConnection() async throws {}
 
     func fetchDefaultDownloadDirectory() async throws -> String? {
@@ -244,11 +328,13 @@ private actor StubRPCClient: TransmissionRPCServicing {
     }
 
     func fetchDefaultFreeSpace() async throws -> ServerFreeSpace? {
-        ServerFreeSpace(path: "/downloads", sizeBytes: 1024)
+        fetchFreeSpaceCount += 1
+        return ServerFreeSpace(path: "/downloads", sizeBytes: 1024)
     }
 
     func fetchSessionStats() async throws -> SessionStats {
-        try JSONDecoder().decode(
+        fetchSessionStatsCount += 1
+        return try JSONDecoder().decode(
             SessionStats.self,
             from: #"{"downloadSpeed":1,"uploadSpeed":2}"#.data(using: .utf8)!
         )
@@ -275,7 +361,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
             TorrentSummary(
                 id: 1,
                 hashString: "hash-1",
-                name: "Spider-Noir",
+                name: torrentName,
                 status: TransmissionTorrentStatus.downloading.rawValue,
                 percentDone: 0.5,
                 rateDownload: 1024,
@@ -312,7 +398,15 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func queueMoveUp(ids: [String]) async throws {}
     func queueMoveDown(ids: [String]) async throws {}
     func queueMoveBottom(ids: [String]) async throws {}
-    func renamePath(id: String, path: String, name: String) async throws {}
+    func renamePath(id: String, path: String, name: String) async throws {
+        if renameAppliesBeforeThrow {
+            torrentName = name
+        }
+        if let renameError {
+            throw renameError
+        }
+        torrentName = name
+    }
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}
     func setTorrentPriority(ids: [String], priority: Int) async throws {}
@@ -396,6 +490,7 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
     private var profiles: [RemoteProfile]
     private var preferences = GlassRemotePreferences()
     private var torrentCache: [CachedTorrentList] = []
+    private var torrentCacheSaveCounter = 0
     private var history: [DownloadDirectoryHistory] = []
 
     init(profiles: [RemoteProfile]) {
@@ -429,7 +524,12 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
     func saveTorrentCache(_ cache: [CachedTorrentList]) throws {
         lock.withLock {
             torrentCache = cache
+            torrentCacheSaveCounter += 1
         }
+    }
+
+    var torrentCacheSaveCount: Int {
+        lock.withLock { torrentCacheSaveCounter }
     }
 
     func loadDownloadDirectoryHistory() throws -> [DownloadDirectoryHistory] {
@@ -439,6 +539,21 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
     func saveDownloadDirectoryHistory(_ history: [DownloadDirectoryHistory]) throws {
         lock.withLock {
             self.history = history
+        }
+    }
+}
+
+private final class LockedFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storage = false
+
+    var value: Bool {
+        lock.withLock { storage }
+    }
+
+    func set() {
+        lock.withLock {
+            storage = true
         }
     }
 }

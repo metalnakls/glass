@@ -1,6 +1,6 @@
-import Combine
 import Foundation
 import GlassRemoteCore
+import Observation
 #if os(macOS)
 import Darwin
 #elseif os(iOS)
@@ -23,42 +23,47 @@ public struct SystemTorrentSourceFileDisposer: TorrentSourceFileDisposing {
 }
 
 @MainActor
-public final class RemoteAppModel: ObservableObject {
+@Observable
+public final class RemoteAppModel {
     public static let autoRefreshInterval: Duration = .seconds(2)
+    private static let torrentCachePersistenceDelay: Duration = .seconds(30)
 
-    @Published public private(set) var profiles: [RemoteProfile] = []
-    @Published public var selectedProfileID: UUID?
-    @Published public private(set) var torrents: [TorrentSummary] = []
-    @Published public private(set) var stats: SessionStats?
-    @Published public private(set) var selectedTorrentDetails: TorrentDetails?
-    @Published public private(set) var isLoadingTorrentDetails = false
-    @Published public private(set) var torrentDetailsError: String?
-    @Published public private(set) var isLoading = false
-    @Published public private(set) var loadingProfileID: UUID?
-    @Published public private(set) var isShowingCachedTorrents = false
-    @Published public private(set) var isSessionStale = false
-    @Published public private(set) var refreshErrorMessage: String?
-    @Published public var selectedTorrentGroup: TorrentGroup = .all
-    @Published public private(set) var preferences = GlassRemotePreferences()
-    @Published public private(set) var downloadDirectoryHistory: [UUID: [String]] = [:]
-    @Published public private(set) var serverFreeSpace: [UUID: ServerFreeSpace] = [:]
-    @Published public var errorMessage: String?
+    public private(set) var profiles: [RemoteProfile] = []
+    public var selectedProfileID: UUID?
+    public private(set) var torrents: [TorrentSummary] = []
+    public private(set) var stats: SessionStats?
+    public private(set) var selectedTorrentDetails: TorrentDetails?
+    public private(set) var isLoadingTorrentDetails = false
+    public private(set) var torrentDetailsError: String?
+    public private(set) var isLoading = false
+    public private(set) var loadingProfileID: UUID?
+    public private(set) var isShowingCachedTorrents = false
+    public private(set) var isSessionStale = false
+    public private(set) var refreshErrorMessage: String?
+    public var selectedTorrentGroup: TorrentGroup = .all
+    public private(set) var preferences = GlassRemotePreferences()
+    public private(set) var downloadDirectoryHistory: [UUID: [String]] = [:]
+    public private(set) var serverFreeSpace: [UUID: ServerFreeSpace] = [:]
+    public var errorMessage: String?
 
     private let profileStore: ProfileStore
     private let credentialStore: CredentialStore
     private let torrentSourceFileDisposer: TorrentSourceFileDisposing
     private let rpcClientFactory: @Sendable (TransmissionRPCConfig) -> any TransmissionRPCServicing
     private let localSessionFactory: @Sendable () -> any LocalTransmissionServicing
-    private var torrentCache: [UUID: CachedTorrentList] = [:]
-    private var providersBySourceID: [UUID: any TorrentProvider] = [:]
-    private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
-    private var displayedTorrentSourceID: UUID?
-    private var selectedDetailsTorrentHash: String?
+    @ObservationIgnored private var torrentCache: [UUID: CachedTorrentList] = [:]
+    @ObservationIgnored private var providersBySourceID: [UUID: any TorrentProvider] = [:]
+    @ObservationIgnored private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
+    @ObservationIgnored private var torrentCachePersistenceTask: Task<Void, Never>?
+    @ObservationIgnored private var displayedTorrentSourceID: UUID?
+    @ObservationIgnored private var selectedDetailsTorrentHash: String?
+    @ObservationIgnored private var detailsRequestID: UUID?
 
     public init(
         profileStore: ProfileStore,
         credentialStore: CredentialStore,
         torrentSourceFileDisposer: TorrentSourceFileDisposing = SystemTorrentSourceFileDisposer(),
+        initialSourceID: UUID? = nil,
         rpcClientFactory: @escaping @Sendable (TransmissionRPCConfig) -> any TransmissionRPCServicing = {
             TransmissionRPCClient(config: $0)
         },
@@ -71,7 +76,7 @@ public final class RemoteAppModel: ObservableObject {
         self.torrentSourceFileDisposer = torrentSourceFileDisposer
         self.rpcClientFactory = rpcClientFactory
         self.localSessionFactory = localSessionFactory
-        loadProfiles()
+        loadProfiles(initialSourceID: initialSourceID)
     }
 
     public var localSourceName: String {
@@ -225,30 +230,53 @@ public final class RemoteAppModel: ObservableObject {
     private func performRefresh(sourceID: UUID, provider: any TorrentProvider) async {
         guard selectedSourceID == sourceID else { return }
 
+        let shouldShowLoading = displayedTorrentSourceID != sourceID
         prepareVisibleTorrentsForRefresh(of: sourceID)
-        isLoading = true
-        loadingProfileID = sourceID
+        if shouldShowLoading {
+            isLoading = true
+            loadingProfileID = sourceID
+        }
         defer {
-            isLoading = false
-            loadingProfileID = nil
+            if shouldShowLoading {
+                isLoading = false
+                loadingProfileID = nil
+            }
         }
 
         do {
             let snapshot = try await provider.fetchSnapshot()
             guard selectedSourceID == sourceID else { return }
             let mergedTorrents = TorrentListMerger.merge(existing: torrents, incoming: snapshot.torrents)
-            self.stats = snapshot.stats
-            self.torrents = mergedTorrents
-            self.serverFreeSpace[sourceID] = snapshot.freeSpace
+            if self.stats != snapshot.stats {
+                self.stats = snapshot.stats
+            }
+            if self.torrents != mergedTorrents {
+                self.torrents = mergedTorrents
+            }
+            if self.serverFreeSpace[sourceID] != snapshot.freeSpace {
+                self.serverFreeSpace[sourceID] = snapshot.freeSpace
+            }
             self.displayedTorrentSourceID = sourceID
-            self.isShowingCachedTorrents = false
-            self.isSessionStale = false
-            self.refreshErrorMessage = nil
+            if self.isShowingCachedTorrents {
+                self.isShowingCachedTorrents = false
+            }
+            if self.isSessionStale {
+                self.isSessionStale = false
+            }
+            if self.refreshErrorMessage != nil {
+                self.refreshErrorMessage = nil
+            }
             updateTorrentCache(mergedTorrents, for: sourceID)
         } catch {
             guard selectedSourceID == sourceID else { return }
-            self.isSessionStale = !self.torrents.isEmpty
-            self.refreshErrorMessage = error.localizedDescription
+            let hasVisibleTorrents = !self.torrents.isEmpty
+            if self.isSessionStale != hasVisibleTorrents {
+                self.isSessionStale = hasVisibleTorrents
+            }
+            let message = error.localizedDescription
+            if self.refreshErrorMessage != message {
+                self.refreshErrorMessage = message
+            }
         }
     }
 
@@ -352,23 +380,37 @@ public final class RemoteAppModel: ObservableObject {
             return
         }
         let sourceID = selectedSourceID
+        let requestID = UUID()
 
         if !force, selectedDetailsTorrentHash == torrent.hashString, selectedTorrentDetails != nil {
             return
         }
 
         selectedDetailsTorrentHash = torrent.hashString
+        detailsRequestID = requestID
         isLoadingTorrentDetails = true
         torrentDetailsError = nil
-        defer { isLoadingTorrentDetails = false }
+        defer {
+            if detailsRequestID == requestID {
+                isLoadingTorrentDetails = false
+            }
+        }
 
         do {
             let provider = try providerForSelectedSource()
             let details = try await provider.fetchTorrentDetails(hashString: torrent.hashString)
-            guard selectedSourceID == sourceID, selectedDetailsTorrentHash == torrent.hashString else { return }
+            guard
+                selectedSourceID == sourceID,
+                selectedDetailsTorrentHash == torrent.hashString,
+                detailsRequestID == requestID
+            else { return }
             selectedTorrentDetails = details
         } catch {
-            guard selectedSourceID == sourceID, selectedDetailsTorrentHash == torrent.hashString else { return }
+            guard
+                selectedSourceID == sourceID,
+                selectedDetailsTorrentHash == torrent.hashString,
+                detailsRequestID == requestID
+            else { return }
             torrentDetailsError = error.localizedDescription
         }
     }
@@ -413,20 +455,27 @@ public final class RemoteAppModel: ObservableObject {
         }
     }
 
-    public func remove(_ torrent: TorrentSummary, deleteData: Bool) async {
+    @discardableResult
+    public func remove(_ torrent: TorrentSummary, deleteData: Bool) async -> Bool {
         await remove([torrent], deleteData: deleteData)
     }
 
-    public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async {
-        let sourceID = selectedSourceID
+    @discardableResult
+    public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async -> Bool {
+        await remove(torrents, deleteData: deleteData, sourceID: selectedSourceID)
+    }
+
+    @discardableResult
+    public func remove(_ torrents: [TorrentSummary], deleteData: Bool, sourceID: UUID) async -> Bool {
         let ids = torrents.map(\.hashString)
-        guard !ids.isEmpty else { return }
-        await performProviderAction(sourceID: sourceID) { provider in
+        guard !ids.isEmpty else { return true }
+        let didRemove = await performProviderAction(sourceID: sourceID) { provider in
             try await provider.remove(ids: ids, deleteLocalData: deleteData)
         }
-        if let selectedDetailsTorrentHash, ids.contains(selectedDetailsTorrentHash) {
+        if didRemove, let selectedDetailsTorrentHash, ids.contains(selectedDetailsTorrentHash) {
             clearTorrentDetails()
         }
+        return didRemove
     }
 
     public func verify(_ torrent: TorrentSummary) async {
@@ -461,26 +510,78 @@ public final class RemoteAppModel: ObservableObject {
         }
     }
 
-    public func rename(_ torrent: TorrentSummary, to name: String) async {
+    @discardableResult
+    public func rename(_ torrent: TorrentSummary, to name: String) async -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceID = selectedSourceID
-        guard !trimmedName.isEmpty else { return }
-        await performProviderAction(sourceID: sourceID) { provider in
+        guard !trimmedName.isEmpty else { return false }
+        guard trimmedName != torrent.name else { return true }
+
+        isLoading = true
+        loadingProfileID = sourceID
+        errorMessage = nil
+        defer {
+            isLoading = false
+            loadingProfileID = nil
+        }
+
+        var requestError: (any Error)?
+        do {
+            let provider = try provider(for: sourceID)
             try await provider.renamePath(id: torrent.hashString, path: torrent.name, name: trimmedName)
+        } catch {
+            requestError = error
         }
+
+        let confirmedTorrent = await confirmRename(
+            sourceID: sourceID,
+            hashString: torrent.hashString,
+            newName: trimmedName
+        )
+        guard let confirmedTorrent else {
+            if selectedSourceID == sourceID {
+                errorMessage = requestError?.localizedDescription ?? "Transmission did not confirm the rename."
+                return false
+            }
+            return true
+        }
+
+        errorMessage = nil
         if selectedDetailsTorrentHash == torrent.hashString {
-            await loadDetails(for: torrent, force: true)
+            Task { await self.loadDetails(for: confirmedTorrent, force: true) }
         }
+        return true
     }
 
-    private func loadProfiles() {
+    private func confirmRename(sourceID: UUID, hashString: String, newName: String) async -> TorrentSummary? {
+        for attempt in 0..<4 {
+            guard selectedSourceID == sourceID else { return nil }
+            if attempt > 0 {
+                do {
+                    try await Task.sleep(for: .milliseconds(250))
+                } catch {
+                    return nil
+                }
+            }
+
+            await refresh()
+            if let renamedTorrent = torrents.first(where: {
+                $0.hashString == hashString && $0.name == newName
+            }) {
+                return renamedTorrent
+            }
+        }
+        return nil
+    }
+
+    private func loadProfiles(initialSourceID: UUID?) {
         do {
             profiles = try profileStore.loadProfiles()
-            selectedProfileID = Self.defaultSelectedProfileID(from: profiles)
+            selectedProfileID = Self.selectedSourceID(initialSourceID, from: profiles)
             errorMessage = nil
         } catch {
             profiles = []
-            selectedProfileID = Self.defaultSelectedProfileID(from: profiles)
+            selectedProfileID = Self.selectedSourceID(initialSourceID, from: profiles)
             errorMessage = error.localizedDescription
         }
 
@@ -526,6 +627,8 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     private func persistTorrentCache() {
+        torrentCachePersistenceTask?.cancel()
+        torrentCachePersistenceTask = nil
         do {
             let cache = torrentCache.values.sorted { $0.refreshedAt > $1.refreshedAt }
             try profileStore.saveTorrentCache(cache)
@@ -548,6 +651,7 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     private func clearTorrentDetails() {
+        detailsRequestID = nil
         selectedDetailsTorrentHash = nil
         selectedTorrentDetails = nil
         isLoadingTorrentDetails = false
@@ -630,29 +734,65 @@ public final class RemoteAppModel: ObservableObject {
     }
 
     private func prepareVisibleTorrentsForRefresh(of sourceID: UUID) {
-        if displayedTorrentSourceID == sourceID, !torrents.isEmpty {
-            isShowingCachedTorrents = true
+        if displayedTorrentSourceID == sourceID {
             return
         }
 
         guard preferences.isTorrentCachingEnabled, let cached = torrentCache[sourceID] else {
-            torrents = []
-            displayedTorrentSourceID = nil
-            isShowingCachedTorrents = false
-            isSessionStale = false
-            refreshErrorMessage = nil
+            if !torrents.isEmpty {
+                torrents = []
+            }
+            displayedTorrentSourceID = sourceID
+            if isShowingCachedTorrents {
+                isShowingCachedTorrents = false
+            }
+            if isSessionStale {
+                isSessionStale = false
+            }
+            if refreshErrorMessage != nil {
+                refreshErrorMessage = nil
+            }
             return
         }
-        torrents = cached.torrents
+        if torrents != cached.torrents {
+            torrents = cached.torrents
+        }
         displayedTorrentSourceID = sourceID
-        isShowingCachedTorrents = true
+        if !isShowingCachedTorrents {
+            isShowingCachedTorrents = true
+        }
     }
 
     private func updateTorrentCache(_ torrents: [TorrentSummary], for profileID: UUID) {
         guard preferences.isTorrentCachingEnabled else { return }
         torrentCache[profileID] = CachedTorrentList(profileID: profileID, torrents: torrents)
         trimTorrentCache()
-        persistTorrentCache()
+        scheduleTorrentCachePersistence()
+    }
+
+    private func scheduleTorrentCachePersistence() {
+        guard torrentCachePersistenceTask == nil else { return }
+        let cache = torrentCache.values.sorted { $0.refreshedAt > $1.refreshedAt }
+        let profileStore = profileStore
+        torrentCachePersistenceTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: Self.torrentCachePersistenceDelay)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+
+            do {
+                try await Task.detached(priority: .utility) {
+                    try profileStore.saveTorrentCache(cache)
+                }.value
+                self?.torrentCachePersistenceTask = nil
+            } catch {
+                guard !Task.isCancelled else { return }
+                self?.errorMessage = error.localizedDescription
+                self?.torrentCachePersistenceTask = nil
+            }
+        }
     }
 
     private func trimTorrentCache() {
@@ -729,6 +869,16 @@ public final class RemoteAppModel: ObservableObject {
         #else
         return profiles.first?.id ?? Self.localProfileID
         #endif
+    }
+
+    private static func selectedSourceID(_ initialSourceID: UUID?, from profiles: [RemoteProfile]) -> UUID? {
+        if initialSourceID == localProfileID {
+            return localProfileID
+        }
+        if let initialSourceID, profiles.contains(where: { $0.id == initialSourceID }) {
+            return initialSourceID
+        }
+        return defaultSelectedProfileID(from: profiles)
     }
 
     #if os(macOS)
