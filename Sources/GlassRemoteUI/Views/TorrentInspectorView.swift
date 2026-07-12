@@ -5,6 +5,16 @@ import SwiftUI
 struct TorrentInspectorView: View {
     let model: RemoteAppModel
     let selectedTorrentHash: String?
+    @AppStorage("GlassInspector.infoExpanded") private var isInfoExpanded = false
+    @AppStorage("GlassInspector.filesExpanded") private var isFilesExpanded = false
+    @AppStorage("GlassInspector.peersExpanded") private var isPeersExpanded = false
+    @AppStorage("GlassInspector.trackersExpanded") private var isTrackersExpanded = false
+    @AppStorage("GlassInspector.piecesExpanded") private var isPiecesExpanded = false
+    @AppStorage("GlassInspector.settingsExpanded") private var isSettingsExpanded = false
+    @AppStorage("GlassInspector.fileSort") private var fileSortRawValue = TorrentFileSort.name
+        .rawValue
+    @AppStorage("GlassInspector.fileSortAscending") private var isFileSortAscending = true
+    @State private var fileSearchText = ""
 
     var body: some View {
         ScrollView {
@@ -15,7 +25,6 @@ struct TorrentInspectorView: View {
             .padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .inspectorColumnWidth(min: 180, ideal: 260, max: 380)
         .glassSoftTopScrollEdge()
     }
 
@@ -32,7 +41,7 @@ struct TorrentInspectorView: View {
                     .font(.title3.bold())
                     .lineLimit(3)
 
-                DisclosureGroup("Info") {
+                DisclosureGroup(isExpanded: $isInfoExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         InspectorField("Status", details.status.map(formatStatus) ?? "Unavailable")
                         InspectorField("Progress", details.percentDone.map(formatPercent) ?? "Unavailable")
@@ -46,14 +55,24 @@ struct TorrentInspectorView: View {
                         InspectorField("Uploaded", formatBytes(details.uploadedEver))
                     }
                     .padding(.top, 8)
+                } label: {
+                    Text("Info")
                 }
 
-                DisclosureGroup("Files") {
-                    TorrentFilesSection(model: model, details: details)
-                        .padding(.top, 8)
+                DisclosureGroup(isExpanded: $isFilesExpanded) {
+                    TorrentFilesSection(
+                        model: model,
+                        details: details,
+                        searchText: fileSearchText,
+                        sort: fileSort,
+                        isAscending: isFileSortAscending
+                    )
+                    .padding(.top, 8)
+                } label: {
+                    filesHeader(details)
                 }
 
-                DisclosureGroup("Peers") {
+                DisclosureGroup(isExpanded: $isPeersExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         if details.peers.isEmpty {
                             Text("No peers")
@@ -68,9 +87,11 @@ struct TorrentInspectorView: View {
                         }
                     }
                     .padding(.top, 8)
+                } label: {
+                    Text("Peers")
                 }
 
-                DisclosureGroup("Trackers") {
+                DisclosureGroup(isExpanded: $isTrackersExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         if details.trackerStats.isEmpty {
                             Text("No trackers")
@@ -79,35 +100,50 @@ struct TorrentInspectorView: View {
                             ForEach(details.trackerStats) { tracker in
                                 InspectorField(
                                     tracker.host ?? tracker.announce ?? "Tracker",
-                                    tracker.lastAnnounceResult?.isEmpty == false ? tracker.lastAnnounceResult! : "Ready"
+                                    tracker.lastAnnounceResult?.isEmpty == false
+                                        ? tracker.lastAnnounceResult! : "Ready"
                                 )
                             }
                         }
                     }
                     .padding(.top, 8)
+                } label: {
+                    Text("Trackers")
                 }
 
-                DisclosureGroup("Pieces") {
+                DisclosureGroup(isExpanded: $isPiecesExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
                         InspectorField("Pieces", details.pieceCount.map(String.init) ?? "Unavailable")
                         InspectorField("Piece Size", formatBytes(details.pieceSize))
                         if let pieceCount = details.pieceCount, let pieces = details.pieces {
-                            InspectorField("Complete", "\(completedPieceCount(from: pieces, total: pieceCount)) of \(pieceCount)")
+                            InspectorField(
+                                "Complete",
+                                "\(completedPieceCount(from: pieces, total: pieceCount)) of \(pieceCount)")
                         }
                     }
                     .padding(.top, 8)
+                } label: {
+                    Text("Pieces")
                 }
 
-                DisclosureGroup("Settings") {
+                DisclosureGroup(isExpanded: $isSettingsExpanded) {
                     VStack(alignment: .leading, spacing: 8) {
-                        InspectorField("Download Limit", limitText(limit: details.downloadLimit, enabled: details.downloadLimited))
-                        InspectorField("Upload Limit", limitText(limit: details.uploadLimit, enabled: details.uploadLimited))
-                        InspectorField("Seed Ratio", details.seedRatioLimit.map { $0.formatted(.number.precision(.fractionLength(2))) } ?? "Unavailable")
+                        InspectorField(
+                            "Download Limit",
+                            limitText(limit: details.downloadLimit, enabled: details.downloadLimited))
+                        InspectorField(
+                            "Upload Limit", limitText(limit: details.uploadLimit, enabled: details.uploadLimited))
+                        InspectorField(
+                            "Seed Ratio",
+                            details.seedRatioLimit.map { $0.formatted(.number.precision(.fractionLength(2))) }
+                                ?? "Unavailable")
                         InspectorField("Priority", formatPriority(details.bandwidthPriority))
                         InspectorField("Queue", details.queuePosition.map { "#\($0 + 1)" } ?? "Unavailable")
                         InspectorField("Private", formatBool(details.isPrivate))
                     }
                     .padding(.top, 8)
+                } label: {
+                    Text("Settings")
                 }
             }
         } else if model.isLoadingTorrentDetails {
@@ -139,56 +175,231 @@ struct TorrentInspectorView: View {
         guard enabled == true, let limit else { return "Unlimited" }
         return "\(limit) KB/s"
     }
+
+    private var fileSort: TorrentFileSort {
+        TorrentFileSort(rawValue: fileSortRawValue) ?? .name
+    }
+
+    private var fileSortBinding: Binding<TorrentFileSort> {
+        Binding(
+            get: { fileSort },
+            set: { fileSortRawValue = $0.rawValue }
+        )
+    }
+
+    private func filesHeader(_ details: TorrentDetails) -> some View {
+        HStack(spacing: 6) {
+            Text("Files")
+
+            Spacer(minLength: 4)
+
+            if isFilesExpanded {
+                TextField("Search", text: $fileSearchText)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .frame(minWidth: 72, idealWidth: 108, maxWidth: 128)
+
+                Menu {
+                    Picker("Sort By", selection: fileSortBinding) {
+                        ForEach(TorrentFileSort.allCases) { option in
+                            Text(option.title).tag(option)
+                        }
+                    }
+
+                    Divider()
+
+                    Toggle("Ascending", isOn: $isFileSortAscending)
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                        .frame(width: 16, height: 16)
+                }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .controlSize(.small)
+                .fixedSize()
+                .help("Sort Files")
+            }
+        }
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("All", systemImage: "checkmark.square") {
+                setAllFiles(in: details, wanted: true)
+            }
+            Button("None", systemImage: "square") {
+                setAllFiles(in: details, wanted: false)
+            }
+        }
+    }
+
+    private func setAllFiles(in details: TorrentDetails, wanted: Bool) {
+        let indices = Array(details.files.indices)
+        guard !indices.isEmpty else { return }
+        Task {
+            await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted)
+        }
+    }
 }
 
 private struct TorrentFilesSection: View {
     let model: RemoteAppModel
     let details: TorrentDetails
+    let searchText: String
+    let sort: TorrentFileSort
+    let isAscending: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            ForEach(Array(details.files.enumerated()), id: \.offset) { index, file in
-                let stats = details.fileStats.indices.contains(index) ? details.fileStats[index] : nil
-                HStack(alignment: .firstTextBaseline) {
-                    Toggle(
-                        isOn: Binding(
-                            get: { stats?.wanted ?? true },
-                            set: { isWanted in
-                                Task {
-                                    await model.setFileWanted(
-                                        details.summaryFallback,
-                                        fileIndices: [index],
-                                        wanted: isWanted
-                                    )
+            if entries.isEmpty {
+                Text("No matching files")
+                    .foregroundStyle(.secondary)
+            } else {
+                ForEach(entries) { entry in
+                    HStack(alignment: .firstTextBaseline) {
+                        Toggle(
+                            isOn: Binding(
+                                get: { entry.stats?.wanted ?? true },
+                                set: { isWanted in
+                                    Task {
+                                        await model.setFileWanted(
+                                            details.summaryFallback,
+                                            fileIndices: [entry.index],
+                                            wanted: isWanted
+                                        )
+                                    }
                                 }
-                            }
-                        )
-                    ) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(file.name)
-                                .lineLimit(2)
-                            Text("\(formatBytes(file.bytesCompleted)) of \(formatBytes(file.length))")
+                            )
+                        ) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(entry.file.name)
+                                    .lineLimit(2)
+                                Text(
+                                    "\(formatBytes(entry.file.bytesCompleted)) of \(formatBytes(entry.file.length))"
+                                )
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
+                            }
                         }
-                    }
 
-                    Menu(formatPriority(stats?.priority)) {
-                        Button("High") {
-                            Task { await model.setFilePriority(details.summaryFallback, fileIndices: [index], priority: 1) }
+                        Menu {
+                            priorityMenu(for: entry)
+                        } label: {
+                            Image(systemName: prioritySystemImage(entry.stats?.priority))
+                                .symbolRenderingMode(.hierarchical)
+                                .frame(width: 18, height: 18)
                         }
-                        Button("Normal") {
-                            Task { await model.setFilePriority(details.summaryFallback, fileIndices: [index], priority: 0) }
+                        .menuStyle(.borderlessButton)
+                        .menuIndicator(.hidden)
+                        .fixedSize()
+                        .help("Priority: \(formatPriority(entry.stats?.priority))")
+                    }
+                    .contentShape(Rectangle())
+                    .contextMenu {
+                        Button(entry.stats?.wanted == false ? "Download" : "Don’t Download") {
+                            setWanted(entry.stats?.wanted == false, for: entry)
                         }
-                        Button("Low") {
-                            Task { await model.setFilePriority(details.summaryFallback, fileIndices: [index], priority: -1) }
+
+                        Divider()
+
+                        Menu("Priority") {
+                            priorityMenu(for: entry)
                         }
                     }
-                    .menuStyle(.button)
-                    .fixedSize()
                 }
             }
         }
+    }
+
+    private var entries: [TorrentFileEntry] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let values = details.files.enumerated().compactMap { index, file -> TorrentFileEntry? in
+            guard query.isEmpty || file.name.localizedCaseInsensitiveContains(query) else { return nil }
+            let stats = details.fileStats.indices.contains(index) ? details.fileStats[index] : nil
+            return TorrentFileEntry(index: index, file: file, stats: stats)
+        }
+
+        return values.sorted { lhs, rhs in
+            let comparison = sort.compare(lhs, rhs)
+            if comparison == .orderedSame {
+                return lhs.index < rhs.index
+            }
+            return isAscending ? comparison == .orderedAscending : comparison == .orderedDescending
+        }
+    }
+
+    @ViewBuilder
+    private func priorityMenu(for entry: TorrentFileEntry) -> some View {
+        Button("High", systemImage: entry.stats?.priority == 1 ? "checkmark" : "arrow.up") {
+            setPriority(1, for: entry)
+        }
+        Button("Normal", systemImage: entry.stats?.priority == 0 ? "checkmark" : "equal") {
+            setPriority(0, for: entry)
+        }
+        Button("Low", systemImage: entry.stats?.priority == -1 ? "checkmark" : "arrow.down") {
+            setPriority(-1, for: entry)
+        }
+    }
+
+    private func setWanted(_ wanted: Bool, for entry: TorrentFileEntry) {
+        Task {
+            await model.setFileWanted(details.summaryFallback, fileIndices: [entry.index], wanted: wanted)
+        }
+    }
+
+    private func setPriority(_ priority: Int, for entry: TorrentFileEntry) {
+        Task {
+            await model.setFilePriority(
+                details.summaryFallback, fileIndices: [entry.index], priority: priority)
+        }
+    }
+}
+
+private enum TorrentFileSort: String, CaseIterable, Identifiable {
+    case name
+    case size
+    case progress
+    case priority
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .name: "Name"
+        case .size: "Size"
+        case .progress: "Progress"
+        case .priority: "Priority"
+        }
+    }
+
+    func compare(_ lhs: TorrentFileEntry, _ rhs: TorrentFileEntry) -> ComparisonResult {
+        switch self {
+        case .name:
+            lhs.file.name.localizedStandardCompare(rhs.file.name)
+        case .size:
+            compareValues(lhs.file.length, rhs.file.length)
+        case .progress:
+            compareValues(lhs.progress, rhs.progress)
+        case .priority:
+            compareValues(lhs.stats?.priority ?? 0, rhs.stats?.priority ?? 0)
+        }
+    }
+
+    private func compareValues<T: Comparable>(_ lhs: T, _ rhs: T) -> ComparisonResult {
+        if lhs < rhs { return .orderedAscending }
+        if lhs > rhs { return .orderedDescending }
+        return .orderedSame
+    }
+}
+
+private struct TorrentFileEntry: Identifiable {
+    let index: Int
+    let file: TorrentFile
+    let stats: TorrentFileStats?
+
+    var id: Int { index }
+
+    var progress: Double {
+        guard file.length > 0 else { return 0 }
+        return Double(file.bytesCompleted) / Double(file.length)
     }
 }
 
@@ -217,8 +428,8 @@ private struct InspectorField: View {
     }
 }
 
-private extension TorrentDetails {
-    var summaryFallback: TorrentSummary {
+extension TorrentDetails {
+    fileprivate var summaryFallback: TorrentSummary {
         TorrentSummary(
             id: id,
             hashString: hashString,

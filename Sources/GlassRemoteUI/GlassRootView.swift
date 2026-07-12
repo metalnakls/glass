@@ -56,6 +56,10 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
+            .inspector(isPresented: $isInspectorPresented) {
+                TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
+                    .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
+            }
         }
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
@@ -444,7 +448,7 @@ private struct TorrentWorkspaceView: View {
                 Button {
                     isInspectorPresented.toggle()
                 } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
+                    Label("Inspector", systemImage: "sidebar.trailing")
                 }
                 .help("Inspector")
             }
@@ -461,9 +465,6 @@ private struct TorrentWorkspaceView: View {
                 }
             }
             return false
-        }
-        .inspector(isPresented: $isInspectorPresented) {
-            TorrentInspectorView(model: model, selectedTorrentHash: selection)
         }
         .overlay(alignment: .bottom) {
             if !pendingRemovals.isEmpty {

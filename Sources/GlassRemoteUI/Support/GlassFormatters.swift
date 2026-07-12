@@ -98,6 +98,19 @@ func formatPriority(_ priority: Int?) -> String {
     }
 }
 
+func prioritySystemImage(_ priority: Int?) -> String {
+    switch priority {
+    case let value? where value > 0:
+        return "arrow.up.circle.fill"
+    case let value? where value < 0:
+        return "arrow.down.circle.fill"
+    case .some:
+        return "equal.circle"
+    case nil:
+        return "questionmark.circle"
+    }
+}
+
 func formatBool(_ value: Bool?) -> String {
     guard let value else { return "Unavailable" }
     return value ? "On" : "Off"
