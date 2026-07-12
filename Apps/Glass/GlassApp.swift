@@ -62,6 +62,8 @@ struct GlassApp: App {
                 }
                 .keyboardShortcut(.delete, modifiers: [.command])
             }
+
+            InspectorCommands()
         }
 
         Settings {
