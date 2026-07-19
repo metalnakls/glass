@@ -46,7 +46,8 @@ struct TorrentNameSequenceGroup: Identifiable {
             peersConnected: torrents.reduce(0) { $0 + ($1.peersConnected ?? 0) },
             downloadDir: nil,
             bandwidthPriority: nil,
-            queuePosition: nil
+            queuePosition: nil,
+            fileCount: torrents.compactMap(\.fileCount).reduce(0, +)
         )
     }
 }
@@ -102,6 +103,24 @@ enum TorrentNameSequenceGrouper {
         }
 
         return items
+    }
+
+    static func updating(_ items: [TorrentListItem], with torrents: [TorrentSummary]) -> [TorrentListItem] {
+        let torrentsByHash = Dictionary(uniqueKeysWithValues: torrents.map { ($0.hashString, $0) })
+        return items.compactMap { item in
+            switch item {
+            case let .torrent(torrent):
+                return torrentsByHash[torrent.hashString].map(TorrentListItem.torrent)
+            case let .group(group):
+                let liveTorrents = group.torrents.compactMap { torrentsByHash[$0.hashString] }
+                guard !liveTorrents.isEmpty else { return nil }
+                return .group(TorrentNameSequenceGroup(
+                    id: group.id,
+                    displayName: group.displayName,
+                    torrents: liveTorrents
+                ))
+            }
+        }
     }
 
     private static func parsedTorrent(_ torrent: TorrentSummary, originalIndex: Int) -> ParsedTorrent? {

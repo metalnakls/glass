@@ -5,85 +5,61 @@ import UniformTypeIdentifiers
 
 struct TorrentRowView: View {
     let torrent: TorrentSummary
-    var isGroup = false
-    var isNested = false
-    var isSelected = false
-    var usesCompactLayout = false
+    var groupIsExpanded: Bool?
+    var groupCount = 0
+    var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
-    var iconAnimationNamespace: Namespace.ID?
-    var iconAnimationID: String?
     let toggleTransfer: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+
     var body: some View {
-        Group {
-            if usesCompactLayout {
-                compactRow
-            } else {
-                regularRow
-            }
+        ViewThatFits(in: .horizontal) {
+            row(showsIcon: true)
+            row(showsIcon: false)
         }
-        .padding(.vertical, 6)
-        .padding(.horizontal, 10)
-        .frame(minHeight: 68, alignment: .center)
-        .background {
-            if isSelected {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .fill(Color.secondary.opacity(0.14))
-            }
-        }
-        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .focusable(false)
-        .focusEffectDisabled()
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
-    private var regularRow: some View {
-        HStack(alignment: .center, spacing: 16) {
-            leadingIcon
-
-            torrentContent
-
-            transferButton
-        }
-    }
-
-    private var compactRow: some View {
-        HStack(spacing: 10) {
-            if isGroup {
-                Color.clear
-                    .frame(width: 42, height: 50)
-            } else if showsActivityIcon {
-                activityProgress
+    private func row(showsIcon: Bool) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            if showsIcon {
+                leadingIcon
+                    .transition(.opacity)
             }
+
             torrentContent
             transferButton
         }
+        .frame(minWidth: showsIcon ? 390 : 0)
+        .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.16), value: showsIcon)
     }
 
     @ViewBuilder
     private var leadingIcon: some View {
-        if isGroup {
-            Color.clear
-                .frame(width: 42, height: 50)
+        if let groupIsExpanded {
+            Button {
+                toggleGroupExpansion?()
+            } label: {
+                if groupIsExpanded {
+                    Image(systemName: "chevron.down")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 42)
+                        .contentTransition(.symbolEffect(.replace))
+                } else {
+                    GroupFolderFanIcon(count: groupCount)
+                        .frame(width: 36, height: 42)
+                }
+            }
+            .buttonStyle(.plain)
+            .help(groupIsExpanded ? "Hide Torrents" : "Show Torrents")
+            .accessibilityLabel(groupIsExpanded ? "Collapse Group" : "Expand Group")
         } else if showsActivityIcon {
             activityProgress
         } else {
-            animatedFileIcon
-        }
-    }
-
-    @ViewBuilder
-    private var animatedFileIcon: some View {
-        if let iconAnimationNamespace, let iconAnimationID {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike)
-                .matchedGeometryEffect(
-                    id: iconAnimationID,
-                    in: iconAnimationNamespace,
-                    isSource: false
-                )
-                .frame(width: 42, height: 50, alignment: .center)
-        } else {
-            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike)
-                .frame(width: 42, height: 50, alignment: .center)
+                .frame(width: 36, height: 42, alignment: .center)
         }
     }
 
@@ -91,9 +67,9 @@ struct TorrentRowView: View {
         GlassActivityIndicator(
             label: pendingOldName == nil ? "Downloading torrent metadata" : "Renaming torrent"
         )
-            .font(.system(size: 19, weight: .medium))
-            .foregroundStyle(.secondary)
-            .frame(width: 42, height: 50, alignment: .center)
+        .font(.system(size: 19, weight: .medium))
+        .foregroundStyle(.secondary)
+        .frame(width: 36, height: 42, alignment: .center)
     }
 
     private var showsActivityIcon: Bool {
@@ -101,56 +77,9 @@ struct TorrentRowView: View {
     }
 
     private var torrentContent: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(torrent.name)
-                    .font(.body)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .layoutPriority(1)
-                Text(formatBytes(torrent.sizeWhenDone))
-                    .font(.caption)
-                    .foregroundStyle(secondaryTextStyle)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                if let pendingOldName {
-                    Text(pendingOldName)
-                        .font(.callout)
-                        .foregroundStyle(.tertiary)
-                        .strikethrough()
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-                Spacer(minLength: 8)
-                Text(formatPercent(torrent.percentDone))
-                    .font(.caption)
-                    .foregroundStyle(secondaryTextStyle)
-                    .monospacedDigit()
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-
-            HStack(spacing: 10) {
-                Text(formatStatus(torrent.status))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Label(formatRate(torrent.rateDownload), systemImage: "arrow.down")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                Label(formatRate(torrent.rateUpload), systemImage: "arrow.up")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                if let queuePosition = torrent.queuePosition {
-                    Text("#\(queuePosition + 1)")
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(secondaryTextStyle)
-            .labelStyle(.titleAndIcon)
-            .monospacedDigit()
-
+        VStack(alignment: .leading, spacing: 4) {
+            titleLine
+            metadataLine
             ProgressView(value: torrent.percentDone, total: 1)
                 .controlSize(.small)
         }
@@ -158,28 +87,182 @@ struct TorrentRowView: View {
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
+    private var titleLine: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(torrent.name)
+                .font(.body)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(3)
+
+            ViewThatFits(in: .horizontal) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    sizeLabel
+                    oldNameLabel
+                }
+                oldNameLabel
+                EmptyView()
+            }
+
+            Spacer(minLength: 4)
+
+            Text(formatPercent(torrent.percentDone))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+    }
+
+    @ViewBuilder
+    private var oldNameLabel: some View {
+        if let pendingOldName {
+            Text(pendingOldName)
+                .font(.callout)
+                .foregroundStyle(.tertiary)
+                .strikethrough()
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .transition(.opacity)
+        }
+    }
+
+    private var sizeLabel: some View {
+        Text(formatBytes(torrent.sizeWhenDone))
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var metadataLine: some View {
+        HStack(spacing: 9) {
+            Text(formatStatus(torrent.status))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(2)
+
+            ViewThatFits(in: .horizontal) {
+                completeRateLabels
+                primaryRateLabel
+                EmptyView()
+            }
+
+            if let queuePosition = torrent.queuePosition {
+                Text("#\(queuePosition + 1)")
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .labelStyle(.titleAndIcon)
+        .monospacedDigit()
+    }
+
+    @ViewBuilder
+    private var completeRateLabels: some View {
+        switch ratePresentation {
+        case .none:
+            EmptyView()
+        case .download:
+            downloadRateLabel
+        case .upload:
+            uploadRateLabel
+        case .downloadAndUpload:
+            HStack(spacing: 9) {
+                downloadRateLabel
+                uploadRateLabel
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var primaryRateLabel: some View {
+        switch ratePresentation {
+        case .none:
+            EmptyView()
+        case .download, .downloadAndUpload:
+            downloadRateLabel
+        case .upload:
+            uploadRateLabel
+        }
+    }
+
+    private var downloadRateLabel: some View {
+        Label(formatRate(torrent.rateDownload), systemImage: "arrow.down")
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var uploadRateLabel: some View {
+        Label(formatRate(torrent.rateUpload), systemImage: "arrow.up")
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
+    }
+
     private var transferButton: some View {
         Button(action: toggleTransfer) {
             Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
                 .font(.system(size: 15, weight: .semibold))
-                .frame(width: 20, height: 20)
+                .frame(width: 18, height: 18)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
         .controlSize(.large)
         .foregroundStyle(Color.primary)
-        .frame(width: 42, height: 50, alignment: .center)
+        .frame(width: 40, height: 42, alignment: .center)
         .help(torrent.canStopTransfer ? "Pause" : "Resume")
-        .focusable(false)
-        .focusEffectDisabled()
+    }
+
+    private var ratePresentation: RatePresentation {
+        if torrent.canStopTransfer {
+            if torrent.status == TransmissionTorrentStatus.seeding.rawValue || torrent.rateUpload > 0 && torrent.rateDownload == 0 {
+                return .upload
+            }
+            return .downloadAndUpload
+        }
+        return .none
     }
 
     private var isFolderLike: Bool {
         URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
     }
+}
 
-    private var secondaryTextStyle: Color {
-        Color.secondary
+private enum RatePresentation {
+    case none
+    case download
+    case upload
+    case downloadAndUpload
+}
+
+private struct GroupFolderFanIcon: View {
+    let count: Int
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<count, id: \.self) { index in
+                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                    .rotationEffect(rotation(for: index), anchor: .bottom)
+                    .offset(offset(for: index))
+                    .zIndex(Double(index))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func rotation(for index: Int) -> Angle {
+        guard count > 1 else { return .zero }
+        let progress = Double(index) / Double(count - 1)
+        return .degrees(-9 + (18 * progress))
+    }
+
+    private func offset(for index: Int) -> CGSize {
+        guard count > 1 else { return .zero }
+        let progress = CGFloat(index) / CGFloat(count - 1)
+        return CGSize(width: -5 + (10 * progress), height: abs(progress - 0.5) * 2)
     }
 }
 
