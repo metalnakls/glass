@@ -17,15 +17,27 @@ struct TorrentInspectorView: View {
     @State private var fileSearchText = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                torrentSection
+        Group {
+            if selectedTorrent == nil {
+                ContentUnavailableView(
+                    "No Torrent Selected",
+                    systemImage: "info.circle",
+                    description: Text("Select a torrent to show details.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        torrentSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 14)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .glassSoftTopScrollEdge()
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .glassSoftTopScrollEdge()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var selectedTorrent: TorrentSummary? {
@@ -162,12 +174,6 @@ struct TorrentInspectorView: View {
                 Text("Select a torrent to load details.")
                     .foregroundStyle(.secondary)
             }
-        } else {
-            ContentUnavailableView(
-                "No Torrent Selected",
-                systemImage: "info.circle",
-                description: Text("Select a torrent to show details.")
-            )
         }
     }
 
