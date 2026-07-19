@@ -49,7 +49,6 @@ struct TorrentListView: View {
                 }
                 .padding(.vertical, 8)
             }
-            .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onGeometryChange(for: Bool.self, of: { proxy in
                 proxy.size.width < 430
