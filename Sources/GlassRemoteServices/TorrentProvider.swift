@@ -13,9 +13,10 @@ public protocol TransmissionRPCServicing: Sendable {
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
     func addTorrentFile(
         data: Data,
+        torrentName: String?,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
-    ) async throws
+    ) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -79,7 +80,12 @@ public protocol TorrentProvider: Sendable {
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
-    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws
+    func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -102,7 +108,12 @@ public protocol LocalTransmissionServicing: Sendable {
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
-    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws
+    func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -131,7 +142,12 @@ public struct UnavailableLocalTransmissionSession: LocalTransmissionServicing {
     public func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws { throw error }
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails { throw error }
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws { throw error }
-    public func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws { throw error }
+    public func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult? { throw error }
     public func start(ids: [String]) async throws { throw error }
     public func stop(ids: [String]) async throws { throw error }
     public func remove(ids: [String], deleteLocalData: Bool) async throws { throw error }
@@ -239,10 +255,16 @@ public actor RemoteTorrentProvider: TorrentProvider {
 
     public func addTorrentFile(
         data: Data,
+        torrentName: String?,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
-    ) async throws {
-        try await client.addTorrentFile(data: data, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+    ) async throws -> TorrentAddResult? {
+        try await client.addTorrentFile(
+            data: data,
+            torrentName: torrentName,
+            downloadDirectory: downloadDirectory,
+            fileSelection: fileSelection
+        )
     }
 
     public func start(ids: [String]) async throws {
@@ -368,10 +390,16 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func addTorrentFile(
         data: Data,
+        torrentName: String?,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
-    ) async throws {
-        try await session.addTorrentFile(data: data, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+    ) async throws -> TorrentAddResult? {
+        try await session.addTorrentFile(
+            data: data,
+            torrentName: torrentName,
+            downloadDirectory: downloadDirectory,
+            fileSelection: fileSelection
+        )
     }
 
     public func start(ids: [String]) async throws {

@@ -113,6 +113,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let downloadDir: String?
     public let bandwidthPriority: Int?
     public let queuePosition: Int?
+    public let fileCount: Int?
 
     public init(
         id: Int,
@@ -130,7 +131,8 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         peersConnected: Int?,
         downloadDir: String?,
         bandwidthPriority: Int? = nil,
-        queuePosition: Int? = nil
+        queuePosition: Int? = nil,
+        fileCount: Int? = nil
     ) {
         self.id = id
         self.hashString = hashString
@@ -148,6 +150,14 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         self.downloadDir = downloadDir
         self.bandwidthPriority = bandwidthPriority
         self.queuePosition = queuePosition
+        self.fileCount = fileCount
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, hashString, name, status, percentDone, metadataPercentComplete
+        case rateDownload, rateUpload, sizeWhenDone, leftUntilDone, eta, uploadRatio
+        case peersConnected, downloadDir, bandwidthPriority, queuePosition
+        case fileCount = "file-count"
     }
 
     public var transmissionStatus: TransmissionTorrentStatus? {
@@ -376,6 +386,40 @@ public struct TorrentAddFileSelection: Sendable, Hashable {
     }
 }
 
+public struct TorrentAddResult: Sendable, Hashable {
+    public let hashString: String
+    public let name: String
+    public let wasDuplicate: Bool
+
+    public init(hashString: String, name: String, wasDuplicate: Bool) {
+        self.hashString = hashString
+        self.name = name
+        self.wasDuplicate = wasDuplicate
+    }
+}
+
+public struct TorrentPathRename: Sendable, Hashable, Identifiable {
+    public let path: String
+    public let name: String
+
+    public init(path: String, name: String) {
+        self.path = path
+        self.name = name
+    }
+
+    public var id: String { path }
+}
+
+public struct TorrentAddNamingPlan: Sendable, Hashable {
+    public let rootName: String
+    public let pathRenames: [TorrentPathRename]
+
+    public init(rootName: String, pathRenames: [TorrentPathRename]) {
+        self.rootName = rootName
+        self.pathRenames = pathRenames
+    }
+}
+
 public struct TorrentPeer: Sendable, Hashable, Codable {
     public let address: String?
     public let port: Int?
@@ -474,10 +518,32 @@ public struct CachedTorrentList: Sendable, Hashable, Codable {
 public struct DownloadDirectoryHistory: Sendable, Hashable, Codable {
     public let profileID: UUID
     public var directories: [String]
+    public var favoriteDirectories: [String]
 
-    public init(profileID: UUID, directories: [String]) {
+    public init(profileID: UUID, directories: [String], favoriteDirectories: [String] = []) {
         self.profileID = profileID
         self.directories = directories
+        self.favoriteDirectories = favoriteDirectories
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case profileID
+        case directories
+        case favoriteDirectories
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        profileID = try container.decode(UUID.self, forKey: .profileID)
+        directories = try container.decode([String].self, forKey: .directories)
+        favoriteDirectories = try container.decodeIfPresent([String].self, forKey: .favoriteDirectories) ?? []
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(profileID, forKey: .profileID)
+        try container.encode(directories, forKey: .directories)
+        try container.encode(favoriteDirectories, forKey: .favoriteDirectories)
     }
 }
 

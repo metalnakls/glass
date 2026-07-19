@@ -15,6 +15,7 @@ struct TorrentInspectorView: View {
         .rawValue
     @AppStorage("GlassInspector.fileSortAscending") private var isFileSortAscending = true
     @State private var fileSearchText = ""
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
         Group {
@@ -23,6 +24,20 @@ struct TorrentInspectorView: View {
                     "No Torrent Selected",
                     systemImage: "info.circle",
                     description: Text("Select a torrent to show details.")
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else if model.isLoadingTorrentDetails {
+                HStack(spacing: 8) {
+                    GlassActivityIndicator(label: "Loading torrent details")
+                        .foregroundStyle(.secondary)
+                    Text("Loading details…")
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            } else if let error = model.torrentDetailsError {
+                ContentUnavailableView(
+                    "Couldn’t Load Details",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(error)
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
@@ -53,7 +68,7 @@ struct TorrentInspectorView: View {
                     .font(.title3.bold())
                     .lineLimit(3)
 
-                DisclosureGroup(isExpanded: $isInfoExpanded) {
+                DisclosureGroup(isExpanded: animatedBinding($isInfoExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
                         InspectorField("Status", details.status.map(formatStatus) ?? "Unavailable")
                         InspectorField("Progress", details.percentDone.map(formatPercent) ?? "Unavailable")
@@ -71,20 +86,31 @@ struct TorrentInspectorView: View {
                     Text("Info")
                 }
 
-                DisclosureGroup(isExpanded: $isFilesExpanded) {
-                    TorrentFilesSection(
-                        model: model,
-                        details: details,
-                        searchText: fileSearchText,
-                        sort: fileSort,
-                        isAscending: isFileSortAscending
-                    )
+                DisclosureGroup(isExpanded: animatedBinding($isFilesExpanded)) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        filesControls
+                        TorrentFilesSection(
+                            model: model,
+                            details: details,
+                            searchText: fileSearchText,
+                            sort: fileSort,
+                            isAscending: isFileSortAscending
+                        )
+                    }
                     .padding(.top, 8)
                 } label: {
-                    filesHeader(details)
+                    Text("Files")
+                        .contextMenu {
+                            Button("All", systemImage: "checkmark.square") {
+                                setAllFiles(in: details, wanted: true)
+                            }
+                            Button("None", systemImage: "square") {
+                                setAllFiles(in: details, wanted: false)
+                            }
+                        }
                 }
 
-                DisclosureGroup(isExpanded: $isPeersExpanded) {
+                DisclosureGroup(isExpanded: animatedBinding($isPeersExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
                         if details.peers.isEmpty {
                             Text("No peers")
@@ -103,7 +129,7 @@ struct TorrentInspectorView: View {
                     Text("Peers")
                 }
 
-                DisclosureGroup(isExpanded: $isTrackersExpanded) {
+                DisclosureGroup(isExpanded: animatedBinding($isTrackersExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
                         if details.trackerStats.isEmpty {
                             Text("No trackers")
@@ -123,7 +149,7 @@ struct TorrentInspectorView: View {
                     Text("Trackers")
                 }
 
-                DisclosureGroup(isExpanded: $isPiecesExpanded) {
+                DisclosureGroup(isExpanded: animatedBinding($isPiecesExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
                         InspectorField("Pieces", details.pieceCount.map(String.init) ?? "Unavailable")
                         InspectorField("Piece Size", formatBytes(details.pieceSize))
@@ -138,7 +164,7 @@ struct TorrentInspectorView: View {
                     Text("Pieces")
                 }
 
-                DisclosureGroup(isExpanded: $isSettingsExpanded) {
+                DisclosureGroup(isExpanded: animatedBinding($isSettingsExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
                         InspectorField(
                             "Download Limit",
@@ -158,15 +184,6 @@ struct TorrentInspectorView: View {
                     Text("Settings")
                 }
             }
-        } else if model.isLoadingTorrentDetails {
-            HStack(spacing: 8) {
-                GlassActivityIndicator(label: "Loading torrent details")
-                    .foregroundStyle(.secondary)
-                Text("Loading details...")
-            }
-        } else if let error = model.torrentDetailsError {
-            Text(error)
-                .foregroundStyle(.secondary)
         } else if let selectedTorrent {
             VStack(alignment: .leading, spacing: 10) {
                 Text(selectedTorrent.name)
@@ -193,48 +210,44 @@ struct TorrentInspectorView: View {
         )
     }
 
-    private func filesHeader(_ details: TorrentDetails) -> some View {
+    private var filesControls: some View {
         HStack(spacing: 6) {
-            Text("Files")
-
-            Spacer(minLength: 4)
-
-            if isFilesExpanded {
-                TextField("Search", text: $fileSearchText)
-                    .textFieldStyle(.roundedBorder)
-                    .controlSize(.small)
-                    .frame(minWidth: 72, idealWidth: 108, maxWidth: 128)
-
-                Menu {
-                    Picker("Sort By", selection: fileSortBinding) {
-                        ForEach(TorrentFileSort.allCases) { option in
-                            Text(option.title).tag(option)
-                        }
-                    }
-
-                    Divider()
-
-                    Toggle("Ascending", isOn: $isFileSortAscending)
-                } label: {
-                    Image(systemName: "arrow.up.arrow.down")
-                        .frame(width: 16, height: 16)
-                }
-                .menuStyle(.borderlessButton)
-                .menuIndicator(.hidden)
+            TextField("Search", text: $fileSearchText)
+                .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
-                .fixedSize()
-                .help("Sort Files")
+                .frame(minWidth: 72, maxWidth: .infinity)
+
+            Menu {
+                Picker("Sort By", selection: fileSortBinding) {
+                    ForEach(TorrentFileSort.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+
+                Divider()
+
+                Toggle("Ascending", isOn: $isFileSortAscending)
+            } label: {
+                Image(systemName: "arrow.up.arrow.down")
+                    .frame(width: 16, height: 16)
             }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .controlSize(.small)
+            .fixedSize()
+            .help("Sort Files")
         }
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button("All", systemImage: "checkmark.square") {
-                setAllFiles(in: details, wanted: true)
+    }
+
+    private func animatedBinding(_ binding: Binding<Bool>) -> Binding<Bool> {
+        Binding(
+            get: { binding.wrappedValue },
+            set: { isExpanded in
+                withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
+                    binding.wrappedValue = isExpanded
+                }
             }
-            Button("None", systemImage: "square") {
-                setAllFiles(in: details, wanted: false)
-            }
-        }
+        )
     }
 
     private func setAllFiles(in details: TorrentDetails, wanted: Bool) {

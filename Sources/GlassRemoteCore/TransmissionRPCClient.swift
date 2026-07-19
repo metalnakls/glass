@@ -128,7 +128,7 @@ public actor TransmissionRPCClient {
         let fields = [
             "id", "hashString", "name", "status", "percentDone", "metadataPercentComplete", "rateDownload", "rateUpload",
             "sizeWhenDone", "leftUntilDone", "eta", "uploadRatio", "peersConnected", "downloadDir",
-            "bandwidthPriority", "queuePosition"
+            "bandwidthPriority", "queuePosition", "file-count"
         ]
 
         let envelope: RPCEnvelope<TorrentGetArgs> = try await request(method: "torrent-get", arguments: [
@@ -169,11 +169,13 @@ public actor TransmissionRPCClient {
         let _: RPCEnvelope<EmptyArgs> = try await request(method: "torrent-add", arguments: args)
     }
 
+    @discardableResult
     public func addTorrentFile(
         base64Metainfo: String,
+        torrentName: String? = nil,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection? = nil
-    ) async throws {
+    ) async throws -> TorrentAddResult? {
         var args: [String: JSONValue] = ["metainfo": .string(base64Metainfo)]
         if let downloadDirectory, !downloadDirectory.isEmpty {
             args["download-dir"] = .string(downloadDirectory)
@@ -182,16 +184,30 @@ public actor TransmissionRPCClient {
             fileSelection.apply(to: &args)
         }
 
-        let _: RPCEnvelope<EmptyArgs> = try await request(method: "torrent-add", arguments: args)
+        let envelope: RPCEnvelope<TorrentAddArgs> = try await request(method: "torrent-add", arguments: args)
+        guard let torrent = envelope.arguments.added ?? envelope.arguments.duplicate else { return nil }
+        let wasDuplicate = envelope.arguments.added == nil
+        let trimmedName = torrentName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let resolvedName: String
+        if let trimmedName, !trimmedName.isEmpty, trimmedName != torrent.name {
+            try await renamePath(id: torrent.hashString, path: torrent.name, name: trimmedName)
+            resolvedName = trimmedName
+        } else {
+            resolvedName = torrent.name
+        }
+        return TorrentAddResult(hashString: torrent.hashString, name: resolvedName, wasDuplicate: wasDuplicate)
     }
 
+    @discardableResult
     public func addTorrentFile(
         data: Data,
+        torrentName: String? = nil,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection? = nil
-    ) async throws {
+    ) async throws -> TorrentAddResult? {
         try await addTorrentFile(
             base64Metainfo: data.base64EncodedString(),
+            torrentName: torrentName,
             downloadDirectory: downloadDirectory,
             fileSelection: fileSelection
         )
@@ -692,6 +708,21 @@ private struct TorrentGetArgs: Decodable, Sendable {
 
 private struct TorrentDetailsGetArgs: Decodable, Sendable {
     let torrents: [TorrentDetails]
+}
+
+private struct TorrentAddArgs: Decodable, Sendable {
+    let added: AddedTorrent?
+    let duplicate: AddedTorrent?
+
+    private enum CodingKeys: String, CodingKey {
+        case added = "torrent-added"
+        case duplicate = "torrent-duplicate"
+    }
+}
+
+private struct AddedTorrent: Decodable, Sendable {
+    let name: String
+    let hashString: String
 }
 
 private struct EmptyArgs: Decodable, Sendable {}

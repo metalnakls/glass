@@ -18,11 +18,11 @@ struct GlassApp: App {
     var body: some Scene {
         Window("Glass", id: "main") {
             GlassRootView(model: model, platformIntegration: platformIntegration)
-                .frame(minWidth: 560, minHeight: 260)
+                .frame(minWidth: 820, minHeight: 260)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
-        .defaultSize(width: 760, height: 460)
+        .defaultSize(width: 1020, height: 460)
         .commands {
             GlassCommands()
         }
@@ -108,14 +108,16 @@ private struct GlassCommands: Commands {
 
             Divider()
 
-            Button("Remove Torrent") {
+            Button("Delete Torrent") {
                 actions?.removeSelectedTorrent(false)
             }
+            .keyboardShortcut(.delete, modifiers: [])
             .disabled(actions?.canRemoveSelectedTorrent != true)
 
-            Button("Remove and Delete Data") {
+            Button("Delete Torrent + Data") {
                 actions?.removeSelectedTorrent(true)
             }
+            .keyboardShortcut(.delete, modifiers: [.command])
             .disabled(actions?.canRemoveSelectedTorrent != true)
         }
     }
@@ -126,7 +128,24 @@ private struct GlassCommands: Commands {
     }
 }
 
+@MainActor
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleOpenDocuments(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kCoreEventClass),
+            andEventID: AEEventID(kAEOpenDocuments)
+        )
+    }
+
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool {
         true
     }
@@ -140,19 +159,28 @@ private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        Task { @MainActor in
-            GlassOpenURLRouter.shared.open(urls)
-            revealMainWindow(in: application)
-        }
+        open(urls, in: application)
     }
 
     func application(_ sender: NSApplication, openFiles filenames: [String]) {
-        let urls = filenames.map(URL.init(fileURLWithPath:))
-        Task { @MainActor in
-            GlassOpenURLRouter.shared.open(urls)
-            revealMainWindow(in: sender)
-        }
+        open(filenames.map(URL.init(fileURLWithPath:)), in: sender)
         sender.reply(toOpenOrPrint: .success)
+    }
+
+    @objc
+    private func handleOpenDocuments(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor
+    ) {
+        guard let documents = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject)) else {
+            return
+        }
+
+        guard documents.numberOfItems > 0 else { return }
+        let urls = (1 ... documents.numberOfItems).compactMap { index in
+            documents.atIndex(index)?.fileURLValue
+        }
+        open(urls, in: NSApp)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -165,7 +193,11 @@ private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
-    @MainActor
+    private func open(_ urls: [URL], in application: NSApplication) {
+        GlassOpenURLRouter.shared.open(urls)
+        revealMainWindow(in: application)
+    }
+
     private func revealMainWindow(in application: NSApplication) {
         application.activate()
         application.windows.first(where: { $0.title == "Glass" })?.makeKeyAndOrderFront(nil)

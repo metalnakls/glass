@@ -224,6 +224,50 @@ struct RemoteAppModelTests {
         #expect(await localSession.addTorrentFileCount == 1)
         #expect(factory.createdCount == 0)
     }
+
+    @Test("torrent file dialog can target a source other than the sidebar selection")
+    func torrentFileCanTargetAnotherSource() async {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let localSession = StubLocalTransmissionSession()
+        let model = makeModel(profiles: [profile], factory: factory, localSession: localSession)
+
+        #expect(model.selectedSourceID == profile.id)
+
+        let succeeded = await model.addTorrentFile(
+            Data([0x04]),
+            downloadDirectory: "/Users/me/Torrents",
+            sourceID: model.localSourceID
+        )
+        model.setDownloadDirectory("/Users/me/Torrents", isFavorite: true, for: model.localSourceID)
+
+        #expect(succeeded)
+        #expect(await localSession.addTorrentFileCount == 1)
+        #expect(factory.createdCount == 0)
+        #expect(model.downloadDirectories(for: model.localSourceID) == ["/Users/me/Torrents"])
+        #expect(model.favoriteDownloadDirectories(for: model.localSourceID) == ["/Users/me/Torrents"])
+    }
+
+    @Test("auto clean renames selected paths before the torrent root")
+    func autoCleanRenamesChildrenBeforeRoot() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let factory = StubRPCClientFactory { _ in client }
+        let model = makeModel(profile: profile, factory: factory)
+        let child = TorrentPathRename(path: "Spider-Noir/Show.S02E20.mkv", name: "S02E20.mkv")
+
+        let succeeded = await model.addTorrentFile(
+            Data([0x05]),
+            downloadDirectory: nil,
+            namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [child])
+        )
+
+        #expect(succeeded)
+        #expect(await client.renamedPaths == [
+            child,
+            TorrentPathRename(path: "Spider-Noir", name: "Spider Noir")
+        ])
+    }
 }
 
 @MainActor
@@ -303,6 +347,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0
     private(set) var fetchFreeSpaceCount = 0
+    private(set) var renamedPaths: [TorrentPathRename] = []
 
     init(fetchDelay: Duration? = nil) {
         self.fetchDelay = fetchDelay
@@ -383,10 +428,16 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}
 
-    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws {
+    func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult? {
         if let addTorrentError {
             throw addTorrentError
         }
+        return TorrentAddResult(hashString: "hash-1", name: torrentName ?? self.torrentName, wasDuplicate: false)
     }
 
     func start(ids: [String]) async throws {}
@@ -399,6 +450,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func queueMoveDown(ids: [String]) async throws {}
     func queueMoveBottom(ids: [String]) async throws {}
     func renamePath(id: String, path: String, name: String) async throws {
+        renamedPaths.append(TorrentPathRename(path: path, name: name))
         if renameAppliesBeforeThrow {
             torrentName = name
         }
@@ -447,8 +499,14 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}
 
-    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws {
+    func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult? {
         addTorrentFileCount += 1
+        return TorrentAddResult(hashString: "local-hash", name: torrentName ?? "Local", wasDuplicate: false)
     }
 
     func start(ids: [String]) async throws {}

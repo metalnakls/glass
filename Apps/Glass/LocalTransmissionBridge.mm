@@ -386,7 +386,8 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         @"peersConnected": @(stat.peers_connected),
         @"downloadDir": StringFromView(tr_torrentGetDownloadDir(torrent)),
         @"bandwidthPriority": @(0),
-        @"queuePosition": @(stat.queue_position)
+        @"queuePosition": @(stat.queue_position),
+        @"fileCount": @(tr_torrentFileCount(torrent))
     };
 }
 

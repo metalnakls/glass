@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct RemovalUndoToast: View {
@@ -10,7 +11,7 @@ struct RemovalUndoToast: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var countdownProgress = 1.0
     @State private var countdownTask: Task<Void, Never>?
-    @GestureState private var dragTranslation = CGSize.zero
+    @GestureState private var dragTranslation: CGFloat = 0
 
     var body: some View {
         Group {
@@ -31,7 +32,7 @@ struct RemovalUndoToast: View {
         }
         .font(.callout)
         .frame(maxWidth: 520)
-        .offset(x: dragOffset.width, y: dragOffset.height)
+        .offset(x: dragTranslation)
         .opacity(dragOpacity)
         .padding(.bottom, 14)
         .zIndex(1)
@@ -115,22 +116,23 @@ struct RemovalUndoToast: View {
         removals.contains { $0.deleteData } ? "trash.slash" : "trash"
     }
 
-    private var dragOffset: CGSize {
-        dragTranslation
-    }
-
     private var dragOpacity: Double {
-        let distance = min(160, hypot(dragOffset.width, dragOffset.height))
+        let distance = min(160, abs(dragTranslation))
         return 1 - Double(distance / 260)
     }
 
     private var dismissGesture: some Gesture {
         DragGesture(minimumDistance: 8)
             .updating($dragTranslation) { value, state, _ in
-                state = value.translation
+                guard abs(value.translation.width) > abs(value.translation.height) else {
+                    state = 0
+                    return
+                }
+                state = value.translation.width
             }
             .onEnded { value in
                 if shouldDismiss(with: value) {
+                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
                     withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
                         dismiss()
                     }
@@ -139,11 +141,8 @@ struct RemovalUndoToast: View {
     }
 
     private func shouldDismiss(with value: DragGesture.Value) -> Bool {
-        let translation = value.translation
-        let predicted = value.predictedEndTranslation
-        let distance = hypot(translation.width, translation.height)
-        let predictedDistance = hypot(predicted.width, predicted.height)
-        return distance > 44 || predictedDistance > 90
+        guard abs(value.translation.width) > abs(value.translation.height) else { return false }
+        return abs(value.translation.width) > 56 || abs(value.predictedEndTranslation.width) > 120
     }
 
     private func restartCountdown() {

@@ -137,6 +137,57 @@ struct TransmissionRPCClientTests {
         #expect(rpcRequest.arguments["priority-low"] == .array([.int(2)]))
     }
 
+    @Test("renames a newly added torrent when a custom name is supplied")
+    func renamesNewTorrentOnAdd() async throws {
+        let transport = URLProtocolStubTransport(responses: [
+            .http(
+                status: 200,
+                headers: [:],
+                body: #"{"result":"success","arguments":{"torrent-added":{"id":7,"name":"Original","hashString":"abc123"}}}"#
+            ),
+            .http(status: 200, headers: [:], body: #"{"result":"success","arguments":{}}"#)
+        ])
+
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        try await client.addTorrentFile(
+            data: Data([0x01]),
+            torrentName: "Custom Name",
+            downloadDirectory: nil
+        )
+
+        let requests = try transport.recordedRequestBodies.map { body in
+            try JSONDecoder().decode(RecordedRPCRequest.self, from: #require(body))
+        }
+        #expect(requests.map(\.method) == ["torrent-add", "torrent-rename-path"])
+        #expect(requests[1].arguments["ids"] == .array([.string("abc123")]))
+        #expect(requests[1].arguments["path"] == .string("Original"))
+        #expect(requests[1].arguments["name"] == .string("Custom Name"))
+    }
+
+    @Test("renames a duplicate only when a custom name is supplied")
+    func renamesDuplicateOnAdd() async throws {
+        let transport = URLProtocolStubTransport(responses: [
+            .http(
+                status: 200,
+                headers: [:],
+                body: #"{"result":"success","arguments":{"torrent-duplicate":{"id":7,"name":"Original","hashString":"abc123"}}}"#
+            ),
+            .http(status: 200, headers: [:], body: #"{"result":"success","arguments":{}}"#)
+        ])
+
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        try await client.addTorrentFile(
+            data: Data([0x01]),
+            torrentName: "Custom Name",
+            downloadDirectory: nil
+        )
+
+        let requests = try transport.recordedRequestBodies.map { body in
+            try JSONDecoder().decode(RecordedRPCRequest.self, from: #require(body))
+        }
+        #expect(requests.map(\.method) == ["torrent-add", "torrent-rename-path"])
+    }
+
     @Test("fetches free space for a path")
     func fetchesFreeSpace() async throws {
         let transport = URLProtocolStubTransport(responses: [

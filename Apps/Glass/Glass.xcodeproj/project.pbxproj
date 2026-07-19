@@ -374,7 +374,7 @@
 					"-framework",
 					CoreFoundation,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.transmissionbt.glass.mac;
+				PRODUCT_BUNDLE_IDENTIFIER = tsmc.glass;
 				PRODUCT_NAME = Glass;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
@@ -429,7 +429,7 @@
 					"-framework",
 					CoreFoundation,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = org.transmissionbt.glass.mac;
+				PRODUCT_BUNDLE_IDENTIFIER = tsmc.glass;
 				PRODUCT_NAME = Glass;
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;

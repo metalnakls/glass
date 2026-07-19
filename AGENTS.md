@@ -41,7 +41,7 @@ security find-identity -v -p codesigning
 
 Bundle metadata:
 
-- bundle id: `org.transmissionbt.glass.mac`
+- bundle id: `tsmc.glass`
 - entitlements: `~/glass/Resources/Glass.entitlements`
 
 Run SwiftPM tests with: swift test --package-path ~/glass --disable-sandbox
