@@ -34,6 +34,7 @@ struct TorrentInspectorView: View {
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .glassSoftTopScrollEdge()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
