@@ -43,6 +43,7 @@ public final class RemoteAppModel {
     public var selectedTorrentGroup: TorrentGroup = .all
     public private(set) var preferences = GlassRemotePreferences()
     public private(set) var downloadDirectoryHistory: [UUID: [String]] = [:]
+    public private(set) var favoriteDownloadDirectories: [UUID: [String]] = [:]
     public private(set) var serverFreeSpace: [UUID: ServerFreeSpace] = [:]
     public var errorMessage: String?
 
@@ -191,6 +192,7 @@ public final class RemoteAppModel {
         }
         torrentCache[profile.id] = nil
         downloadDirectoryHistory[profile.id] = nil
+        favoriteDownloadDirectories[profile.id] = nil
         serverFreeSpace[profile.id] = nil
         persistProfiles()
         persistTorrentCache()
@@ -316,38 +318,100 @@ public final class RemoteAppModel {
     @discardableResult
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async -> Bool {
         let sourceID = selectedSourceID
-        rememberDownloadDirectory(downloadDirectory, for: sourceID)
-        return await performProviderAction(sourceID: sourceID) { provider in
+        let didAdd = await performProviderAction(sourceID: sourceID) { provider in
             try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
         }
+        if didAdd {
+            rememberDownloadDirectory(downloadDirectory, for: sourceID)
+        }
+        return didAdd
     }
 
     @discardableResult
     public func addTorrentFile(
         _ data: Data,
+        torrentName: String? = nil,
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection? = nil,
+        namingPlan: TorrentAddNamingPlan? = nil,
+        sourceID: UUID? = nil,
         sourceURL: URL? = nil,
         trashSourceOnSuccess: Bool = false
     ) async -> Bool {
-        let sourceID = selectedSourceID
-        rememberDownloadDirectory(downloadDirectory, for: sourceID)
+        let sourceID = sourceID ?? selectedSourceID
+        var renameWarnings: [String] = []
         let didAdd = await performProviderAction(sourceID: sourceID) { provider in
-            try await provider.addTorrentFile(data: data, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+            let result = try await provider.addTorrentFile(
+                data: data,
+                torrentName: namingPlan == nil ? torrentName : nil,
+                downloadDirectory: downloadDirectory,
+                fileSelection: fileSelection
+            )
+
+            guard let namingPlan, let result, !result.wasDuplicate else { return }
+            for rename in namingPlan.pathRenames {
+                do {
+                    try await provider.renamePath(id: result.hashString, path: rename.path, name: rename.name)
+                } catch {
+                    renameWarnings.append("\(rename.path): \(error.localizedDescription)")
+                }
+            }
+
+            guard namingPlan.rootName != result.name else { return }
+            do {
+                try await provider.renamePath(
+                    id: result.hashString,
+                    path: result.name,
+                    name: namingPlan.rootName
+                )
+            } catch {
+                renameWarnings.append("\(result.name): \(error.localizedDescription)")
+            }
+        }
+        if didAdd {
+            rememberDownloadDirectory(downloadDirectory, for: sourceID)
         }
         if didAdd, trashSourceOnSuccess {
             torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL)
+        }
+        if didAdd, !renameWarnings.isEmpty {
+            errorMessage = "The torrent was added, but some names could not be cleaned.\n\n" + renameWarnings.joined(separator: "\n")
         }
         return didAdd
     }
 
     public func downloadDirectoriesForSelectedProfile() -> [String] {
-        downloadDirectoryHistory[selectedSourceID] ?? []
+        downloadDirectories(for: selectedSourceID)
+    }
+
+    public func downloadDirectories(for sourceID: UUID) -> [String] {
+        downloadDirectoryHistory[sourceID] ?? []
+    }
+
+    public func favoriteDownloadDirectories(for sourceID: UUID) -> [String] {
+        favoriteDownloadDirectories[sourceID] ?? []
+    }
+
+    public func setDownloadDirectory(_ directory: String, isFavorite: Bool, for sourceID: UUID) {
+        let trimmed = directory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+
+        var favorites = favoriteDownloadDirectories[sourceID] ?? []
+        favorites.removeAll { $0 == trimmed }
+        if isFavorite {
+            favorites.insert(trimmed, at: 0)
+        }
+        favoriteDownloadDirectories[sourceID] = favorites
+        persistDownloadDirectoryHistory()
     }
 
     public func defaultDownloadDirectoryForSelectedProfile() async -> String? {
+        await defaultDownloadDirectory(for: selectedSourceID)
+    }
+
+    public func defaultDownloadDirectory(for sourceID: UUID) async -> String? {
         do {
-            let provider = try providerForSelectedSource()
+            let provider = try provider(for: sourceID)
             return try await provider.fetchDefaultDownloadDirectory()
         } catch {
             return nil
@@ -599,12 +663,17 @@ public final class RemoteAppModel {
         }
 
         do {
-            downloadDirectoryHistory = Dictionary(
-                uniqueKeysWithValues: try profileStore.loadDownloadDirectoryHistory().map { ($0.profileID, $0.directories) }
-            )
+            let storedDirectories = try profileStore.loadDownloadDirectoryHistory()
+            downloadDirectoryHistory = Dictionary(uniqueKeysWithValues: storedDirectories.map {
+                ($0.profileID, $0.directories)
+            })
+            favoriteDownloadDirectories = Dictionary(uniqueKeysWithValues: storedDirectories.map {
+                ($0.profileID, $0.favoriteDirectories)
+            })
             trimDownloadDirectoryHistory()
         } catch {
             downloadDirectoryHistory = [:]
+            favoriteDownloadDirectories = [:]
         }
     }
 
@@ -640,8 +709,15 @@ public final class RemoteAppModel {
 
     private func persistDownloadDirectoryHistory() {
         do {
-            let history = downloadDirectoryHistory
-                .map { DownloadDirectoryHistory(profileID: $0.key, directories: $0.value) }
+            let sourceIDs = Set(downloadDirectoryHistory.keys).union(favoriteDownloadDirectories.keys)
+            let history = sourceIDs
+                .map {
+                    DownloadDirectoryHistory(
+                        profileID: $0,
+                        directories: downloadDirectoryHistory[$0] ?? [],
+                        favoriteDirectories: favoriteDownloadDirectories[$0] ?? []
+                    )
+                }
                 .sorted { $0.profileID.uuidString < $1.profileID.uuidString }
             try profileStore.saveDownloadDirectoryHistory(history)
             errorMessage = nil
@@ -725,7 +801,9 @@ public final class RemoteAppModel {
         do {
             let provider = try provider(for: sourceID)
             try await action(provider)
-            await refresh()
+            if selectedSourceID == sourceID {
+                await refresh()
+            }
             return true
         } catch {
             errorMessage = error.localizedDescription
@@ -823,6 +901,7 @@ public final class RemoteAppModel {
     private func trimDownloadDirectoryHistory() {
         let allowedSourceIDs = Set(profiles.map(\.id) + [Self.localProfileID])
         downloadDirectoryHistory = downloadDirectoryHistory.filter { allowedSourceIDs.contains($0.key) }
+        favoriteDownloadDirectories = favoriteDownloadDirectories.filter { allowedSourceIDs.contains($0.key) }
     }
 
     private static func localDeviceSystemImage() -> String {

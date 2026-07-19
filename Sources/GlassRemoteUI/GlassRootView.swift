@@ -15,9 +15,8 @@ public struct GlassRootView: View {
     @State private var selectedTorrentHash: String?
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
+    @State private var pendingTorrentFileDrafts: [TorrentFileAddDraft] = []
     @State private var pendingProfileDeletion: RemoteProfile?
-    @State private var renamingTorrent: TorrentSummary?
-    @State private var renameDraft = ""
     @State private var pendingRenames: [PendingRemovalKey: PendingTorrentRename] = [:]
     @State private var pendingRemovals: [PendingTorrentRemoval] = []
     @State private var pendingRemovalResetToken = UUID()
@@ -66,7 +65,7 @@ public struct GlassRootView: View {
             TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
                 .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
         }
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: presentNextTorrentFileDraftIfNeeded) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
@@ -75,20 +74,32 @@ public struct GlassRootView: View {
                     ProfileEditorView(model: model, profile: profile)
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
+                case let .addTorrentFile(draft):
+                    AddTorrentFileView(
+                        model: model,
+                        platformIntegration: platformIntegration,
+                        draft: draft,
+                        submit: { sourceID, name, downloadDirectory, fileSelection, namingPlan in
+                            await submitTorrentFile(
+                                draft,
+                                sourceID: sourceID,
+                                name: name,
+                                downloadDirectory: downloadDirectory,
+                                fileSelection: fileSelection,
+                                namingPlan: namingPlan
+                            )
+                        }
+                    )
+                case let .renameTorrent(torrent):
+                    RenameTorrentView(torrent: torrent) { newName in
+                        submitRename(torrent, newName: newName)
+                    }
                 }
             }
             .presentationSizing(.form)
         }
         .alert(activeAlertTitle, isPresented: activeAlertBinding, presenting: activeAlert) { alert in
             switch alert {
-            case let .rename(torrent):
-                TextField("Name", text: $renameDraft)
-                Button("Cancel", role: .cancel) {}
-                Button("Rename") {
-                    submitRename(torrent)
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canRename(torrent))
             case let .deleteProfile(profile):
                 Button("Delete", role: .destructive) {
                     model.deleteProfile(profile)
@@ -99,8 +110,6 @@ public struct GlassRootView: View {
             }
         } message: { alert in
             switch alert {
-            case .rename:
-                EmptyView()
             case let .deleteProfile(profile):
                 Text("Remove \(profile.name) from Glass. Transmission data on the server is not changed.")
             case let .error(message):
@@ -168,9 +177,6 @@ public struct GlassRootView: View {
     }
 
     private var activeAlert: ActiveRootAlert? {
-        if let renamingTorrent {
-            return .rename(renamingTorrent)
-        }
         if let pendingProfileDeletion {
             return .deleteProfile(pendingProfileDeletion)
         }
@@ -182,8 +188,6 @@ public struct GlassRootView: View {
 
     private var activeAlertTitle: String {
         switch activeAlert {
-        case .rename:
-            return "Rename"
         case .deleteProfile:
             return "Delete Server?"
         case .error, nil:
@@ -193,8 +197,6 @@ public struct GlassRootView: View {
 
     private func dismissActiveAlert() {
         switch activeAlert {
-        case .rename:
-            renamingTorrent = nil
         case .deleteProfile:
             pendingProfileDeletion = nil
         case .error:
@@ -209,17 +211,11 @@ public struct GlassRootView: View {
     }
 
     private func beginRename(_ torrent: TorrentSummary) {
-        renameDraft = torrent.name
-        renamingTorrent = torrent
+        activeSheet = .renameTorrent(torrent)
     }
 
-    private func canRename(_ torrent: TorrentSummary) -> Bool {
-        let name = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !name.isEmpty && name != torrent.name
-    }
-
-    private func submitRename(_ torrent: TorrentSummary) {
-        let newName = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+    private func submitRename(_ torrent: TorrentSummary, newName proposedName: String) {
+        let newName = proposedName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !newName.isEmpty, newName != torrent.name else { return }
 
         let key = PendingRemovalKey(sourceID: model.selectedSourceID, hashString: torrent.hashString)
@@ -284,19 +280,25 @@ public struct GlassRootView: View {
     }
 
     private func openURLs(_ urls: [URL]) {
+        var torrentFileURLs: [URL] = []
         for url in urls {
             if let magnet = magnetLink(from: url) {
                 activeSheet = .addMagnet(magnet)
                 continue
             }
             guard url.pathExtension.lowercased() == "torrent" else { continue }
-            Task {
-                await addTorrentFile(at: url)
+            torrentFileURLs.append(url)
+        }
+
+        guard !torrentFileURLs.isEmpty else { return }
+        Task {
+            for url in torrentFileURLs {
+                await prepareTorrentFile(at: url)
             }
         }
     }
 
-    private func addTorrentFile(at url: URL) async {
+    private func prepareTorrentFile(at url: URL) async {
         do {
             let didAccess = url.startAccessingSecurityScopedResource()
             defer {
@@ -305,16 +307,55 @@ public struct GlassRootView: View {
                 }
             }
             let data = try Data(contentsOf: url)
-            _ = TorrentFilePreview(data: data, fallbackURL: url)
-            await model.addTorrentFile(
-                data,
-                downloadDirectory: nil,
-                sourceURL: url,
-                trashSourceOnSuccess: true
+            enqueueTorrentFileDraft(
+                TorrentFileAddDraft(
+                    data: data,
+                    preview: TorrentFilePreview(data: data, fallbackURL: url),
+                    sourceURL: url
+                )
             )
         } catch {
             model.errorMessage = error.localizedDescription
         }
+    }
+
+    private func enqueueTorrentFileDraft(_ draft: TorrentFileAddDraft) {
+        guard activeSheet == nil else {
+            pendingTorrentFileDrafts.append(draft)
+            return
+        }
+        activeSheet = .addTorrentFile(draft)
+    }
+
+    private func presentNextTorrentFileDraftIfNeeded() {
+        guard activeSheet == nil, !pendingTorrentFileDrafts.isEmpty else { return }
+        activeSheet = .addTorrentFile(pendingTorrentFileDrafts.removeFirst())
+    }
+
+    private func submitTorrentFile(
+        _ draft: TorrentFileAddDraft,
+        sourceID: UUID,
+        name: String,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection,
+        namingPlan: TorrentAddNamingPlan?
+    ) async -> Bool {
+        let didAccess = draft.sourceURL.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess {
+                draft.sourceURL.stopAccessingSecurityScopedResource()
+            }
+        }
+        return await model.addTorrentFile(
+            draft.data,
+            torrentName: name == draft.preview.name ? nil : name,
+            downloadDirectory: downloadDirectory,
+            fileSelection: fileSelection,
+            namingPlan: namingPlan,
+            sourceID: sourceID,
+            sourceURL: draft.sourceURL,
+            trashSourceOnSuccess: true
+        )
     }
 
     private func loadSelectedTorrentDetails() async {
@@ -418,6 +459,8 @@ private struct TorrentWorkspaceView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var isURLDropTargeted = false
+    @State private var isTextDropTargeted = false
     @Binding var selection: String?
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
@@ -460,7 +503,7 @@ private struct TorrentWorkspaceView: View {
             guard !supportedURLs.isEmpty else { return false }
             openURLs(supportedURLs)
             return true
-        }
+        } isTargeted: { isURLDropTargeted = $0 }
         .dropDestination(for: String.self) { strings, _ in
             for string in strings {
                 if let magnet = normalizedMagnetLink(from: string) {
@@ -469,6 +512,23 @@ private struct TorrentWorkspaceView: View {
                 }
             }
             return false
+        } isTargeted: { isTextDropTargeted = $0 }
+        .overlay {
+            if isTorrentDropTargeted {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+
+                    Label("Drop to Add Torrent", systemImage: "doc.badge.plus")
+                        .font(.headline)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .glassEffect(.regular, in: .capsule)
+                }
+                .padding(12)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+            }
         }
         .overlay(alignment: .bottom) {
             if !pendingRemovals.isEmpty {
@@ -488,6 +548,7 @@ private struct TorrentWorkspaceView: View {
             }
         }
         .animation(accessibilityReduceMotion ? nil : .snappy(duration: 0.28), value: pendingRemovals)
+        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: isTorrentDropTargeted)
     }
 
     private var visibleTorrents: [TorrentSummary] {
@@ -540,12 +601,18 @@ private struct TorrentWorkspaceView: View {
     private func isSupportedDropURL(_ url: URL) -> Bool {
         magnetLink(from: url) != nil || url.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
     }
+
+    private var isTorrentDropTargeted: Bool {
+        isURLDropTargeted || isTextDropTargeted
+    }
 }
 
 private enum ActiveSheet: Identifiable {
     case newProfile
     case editProfile(RemoteProfile)
     case addMagnet(String)
+    case addTorrentFile(TorrentFileAddDraft)
+    case renameTorrent(TorrentSummary)
 
     var id: String {
         switch self {
@@ -555,12 +622,15 @@ private enum ActiveSheet: Identifiable {
             return "edit-profile-\(profile.id.uuidString)"
         case let .addMagnet(magnet):
             return "add-magnet-\(magnet)"
+        case let .addTorrentFile(draft):
+            return "add-torrent-file-\(draft.id.uuidString)"
+        case let .renameTorrent(torrent):
+            return "rename-torrent-\(torrent.hashString)"
         }
     }
 }
 
 private enum ActiveRootAlert {
-    case rename(TorrentSummary)
     case deleteProfile(RemoteProfile)
     case error(String)
 }
@@ -615,7 +685,8 @@ private extension TorrentSummary {
             peersConnected: peersConnected,
             downloadDir: downloadDir,
             bandwidthPriority: bandwidthPriority,
-            queuePosition: queuePosition
+            queuePosition: queuePosition,
+            fileCount: fileCount
         )
     }
 }

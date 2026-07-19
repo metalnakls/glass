@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import GlassRemoteCore
 
@@ -85,6 +86,62 @@ struct ModelsTests {
         #expect(merged[0] == unchanged)
         #expect(merged[0].queuePosition == 2)
         #expect(merged[1] == changedIncoming)
+    }
+
+    @Test("cleans TV episode and movie release names")
+    func cleansMediaReleaseNames() {
+        #expect(
+            TorrentNameCleaner.cleanMediaFileName(
+                "Show.Name.S02E20.Episode.Name.1080p.WEB-DL.x264.mkv"
+            ) == "S02E20 — Episode Name.mkv"
+        )
+        #expect(TorrentNameCleaner.cleanMediaFileName("Show.Name.2x20.720p.mkv") == "S02E20.mkv")
+        #expect(TorrentNameCleaner.cleanMediaFileName("Film.2024.2160p.BluRay.x265.mkv") == "Film.mkv")
+    }
+
+    @Test("builds an opt-in naming plan for selected media only")
+    func buildsTorrentNamingPlan() throws {
+        let files = [
+            TorrentFile(
+                name: "Show.Name.S02.1080p/Show.Name.S02E20.Episode.Name.1080p.mkv",
+                length: 100,
+                bytesCompleted: 0
+            ),
+            TorrentFile(name: "Show.Name.S02.1080p/readme.txt", length: 1, bytesCompleted: 0),
+            TorrentFile(
+                name: "Show.Name.S02.1080p/Show.Name.S02E21.1080p.mkv",
+                length: 100,
+                bytesCompleted: 0
+            )
+        ]
+
+        let plan = try #require(TorrentNameCleaner.plan(
+            rootName: "Show.Name.S02.1080p",
+            files: files,
+            selectedFileIndices: [0, 1]
+        ))
+
+        #expect(plan.rootName == "Show Name")
+        #expect(plan.pathRenames == [
+            TorrentPathRename(
+                path: files[0].name,
+                name: "S02E20 — Episode Name.mkv"
+            )
+        ])
+    }
+
+    @Test("decodes download directory history saved before favorites")
+    func downloadDirectoryHistoryBackwardsCompatibility() throws {
+        let profileID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
+        let data = Data(
+            #"{"profileID":"AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE","directories":["/downloads"]}"#.utf8
+        )
+
+        let history = try JSONDecoder().decode(DownloadDirectoryHistory.self, from: data)
+
+        #expect(history.profileID == profileID)
+        #expect(history.directories == ["/downloads"])
+        #expect(history.favoriteDirectories.isEmpty)
     }
 }
 

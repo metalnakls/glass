@@ -76,13 +76,28 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         try ensureBridge().addMagnet(magnet, downloadDirectory: downloadDirectory)
     }
 
-    func addTorrentFile(data: Data, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws {
+    func addTorrentFile(
+        data: Data,
+        torrentName: String?,
+        downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection?
+    ) async throws -> TorrentAddResult? {
+        let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
         try ensureBridge().addTorrentData(data, downloadDirectory: downloadDirectory)
-        if let fileSelection, !fileSelection.isEmpty {
-            let snapshot = try await fetchSnapshot()
-            guard let newest = snapshot.torrents.first else { return }
-            try await apply(fileSelection, to: newest.hashString)
+        let snapshot = try await fetchSnapshot()
+        guard let addedTorrent = snapshot.torrents.first(where: { !existingTorrentHashes.contains($0.hashString) }) else {
+            return nil
         }
+        if let fileSelection, !fileSelection.isEmpty {
+            try await apply(fileSelection, to: addedTorrent.hashString)
+        }
+        if let torrentName = torrentName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !torrentName.isEmpty,
+           torrentName != addedTorrent.name {
+            try await renamePath(id: addedTorrent.hashString, path: addedTorrent.name, name: torrentName)
+            return TorrentAddResult(hashString: addedTorrent.hashString, name: torrentName, wasDuplicate: false)
+        }
+        return TorrentAddResult(hashString: addedTorrent.hashString, name: addedTorrent.name, wasDuplicate: false)
     }
 
     func start(ids: [String]) async throws {
@@ -258,7 +273,8 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
             peersConnected: dictionary.optionalInt("peersConnected"),
             downloadDir: dictionary.string("downloadDir"),
             bandwidthPriority: dictionary.optionalInt("bandwidthPriority"),
-            queuePosition: dictionary.optionalInt("queuePosition")
+            queuePosition: dictionary.optionalInt("queuePosition"),
+            fileCount: dictionary.optionalInt("fileCount")
         )
     }
 
