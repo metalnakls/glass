@@ -21,7 +21,6 @@ struct GlassApp: App {
                 .frame(minWidth: 560, minHeight: 260)
         }
         .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
         .defaultSize(width: 760, height: 460)
         .commands {
             GlassCommands()

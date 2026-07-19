@@ -44,6 +44,10 @@ let package = Package(
                 "GlassRemoteCore",
                 "GlassRemoteServices"
             ]
+        ),
+        .testTarget(
+            name: "GlassRemoteUITests",
+            dependencies: ["GlassRemoteUI"]
         )
     ],
     swiftLanguageModes: [.v6]

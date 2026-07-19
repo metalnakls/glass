@@ -45,8 +45,6 @@ struct ProfileSidebarView: View {
             }
         }
         .listStyle(.sidebar)
-        .navigationSplitViewColumnWidth(min: 150, ideal: 220, max: 320)
-        .glassSoftTopScrollEdge()
     }
 
     private func sidebarRow(title: String, subtitle: String?, systemImage: String) -> some View {

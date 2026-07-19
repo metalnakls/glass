@@ -10,8 +10,6 @@ public struct GlassRootView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @SceneStorage("GlassRoot.columnVisibility") private var storedColumnVisibility = "automatic"
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
-    @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
-    @State private var didRestoreColumnVisibility = false
     @State private var selectedTorrentHash: String?
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
@@ -33,7 +31,14 @@ public struct GlassRootView: View {
     }
 
     public var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
+        AppKitWorkspaceSplitView(
+            isSidebarCollapsed: sidebarCollapsedBinding,
+            windowTitle: "\(model.selectedSourceName) – \(selectedSourceSubtitle)",
+            title: model.selectedSourceName,
+            subtitle: selectedSourceSubtitle,
+            isFilterActive: model.selectedTorrentGroup == .downloading,
+            toggleFilter: toggleDownloadingFilter
+        ) {
             ProfileSidebarView(
                 model: model,
                 selection: Binding(
@@ -43,7 +48,7 @@ public struct GlassRootView: View {
                 editProfile: { activeSheet = .editProfile($0) },
                 deleteProfile: { pendingProfileDeletion = $0 }
             )
-        } detail: {
+        } main: {
             TorrentWorkspaceView(
                 model: model,
                 platformIntegration: platformIntegration,
@@ -61,10 +66,8 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
-        }
-        .inspector(isPresented: .constant(true)) {
+        } inspector: {
             TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
-                .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
         }
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
@@ -120,7 +123,6 @@ public struct GlassRootView: View {
             }
         }
         .task {
-            restoreColumnVisibilityIfNeeded()
             persistSelectedSourceID()
             let registrationID = GlassOpenURLRouter.shared.register { urls in
                 openURLs(urls)
@@ -132,9 +134,6 @@ public struct GlassRootView: View {
             persistSelectedSourceID()
             selectedTorrentHash = nil
             Task { await model.refresh() }
-        }
-        .onChange(of: columnVisibility) { _, visibility in
-            storedColumnVisibility = key(for: visibility)
         }
         .onChange(of: selectedTorrentHash) { _, _ in
             Task { await loadSelectedTorrentDetails() }
@@ -247,40 +246,21 @@ public struct GlassRootView: View {
         storedSelectedSourceID = model.selectedSourceID.uuidString
     }
 
-    private func restoreColumnVisibilityIfNeeded() {
-        guard !didRestoreColumnVisibility else { return }
-        didRestoreColumnVisibility = true
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            columnVisibility = visibility(for: storedColumnVisibility)
-        }
+    private var sidebarCollapsedBinding: Binding<Bool> {
+        Binding(
+            get: { storedColumnVisibility == "detailOnly" },
+            set: { storedColumnVisibility = $0 ? "detailOnly" : "all" }
+        )
     }
 
-    private func key(for visibility: NavigationSplitViewVisibility) -> String {
-        switch visibility {
-        case .detailOnly:
-            return "detailOnly"
-        case .doubleColumn:
-            return "doubleColumn"
-        case .all:
-            return "all"
-        default:
-            return "automatic"
+    private var selectedSourceSubtitle: String {
+        if let freeSpace = model.serverFreeSpace[model.selectedSourceID]?.availableBytes {
+            return "\(formatBytes(freeSpace)) free"
         }
-    }
-
-    private func visibility(for key: String) -> NavigationSplitViewVisibility {
-        switch key {
-        case "detailOnly":
-            return .detailOnly
-        case "doubleColumn":
-            return .doubleColumn
-        case "all":
-            return .all
-        default:
-            return .automatic
+        if model.isLocalSourceSelected {
+            return "Local downloads on this Mac"
         }
+        return model.selectedSourceRPCURL.host(percentEncoded: false) ?? model.selectedSourceRPCURL.absoluteString
     }
 
     private func openURLs(_ urls: [URL]) {
@@ -443,18 +423,6 @@ private struct TorrentWorkspaceView: View {
             remove: remove,
             removeSelected: removeSelected
         )
-        .navigationTitle(model.selectedSourceName)
-        .navigationSubtitle(navigationSubtitle)
-        .toolbar {
-            ToolbarItem {
-                Toggle(isOn: downloadingFilterBinding) {
-                    Label("Show Downloading Torrents", systemImage: "line.3.horizontal.decrease")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
-            }
-        }
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -510,31 +478,6 @@ private struct TorrentWorkspaceView: View {
             guard pendingRename.key.sourceID == sourceID else { return nil }
             return (pendingRename.key.hashString, pendingRename.oldName)
         })
-    }
-
-    private var navigationSubtitle: String {
-        if let freeSpace = model.serverFreeSpace[model.selectedSourceID]?.availableBytes {
-            return "\(formatBytes(freeSpace)) free"
-        }
-        if model.isLocalSourceSelected {
-            return "Local downloads on this Mac"
-        }
-        return model.selectedSourceRPCURL.host(percentEncoded: false) ?? model.selectedSourceRPCURL.absoluteString
-    }
-
-    private func toggleDownloadingFilter() {
-        model.selectedTorrentGroup = isDownloadingFilterActive ? .all : .downloading
-    }
-
-    private var isDownloadingFilterActive: Bool {
-        model.selectedTorrentGroup == .downloading
-    }
-
-    private var downloadingFilterBinding: Binding<Bool> {
-        Binding(
-            get: { isDownloadingFilterActive },
-            set: { model.selectedTorrentGroup = $0 ? .downloading : .all }
-        )
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
