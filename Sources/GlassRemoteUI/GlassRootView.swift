@@ -5,12 +5,13 @@ import UniformTypeIdentifiers
 
 public struct GlassRootView: View {
     private let model: RemoteAppModel
+    private let platformIntegration: any GlassPlatformIntegrating
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @SceneStorage("GlassRoot.columnVisibility") private var storedColumnVisibility = "automatic"
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var didRestoreColumnVisibility = false
-    @State private var isInspectorPresented = true
     @State private var selectedTorrentHash: String?
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
@@ -23,8 +24,12 @@ public struct GlassRootView: View {
     @State private var committingRemovalKeys = Set<PendingRemovalKey>()
     @State private var pendingRemovalTask: Task<Void, Never>?
 
-    public init(model: RemoteAppModel) {
+    public init(
+        model: RemoteAppModel,
+        platformIntegration: any GlassPlatformIntegrating = UnavailableGlassPlatformIntegration.shared
+    ) {
         self.model = model
+        self.platformIntegration = platformIntegration
     }
 
     public var body: some View {
@@ -41,8 +46,8 @@ public struct GlassRootView: View {
         } detail: {
             TorrentWorkspaceView(
                 model: model,
+                platformIntegration: platformIntegration,
                 selection: $selectedTorrentHash,
-                isInspectorPresented: $isInspectorPresented,
                 pendingRenames: pendingRenames,
                 pendingRemovals: pendingRemovals,
                 committingRemovalKeys: committingRemovalKeys,
@@ -56,10 +61,10 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
-            .inspector(isPresented: $isInspectorPresented) {
-                TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
-                    .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
-            }
+        }
+        .inspector(isPresented: .constant(true)) {
+            TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
+                .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
         }
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
@@ -69,7 +74,7 @@ public struct GlassRootView: View {
                 case let .editProfile(profile):
                     ProfileEditorView(model: model, profile: profile)
                 case let .addMagnet(magnet):
-                    AddMagnetView(model: model, magnet: magnet)
+                    AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
                 }
             }
             .presentationSizing(.form)
@@ -107,18 +112,20 @@ public struct GlassRootView: View {
             allowedContentTypes: [.torrentFile],
             allowsMultipleSelection: true
         ) { result in
-            if case let .success(urls) = result {
+            switch result {
+            case let .success(urls):
                 openURLs(urls)
+            case let .failure(error):
+                model.errorMessage = error.localizedDescription
             }
         }
         .task {
             restoreColumnVisibilityIfNeeded()
             persistSelectedSourceID()
-            await MainActor.run {
-                GlassOpenURLRouter.shared.register { urls in
-                    openURLs(urls)
-                }
+            let registrationID = GlassOpenURLRouter.shared.register { urls in
+                openURLs(urls)
             }
+            defer { GlassOpenURLRouter.shared.unregister(registrationID) }
             await model.runAutoRefresh()
         }
         .onChange(of: model.selectedProfileID) { _, _ in
@@ -132,29 +139,25 @@ public struct GlassRootView: View {
         .onChange(of: selectedTorrentHash) { _, _ in
             Task { await loadSelectedTorrentDetails() }
         }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandAddServer)) { _ in
-            activeSheet = .newProfile
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandAddMagnet)) { _ in
-            activeSheet = .addMagnet("")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandAddTorrentFile)) { _ in
-            isFileImporterPresented = true
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandToggleDownloadingFilter)) { _ in
-            toggleDownloadingFilter()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandRemoveSelectedTorrent)) { _ in
-            removeSelectedTorrent(deleteData: false)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .glassCommandRemoveSelectedTorrentAndData)) { _ in
-            removeSelectedTorrent(deleteData: true)
-        }
+        .focusedSceneValue(\.glassCommandActions, commandActions)
     }
 
     private var selectedTorrent: TorrentSummary? {
         guard let selectedTorrentHash else { return nil }
         return model.filteredTorrents.first { $0.hashString == selectedTorrentHash }
+    }
+
+    private var commandActions: GlassCommandActions {
+        GlassCommandActions(
+            addServer: { activeSheet = .newProfile },
+            addMagnet: { activeSheet = .addMagnet("") },
+            addTorrentFile: { isFileImporterPresented = true },
+            openMagnet: { activeSheet = .addMagnet($0) },
+            toggleDownloadingFilter: toggleDownloadingFilter,
+            isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
+            canRemoveSelectedTorrent: selectedTorrent != nil && activeSheet == nil && activeAlert == nil,
+            removeSelectedTorrent: removeSelectedTorrent
+        )
     }
 
     private var activeAlertBinding: Binding<Bool> {
@@ -225,7 +228,7 @@ public struct GlassRootView: View {
             oldName: torrent.name,
             newName: newName
         )
-        withAnimation(.snappy(duration: 0.22)) {
+        withAnimation(motionAnimation(.snappy(duration: 0.22))) {
             pendingRenames[key] = pendingRename
         }
 
@@ -233,7 +236,7 @@ public struct GlassRootView: View {
             _ = await model.rename(torrent, to: newName)
             await MainActor.run {
                 guard pendingRenames[key]?.id == pendingRename.id else { return }
-                withAnimation(.snappy(duration: 0.22)) {
+                withAnimation(motionAnimation(.snappy(duration: 0.22))) {
                     pendingRenames[key] = nil
                 }
             }
@@ -326,7 +329,7 @@ public struct GlassRootView: View {
     private func scheduleRemoval(_ torrent: TorrentSummary, deleteData: Bool) {
         let sourceID = model.selectedSourceID
         let key = PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString)
-        withAnimation(.snappy(duration: 0.28)) {
+        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
             pendingRemovals.removeAll { $0.key == key }
             pendingRemovals.append(PendingTorrentRemoval(sourceID: sourceID, torrent: torrent, deleteData: deleteData))
             pendingRemovalResetToken = UUID()
@@ -360,7 +363,7 @@ public struct GlassRootView: View {
 
         pendingRemovalTask?.cancel()
         pendingRemovalTask = nil
-        withAnimation(.snappy(duration: 0.28)) {
+        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
             pendingRemovals = []
             if selectedTorrentHash == nil {
                 selectedTorrentHash = restoredSelection
@@ -381,7 +384,7 @@ public struct GlassRootView: View {
         guard !removals.isEmpty else { return }
 
         let keys = removals.map(\.key)
-        withAnimation(.snappy(duration: 0.28)) {
+        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
             committingRemovalKeys.formUnion(keys)
             pendingRemovals = []
         }
@@ -405,12 +408,17 @@ public struct GlassRootView: View {
             }
         }
     }
+
+    private func motionAnimation(_ animation: Animation) -> Animation? {
+        accessibilityReduceMotion ? nil : animation
+    }
 }
 
 private struct TorrentWorkspaceView: View {
     let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Binding var selection: String?
-    @Binding var isInspectorPresented: Bool
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
     let committingRemovalKeys: Set<PendingRemovalKey>
@@ -427,6 +435,7 @@ private struct TorrentWorkspaceView: View {
     var body: some View {
         TorrentListView(
             model: model,
+            platformIntegration: platformIntegration,
             torrents: visibleTorrents,
             pendingRenameOldNames: pendingRenameOldNames,
             selection: $selection,
@@ -437,24 +446,19 @@ private struct TorrentWorkspaceView: View {
         .navigationTitle(model.selectedSourceName)
         .navigationSubtitle(navigationSubtitle)
         .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    toggleDownloadingFilter()
-                } label: {
-                    Label("Show Downloading Torrents", systemImage: "line.3.horizontal.decrease.circle")
+            ToolbarItem {
+                Toggle(isOn: downloadingFilterBinding) {
+                    Label("Show Downloading Torrents", systemImage: "line.3.horizontal.decrease")
                 }
-                .help("Show Downloading Torrents")
-
-                Button {
-                    isInspectorPresented.toggle()
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.trailing")
-                }
-                .help("Inspector")
+                .toggleStyle(.button)
+                .labelStyle(.iconOnly)
+                .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
             }
         }
         .dropDestination(for: URL.self) { urls, _ in
-            openURLs(urls)
+            let supportedURLs = urls.filter(isSupportedDropURL)
+            guard !supportedURLs.isEmpty else { return false }
+            openURLs(supportedURLs)
             return true
         }
         .dropDestination(for: String.self) { strings, _ in
@@ -476,10 +480,14 @@ private struct TorrentWorkspaceView: View {
                     dismiss: dismissRemovals
                 )
                 .padding(.horizontal, 16)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .transition(
+                    accessibilityReduceMotion
+                        ? .opacity
+                        : .move(edge: .bottom).combined(with: .opacity)
+                )
             }
         }
-        .animation(.snappy(duration: 0.28), value: pendingRemovals)
+        .animation(accessibilityReduceMotion ? nil : .snappy(duration: 0.28), value: pendingRemovals)
     }
 
     private var visibleTorrents: [TorrentSummary] {
@@ -515,7 +523,22 @@ private struct TorrentWorkspaceView: View {
     }
 
     private func toggleDownloadingFilter() {
-        model.selectedTorrentGroup = model.selectedTorrentGroup == .downloading ? .all : .downloading
+        model.selectedTorrentGroup = isDownloadingFilterActive ? .all : .downloading
+    }
+
+    private var isDownloadingFilterActive: Bool {
+        model.selectedTorrentGroup == .downloading
+    }
+
+    private var downloadingFilterBinding: Binding<Bool> {
+        Binding(
+            get: { isDownloadingFilterActive },
+            set: { model.selectedTorrentGroup = $0 ? .downloading : .all }
+        )
+    }
+
+    private func isSupportedDropURL(_ url: URL) -> Bool {
+        magnetLink(from: url) != nil || url.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
     }
 }
 

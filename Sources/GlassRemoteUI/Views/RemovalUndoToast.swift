@@ -7,6 +7,7 @@ struct RemovalUndoToast: View {
     let undo: () -> Void
     let dismiss: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var countdownProgress = 1.0
     @State private var countdownTask: Task<Void, Never>?
     @GestureState private var dragTranslation = CGSize.zero
@@ -52,13 +53,15 @@ struct RemovalUndoToast: View {
     private var toastSurface: some View {
         toastContent
             .overlay(alignment: .bottomLeading) {
-                GeometryReader { proxy in
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.95))
-                        .frame(width: max(0, proxy.size.width * CGFloat(countdownProgress)), height: 2)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                if !accessibilityReduceMotion {
+                    GeometryReader { proxy in
+                        Rectangle()
+                            .fill(Color.accentColor.opacity(0.95))
+                            .frame(width: max(0, proxy.size.width * CGFloat(countdownProgress)), height: 2)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                    }
+                    .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             }
             .clipShape(Capsule())
     }
@@ -128,7 +131,7 @@ struct RemovalUndoToast: View {
             }
             .onEnded { value in
                 if shouldDismiss(with: value) {
-                    withAnimation(.snappy(duration: 0.22)) {
+                    withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
                         dismiss()
                     }
                 }
@@ -145,6 +148,11 @@ struct RemovalUndoToast: View {
 
     private func restartCountdown() {
         countdownTask?.cancel()
+
+        guard !accessibilityReduceMotion else {
+            countdownProgress = 0
+            return
+        }
 
         var transaction = Transaction()
         transaction.disablesAnimations = true

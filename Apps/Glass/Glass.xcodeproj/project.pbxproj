@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		101000000000000000000001 /* GlassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000001 /* GlassApp.swift */; };
+		10100000000000000000000E /* GlassMacPlatformIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000F /* GlassMacPlatformIntegration.swift */; };
 		10100000000000000000000C /* LocalTransmissionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000C /* LocalTransmissionSession.swift */; };
 		10100000000000000000000D /* LocalTransmissionBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000D /* LocalTransmissionBridge.mm */; };
 		101000000000000000000008 /* GlassRemoteCore in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000002 /* GlassRemoteCore */; };
@@ -18,6 +19,7 @@
 
 /* Begin PBXFileReference section */
 		102000000000000000000001 /* GlassApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassApp.swift; sourceTree = "<group>"; };
+		10200000000000000000000F /* GlassMacPlatformIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassMacPlatformIntegration.swift; sourceTree = "<group>"; };
 		10200000000000000000000B /* Glass-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Glass-Bridging-Header.h"; sourceTree = "<group>"; };
 		10200000000000000000000C /* LocalTransmissionSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalTransmissionSession.swift; sourceTree = "<group>"; };
 		10200000000000000000000D /* LocalTransmissionBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = LocalTransmissionBridge.mm; sourceTree = "<group>"; };
@@ -59,6 +61,7 @@
 			isa = PBXGroup;
 			children = (
 				102000000000000000000001 /* GlassApp.swift */,
+				10200000000000000000000F /* GlassMacPlatformIntegration.swift */,
 				10200000000000000000000C /* LocalTransmissionSession.swift */,
 				10200000000000000000000D /* LocalTransmissionBridge.mm */,
 				10200000000000000000000E /* LocalTransmissionBridge.h */,
@@ -203,6 +206,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				101000000000000000000001 /* GlassApp.swift in Sources */,
+				10100000000000000000000E /* GlassMacPlatformIntegration.swift in Sources */,
 				10100000000000000000000C /* LocalTransmissionSession.swift in Sources */,
 				10100000000000000000000D /* LocalTransmissionBridge.mm in Sources */,
 			);

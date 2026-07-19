@@ -4,12 +4,14 @@ import SwiftUI
 
 struct TorrentListView: View {
     let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
     let torrents: [TorrentSummary]
     let pendingRenameOldNames: [String: String]
     @Binding var selection: String?
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
     let removeSelected: (Bool) -> Void
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var collapsedAutoGroupIDs = Set<String>()
     @State private var groupedItems: [TorrentListItem]
     @State private var usesCompactRows = false
@@ -18,6 +20,7 @@ struct TorrentListView: View {
 
     init(
         model: RemoteAppModel,
+        platformIntegration: any GlassPlatformIntegrating,
         torrents: [TorrentSummary],
         pendingRenameOldNames: [String: String],
         selection: Binding<String?>,
@@ -26,6 +29,7 @@ struct TorrentListView: View {
         removeSelected: @escaping (Bool) -> Void
     ) {
         self.model = model
+        self.platformIntegration = platformIntegration
         self.torrents = torrents
         self.pendingRenameOldNames = pendingRenameOldNames
         self._selection = selection
@@ -59,10 +63,25 @@ struct TorrentListView: View {
                 removeSelected(keyPress.modifiers.contains(.command))
                 return .handled
             }
+            .onKeyPress(.space, phases: [.down]) { _ in
+                guard
+                    model.isLocalSourceSelected,
+                    let selectedTorrent,
+                    platformIntegration.canPreviewDownloadedItem(for: selectedTorrent)
+                else {
+                    return .ignored
+                }
+                platformIntegration.previewDownloadedItem(for: selectedTorrent)
+                return .handled
+            }
             .onChange(of: selection) { _, id in
                 guard let id else { return }
-                withAnimation(.snappy(duration: 0.24)) {
+                if accessibilityReduceMotion {
                     proxy.scrollTo(id, anchor: .center)
+                } else {
+                    withAnimation(.snappy(duration: 0.24)) {
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                 }
             }
             .onChange(of: torrents) { _, torrents in
@@ -237,7 +256,7 @@ struct TorrentListView: View {
     }
 
     private func toggleAutoGroup(_ id: String) {
-        withAnimation(.smooth(duration: 0.32)) {
+        withAnimation(accessibilityReduceMotion ? nil : .smooth(duration: 0.32)) {
             if collapsedAutoGroupIDs.contains(id) {
                 collapsedAutoGroupIDs.remove(id)
             } else {
@@ -335,6 +354,21 @@ struct TorrentListView: View {
         Button("Rename...") {
             rename(torrent)
         }
+
+        if model.isLocalSourceSelected {
+            Divider()
+
+            Button("Quick Look") {
+                platformIntegration.previewDownloadedItem(for: torrent)
+            }
+            .disabled(!platformIntegration.canPreviewDownloadedItem(for: torrent))
+
+            Button("Show in Finder") {
+                platformIntegration.revealDownloadedItem(for: torrent)
+            }
+            .disabled(!platformIntegration.canRevealDownloadedItem(for: torrent))
+        }
+
         Divider()
         Button("Remove") {
             remove(torrent, false)
