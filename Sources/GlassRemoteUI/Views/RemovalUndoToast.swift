@@ -58,7 +58,8 @@ struct RemovalUndoToast: View {
                     GeometryReader { proxy in
                         Rectangle()
                             .fill(Color.accentColor.opacity(0.95))
-                            .frame(width: max(0, proxy.size.width * CGFloat(countdownProgress)), height: 2)
+                            .frame(width: proxy.size.width, height: 2)
+                            .scaleEffect(x: max(0, countdownProgress), anchor: .leading)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
                     .allowsHitTesting(false)

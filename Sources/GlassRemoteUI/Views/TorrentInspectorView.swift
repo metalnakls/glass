@@ -19,7 +19,7 @@ struct TorrentInspectorView: View {
 
     var body: some View {
         Group {
-            if selectedTorrent == nil {
+            if selectedTorrentHash == nil {
                 ContentUnavailableView(
                     "No Torrent Selected",
                     systemImage: "info.circle",
@@ -49,15 +49,9 @@ struct TorrentInspectorView: View {
                     .padding(.vertical, 14)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .glassSoftTopScrollEdge()
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var selectedTorrent: TorrentSummary? {
-        guard let selectedTorrentHash else { return nil }
-        return model.filteredTorrents.first { $0.hashString == selectedTorrentHash }
     }
 
     @ViewBuilder
@@ -184,11 +178,11 @@ struct TorrentInspectorView: View {
                     Text("Settings")
                 }
             }
-        } else if let selectedTorrent {
+        } else if selectedTorrentHash != nil {
             VStack(alignment: .leading, spacing: 10) {
-                Text(selectedTorrent.name)
+                Text("Details Unavailable")
                     .font(.title3.bold())
-                Text("Select a torrent to load details.")
+                Text("Select the torrent again to load details.")
                     .foregroundStyle(.secondary)
             }
         }
