@@ -25,6 +25,7 @@ struct GlassApp: App {
         .defaultSize(width: 1020, height: 460)
         .commands {
             GlassCommands()
+            ToolbarCommands()
         }
 
         Settings {

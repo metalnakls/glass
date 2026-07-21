@@ -65,6 +65,25 @@ public struct GlassRootView: View {
             TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
                 .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
         }
+        .toolbar(id: "Glass.main") {
+            ToolbarSpacer(.flexible)
+
+            ToolbarItem(id: "downloadingFilter", placement: .primaryAction) {
+                Toggle(isOn: downloadingFilterBinding) {
+                    Label(
+                        isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents",
+                        systemImage: isDownloadingFilterActive
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle"
+                    )
+                }
+                .toggleStyle(.button)
+                .buttonBorderShape(.circle)
+                .labelStyle(.iconOnly)
+                .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
+            }
+            .visibilityPriority(.high)
+        }
         .sheet(item: $activeSheet, onDismiss: presentNextTorrentFileDraftIfNeeded) { sheet in
             NavigationStack {
                 switch sheet {
@@ -208,6 +227,17 @@ public struct GlassRootView: View {
 
     private func toggleDownloadingFilter() {
         model.selectedTorrentGroup = model.selectedTorrentGroup == .downloading ? .all : .downloading
+    }
+
+    private var isDownloadingFilterActive: Bool {
+        model.selectedTorrentGroup == .downloading
+    }
+
+    private var downloadingFilterBinding: Binding<Bool> {
+        Binding(
+            get: { isDownloadingFilterActive },
+            set: { model.selectedTorrentGroup = $0 ? .downloading : .all }
+        )
     }
 
     private func beginRename(_ torrent: TorrentSummary) {
@@ -489,17 +519,6 @@ private struct TorrentWorkspaceView: View {
         )
         .navigationTitle(model.selectedSourceName)
         .navigationSubtitle(navigationSubtitle)
-        .toolbarTitleDisplayMode(.inlineLarge)
-        .toolbar {
-            ToolbarItem {
-                Toggle(isOn: downloadingFilterBinding) {
-                    Label("Show Downloading Torrents", systemImage: "line.3.horizontal.decrease")
-                }
-                .toggleStyle(.button)
-                .labelStyle(.iconOnly)
-                .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
-            }
-        }
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -559,21 +578,6 @@ private struct TorrentWorkspaceView: View {
             return "Local downloads on this Mac"
         }
         return model.selectedSourceRPCURL.host(percentEncoded: false) ?? model.selectedSourceRPCURL.absoluteString
-    }
-
-    private func toggleDownloadingFilter() {
-        model.selectedTorrentGroup = isDownloadingFilterActive ? .all : .downloading
-    }
-
-    private var isDownloadingFilterActive: Bool {
-        model.selectedTorrentGroup == .downloading
-    }
-
-    private var downloadingFilterBinding: Binding<Bool> {
-        Binding(
-            get: { isDownloadingFilterActive },
-            set: { model.selectedTorrentGroup = $0 ? .downloading : .all }
-        )
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
