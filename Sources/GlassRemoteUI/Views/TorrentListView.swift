@@ -5,6 +5,7 @@ import SwiftUI
 struct TorrentListView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
+    let sourceID: UUID
     let torrents: [TorrentSummary]
     let pendingRenameOldNames: [String: String]
     @Binding var selection: String?
@@ -16,12 +17,14 @@ struct TorrentListView: View {
     @State private var collapsedAutoGroupIDs = Set<String>()
     @State private var groupingTopology: [TorrentListItem]
     @State private var displayedTorrents: [TorrentSummary]
-    @State private var updateBuffer = TorrentListUpdateBuffer()
+    @State private var displayedGroupingIdentity: [TorrentGroupingIdentity]
+    @State private var rows: [TorrentListRowPresentation]
     @State private var showsTorrentIcons = true
 
     init(
         model: RemoteAppModel,
         platformIntegration: any GlassPlatformIntegrating,
+        sourceID: UUID,
         torrents: [TorrentSummary],
         pendingRenameOldNames: [String: String],
         selection: Binding<String?>,
@@ -31,41 +34,68 @@ struct TorrentListView: View {
     ) {
         self.model = model
         self.platformIntegration = platformIntegration
+        self.sourceID = sourceID
         self.torrents = torrents
         self.pendingRenameOldNames = pendingRenameOldNames
         _selection = selection
         self.rename = rename
         self.remove = remove
         self.removeSelected = removeSelected
-        _groupingTopology = State(initialValue: TorrentNameSequenceGrouper.items(for: torrents))
+        let topology = TorrentNameSequenceGrouper.items(for: torrents)
+        _groupingTopology = State(initialValue: topology)
         _displayedTorrents = State(initialValue: torrents)
+        _displayedGroupingIdentity = State(initialValue: Self.groupingIdentity(for: torrents))
+        _rows = State(initialValue: TorrentListRowPresentation.rows(
+            topology: topology,
+            torrents: torrents,
+            collapsedGroupIDs: [],
+            pendingRenameOldNames: pendingRenameOldNames
+        ))
     }
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(groupedItems) { item in
-                switch item {
-                case let .torrent(torrent):
-                    torrentRow(torrent)
-                case let .group(group):
-                    torrentGroupRows(group)
+            ForEach(rows) { row in
+                TorrentRowView(
+                    torrent: row.torrent,
+                    showsIcon: showsTorrentIcons,
+                    groupIsExpanded: row.groupIsExpanded,
+                    toggleGroupExpansion: { toggleAutoGroup(row) },
+                    pendingOldName: row.pendingOldName
+                ) {
+                    Task { await toggleTransfers(for: row) }
+                }
+                .equatable()
+                .tag(row.id)
+                .accessibilityElement(children: .contain)
+                .contextMenu {
+                    if row.isTorrent {
+                        torrentContextMenu(for: row.torrent)
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    if row.isTorrent {
+                        Button("Delete Torrent + Data", role: .destructive) {
+                            remove(row.torrent, true)
+                        }
+                        Button("Delete Torrent") {
+                            remove(row.torrent, false)
+                        }
+                        .tint(.orange)
+                    }
                 }
             }
         }
         .listStyle(.inset)
         .glassSwipeActionsContainer()
-        .onChange(of: torrents) { _, updatedTorrents in
-            if updateBuffer.isScrollInProgress {
-                updateBuffer.deferredTorrents = updatedTorrents
-            } else {
-                applySnapshot(updatedTorrents)
-            }
+        .onChange(of: sourceID) { _, _ in
+            resetPresentation()
         }
-        .onScrollPhaseChange { _, phase in
-            updateBuffer.isScrollInProgress = phase.isScrolling
-            guard !phase.isScrolling, let deferredTorrents = updateBuffer.deferredTorrents else { return }
-            updateBuffer.deferredTorrents = nil
-            applySnapshot(deferredTorrents)
+        .onChange(of: torrents) { _, updatedTorrents in
+            applySnapshot(updatedTorrents)
+        }
+        .onChange(of: pendingRenameOldNames) { _, _ in
+            rebuildRows(animation: accessibilityReduceMotion ? nil : .easeOut(duration: 0.18))
         }
         .onGeometryChange(for: Bool.self, of: { geometry in
             geometry.size.width >= 430
@@ -95,94 +125,42 @@ struct TorrentListView: View {
         }
     }
 
-    private var groupedItems: [TorrentListItem] {
-        TorrentNameSequenceGrouper.updating(groupingTopology, with: displayedTorrents)
-    }
-
-    private var displayedGroupingIdentity: [TorrentGroupingIdentity] {
-        groupingIdentity(for: displayedTorrents)
-    }
-
     private var selectedTorrent: TorrentSummary? {
         guard let selection else { return nil }
         return displayedTorrents.first { $0.hashString == selection }
     }
 
-    @ViewBuilder
-    private func torrentGroupRows(_ group: TorrentNameSequenceGroup) -> some View {
-        let isExpanded = !collapsedAutoGroupIDs.contains(group.id)
-
-        TorrentRowView(
-            torrent: group.summary,
-            showsIcon: showsTorrentIcons,
-            groupIsExpanded: isExpanded,
-            groupCount: min(group.torrents.count, 3),
-            toggleGroupExpansion: { toggleAutoGroup(group.id) }
-        ) {
-            Task { await toggleGroupTransfers(group) }
-        }
-        .equatable()
-        .tag(group.id)
-        .accessibilityElement(children: .contain)
-
-        if isExpanded {
-            ForEach(group.torrents) { torrent in
-                torrentRow(torrent)
-            }
-        }
-    }
-
-    private func torrentRow(_ torrent: TorrentSummary) -> some View {
-        TorrentRowView(
-            torrent: torrent,
-            showsIcon: showsTorrentIcons,
-            pendingOldName: pendingRenameOldNames[torrent.hashString]
-        ) {
-            Task { await toggleTransfer(torrent) }
-        }
-        .equatable()
-        .tag(torrent.hashString)
-        .contextMenu {
-            torrentContextMenu(for: torrent)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button("Delete Torrent + Data", role: .destructive) {
-                remove(torrent, true)
-            }
-            Button("Delete Torrent") {
-                remove(torrent, false)
-            }
-            .tint(.orange)
-        }
-    }
-
-    private func toggleAutoGroup(_ id: String) {
-        withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22)) {
-            if collapsedAutoGroupIDs.contains(id) {
-                collapsedAutoGroupIDs.remove(id)
+    private func toggleAutoGroup(_ row: TorrentListRowPresentation) {
+        guard case let .group(memberHashes, _) = row.kind else { return }
+        let animation: Animation? = accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22)
+        withAnimation(animation) {
+            if collapsedAutoGroupIDs.contains(row.id) {
+                collapsedAutoGroupIDs.remove(row.id)
             } else {
-                if let group = groupedItems.compactMap({ item -> TorrentNameSequenceGroup? in
-                    guard case let .group(group) = item, group.id == id else { return nil }
-                    return group
-                }).first,
-                   group.torrents.contains(where: { $0.hashString == selection }) {
-                    selection = id
+                if let selection, memberHashes.contains(selection) {
+                    self.selection = row.id
                 }
-                collapsedAutoGroupIDs.insert(id)
+                collapsedAutoGroupIDs.insert(row.id)
             }
+            rows = makeRows()
         }
     }
 
     private func applySnapshot(_ updatedTorrents: [TorrentSummary]) {
-        let updatedIdentity = groupingIdentity(for: updatedTorrents)
+        let updatedIdentity = Self.groupingIdentity(for: updatedTorrents)
         let hasStructuralChanges = updatedIdentity != displayedGroupingIdentity
+        let updatedTopology = hasStructuralChanges
+            ? TorrentNameSequenceGrouper.items(for: updatedTorrents)
+            : groupingTopology
 
         let updates = {
             if hasStructuralChanges {
-                groupingTopology = TorrentNameSequenceGrouper.items(for: updatedTorrents)
+                groupingTopology = updatedTopology
+                displayedGroupingIdentity = updatedIdentity
             }
             displayedTorrents = updatedTorrents
-            reconcileSelection(with: updatedTorrents)
+            reconcileSelection(with: updatedTorrents, topology: updatedTopology)
+            rows = makeRows(topology: updatedTopology, torrents: updatedTorrents)
         }
 
         if hasStructuralChanges, !accessibilityReduceMotion {
@@ -194,14 +172,47 @@ struct TorrentListView: View {
         }
     }
 
-    private func groupingIdentity(for torrents: [TorrentSummary]) -> [TorrentGroupingIdentity] {
+    private static func groupingIdentity(for torrents: [TorrentSummary]) -> [TorrentGroupingIdentity] {
         torrents.map { TorrentGroupingIdentity(hashString: $0.hashString, name: $0.name) }
     }
 
-    private func reconcileSelection(with torrents: [TorrentSummary]) {
+    private func resetPresentation() {
+        let updatedTopology = TorrentNameSequenceGrouper.items(for: torrents)
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) {
+            collapsedAutoGroupIDs.removeAll()
+            groupingTopology = updatedTopology
+            displayedTorrents = torrents
+            displayedGroupingIdentity = Self.groupingIdentity(for: torrents)
+            selection = nil
+            rows = makeRows(topology: updatedTopology, torrents: torrents, collapsedGroupIDs: [])
+        }
+    }
+
+    private func rebuildRows(animation: Animation?) {
+        withAnimation(animation) {
+            rows = makeRows()
+        }
+    }
+
+    private func makeRows(
+        topology: [TorrentListItem]? = nil,
+        torrents: [TorrentSummary]? = nil,
+        collapsedGroupIDs: Set<String>? = nil
+    ) -> [TorrentListRowPresentation] {
+        TorrentListRowPresentation.rows(
+            topology: topology ?? groupingTopology,
+            torrents: torrents ?? displayedTorrents,
+            collapsedGroupIDs: collapsedGroupIDs ?? collapsedAutoGroupIDs,
+            pendingRenameOldNames: pendingRenameOldNames
+        )
+    }
+
+    private func reconcileSelection(with torrents: [TorrentSummary], topology: [TorrentListItem]) {
         guard let selection else { return }
         if selection.hasPrefix("auto-group:") {
-            let validGroupIDs = Set(groupingTopology.compactMap { item -> String? in
+            let validGroupIDs = Set(topology.compactMap { item -> String? in
                 guard case let .group(group) = item else { return nil }
                 return group.id
             })
@@ -213,16 +224,22 @@ struct TorrentListView: View {
         }
     }
 
-    private func toggleTransfer(_ torrent: TorrentSummary) async {
-        if torrent.canStopTransfer {
-            await model.stop(torrent)
-        } else {
-            await model.start(torrent)
+    private func toggleTransfers(for row: TorrentListRowPresentation) async {
+        switch row.kind {
+        case .torrent:
+            if row.torrent.canStopTransfer {
+                await model.stop(row.torrent)
+            } else {
+                await model.start(row.torrent)
+            }
+        case let .group(memberHashes, _):
+            let hashes = Set(memberHashes)
+            await toggleGroupTransfers(displayedTorrents.filter { hashes.contains($0.hashString) })
         }
     }
 
-    private func toggleGroupTransfers(_ group: TorrentNameSequenceGroup) async {
-        let liveTorrents = group.torrents.filter { $0.id >= 0 }
+    private func toggleGroupTransfers(_ torrents: [TorrentSummary]) async {
+        let liveTorrents = torrents.filter { $0.id >= 0 }
         guard !liveTorrents.isEmpty else { return }
 
         if liveTorrents.contains(where: \.canStopTransfer) {
@@ -328,8 +345,70 @@ private struct TorrentGroupingIdentity: Equatable {
     let name: String
 }
 
-@MainActor
-private final class TorrentListUpdateBuffer {
-    var isScrollInProgress = false
-    var deferredTorrents: [TorrentSummary]?
+private struct TorrentListRowPresentation: Identifiable, Equatable {
+    enum Kind: Equatable {
+        case torrent
+        case group(memberHashes: [String], isExpanded: Bool)
+    }
+
+    let id: String
+    let torrent: TorrentSummary
+    let kind: Kind
+    let pendingOldName: String?
+
+    var isTorrent: Bool {
+        kind == .torrent
+    }
+
+    var groupIsExpanded: Bool? {
+        guard case let .group(_, isExpanded) = kind else { return nil }
+        return isExpanded
+    }
+
+    static func rows(
+        topology: [TorrentListItem],
+        torrents: [TorrentSummary],
+        collapsedGroupIDs: Set<String>,
+        pendingRenameOldNames: [String: String]
+    ) -> [TorrentListRowPresentation] {
+        let items = TorrentNameSequenceGrouper.updating(topology, with: torrents)
+        var rows: [TorrentListRowPresentation] = []
+        rows.reserveCapacity(torrents.count + items.count)
+
+        for item in items {
+            switch item {
+            case let .torrent(torrent):
+                rows.append(torrentRow(torrent, pendingRenameOldNames: pendingRenameOldNames))
+            case let .group(group):
+                let isExpanded = !collapsedGroupIDs.contains(group.id)
+                rows.append(TorrentListRowPresentation(
+                    id: group.id,
+                    torrent: group.summary,
+                    kind: .group(
+                        memberHashes: group.torrents.map(\.hashString),
+                        isExpanded: isExpanded
+                    ),
+                    pendingOldName: nil
+                ))
+                if isExpanded {
+                    rows.append(contentsOf: group.torrents.map {
+                        torrentRow($0, pendingRenameOldNames: pendingRenameOldNames)
+                    })
+                }
+            }
+        }
+        return rows
+    }
+
+    private static func torrentRow(
+        _ torrent: TorrentSummary,
+        pendingRenameOldNames: [String: String]
+    ) -> TorrentListRowPresentation {
+        TorrentListRowPresentation(
+            id: torrent.hashString,
+            torrent: torrent,
+            kind: .torrent,
+            pendingOldName: pendingRenameOldNames[torrent.hashString]
+        )
+    }
 }
