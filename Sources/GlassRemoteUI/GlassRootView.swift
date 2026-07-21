@@ -615,39 +615,104 @@ private struct TorrentListContent: View {
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
     let removeSelected: (Bool) -> Void
+    @State private var presentation: TorrentListContentPresentation
+
+    init(
+        model: RemoteAppModel,
+        platformIntegration: any GlassPlatformIntegrating,
+        selection: Binding<String?>,
+        pendingRenames: [PendingRemovalKey: PendingTorrentRename],
+        pendingRemovals: [PendingTorrentRemoval],
+        committingRemovalKeys: Set<PendingRemovalKey>,
+        rename: @escaping (TorrentSummary) -> Void,
+        remove: @escaping (TorrentSummary, Bool) -> Void,
+        removeSelected: @escaping (Bool) -> Void
+    ) {
+        self.model = model
+        self.platformIntegration = platformIntegration
+        _selection = selection
+        self.pendingRenames = pendingRenames
+        self.pendingRemovals = pendingRemovals
+        self.committingRemovalKeys = committingRemovalKeys
+        self.rename = rename
+        self.remove = remove
+        self.removeSelected = removeSelected
+        _presentation = State(initialValue: TorrentListContentPresentation(
+            input: TorrentListContentInput(
+                sourceID: model.selectedSourceID,
+                group: model.selectedTorrentGroup,
+                torrents: model.torrents,
+                pendingRenames: pendingRenames,
+                pendingRemovals: pendingRemovals,
+                committingRemovalKeys: committingRemovalKeys
+            )
+        ))
+    }
 
     var body: some View {
         TorrentListView(
             model: model,
             platformIntegration: platformIntegration,
-            torrents: visibleTorrents,
-            pendingRenameOldNames: pendingRenameOldNames,
+            sourceID: presentation.sourceID,
+            torrents: presentation.torrents,
+            pendingRenameOldNames: presentation.pendingRenameOldNames,
             selection: $selection,
             rename: rename,
             remove: remove,
             removeSelected: removeSelected
         )
-        .id(model.selectedSourceID)
+        .onChange(of: input) { _, input in
+            presentation = TorrentListContentPresentation(input: input)
+        }
     }
 
-    private var visibleTorrents: [TorrentSummary] {
-        let sourceID = model.selectedSourceID
-        let hiddenKeys = Set(pendingRemovals.map(\.key)).union(committingRemovalKeys)
-        return model.filteredTorrents
-            .filter { torrent in
-                !hiddenKeys.contains(PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString))
-            }
-            .map { torrent in
-                let key = PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString)
-                guard let pendingRename = pendingRenames[key] else { return torrent }
-                return torrent.renamed(to: pendingRename.newName)
-            }
+    private var input: TorrentListContentInput {
+        TorrentListContentInput(
+            sourceID: model.selectedSourceID,
+            group: model.selectedTorrentGroup,
+            torrents: model.torrents,
+            pendingRenames: pendingRenames,
+            pendingRemovals: pendingRemovals,
+            committingRemovalKeys: committingRemovalKeys
+        )
     }
+}
 
-    private var pendingRenameOldNames: [String: String] {
-        let sourceID = model.selectedSourceID
-        return Dictionary(uniqueKeysWithValues: pendingRenames.values.compactMap { pendingRename in
-            guard pendingRename.key.sourceID == sourceID else { return nil }
+private struct TorrentListContentInput: Equatable {
+    let sourceID: UUID
+    let group: TorrentGroup
+    let torrents: [TorrentSummary]
+    let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
+    let pendingRemovals: [PendingTorrentRemoval]
+    let committingRemovalKeys: Set<PendingRemovalKey>
+}
+
+private struct TorrentListContentPresentation: Equatable {
+    let sourceID: UUID
+    let torrents: [TorrentSummary]
+    let pendingRenameOldNames: [String: String]
+
+    init(input: TorrentListContentInput) {
+        sourceID = input.sourceID
+        let hiddenKeys = Set(input.pendingRemovals.map(\.key)).union(input.committingRemovalKeys)
+        torrents = input.torrents.compactMap { torrent in
+            let isIncluded: Bool
+            switch input.group {
+            case .all:
+                isIncluded = true
+            case .downloading:
+                isIncluded = torrent.isDownloading
+            case .completed:
+                isIncluded = torrent.isCompleted
+            }
+            guard isIncluded else { return nil }
+
+            let key = PendingRemovalKey(sourceID: input.sourceID, hashString: torrent.hashString)
+            guard !hiddenKeys.contains(key) else { return nil }
+            return input.pendingRenames[key].map { torrent.renamed(to: $0.newName) } ?? torrent
+        }
+        pendingRenameOldNames = Dictionary(uniqueKeysWithValues: input.pendingRenames.values.compactMap { pendingRename in
+            guard pendingRename.key.sourceID == input.sourceID else { return nil }
             return (pendingRename.key.hashString, pendingRename.oldName)
         })
     }
