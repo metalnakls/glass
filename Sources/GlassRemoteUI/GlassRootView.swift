@@ -164,7 +164,7 @@ public struct GlassRootView: View {
             openMagnet: { activeSheet = .addMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
-            canRemoveSelectedTorrent: selectedTorrent != nil && activeSheet == nil && activeAlert == nil,
+            canRemoveSelectedTorrent: selectedTorrentHash != nil && activeSheet == nil && activeAlert == nil,
             removeSelectedTorrent: removeSelectedTorrent
         )
     }
@@ -476,18 +476,20 @@ private struct TorrentWorkspaceView: View {
     let dismissRemovals: () -> Void
 
     var body: some View {
-        TorrentListView(
+        TorrentListContent(
             model: model,
             platformIntegration: platformIntegration,
-            torrents: visibleTorrents,
-            pendingRenameOldNames: pendingRenameOldNames,
             selection: $selection,
+            pendingRenames: pendingRenames,
+            pendingRemovals: pendingRemovals,
+            committingRemovalKeys: committingRemovalKeys,
             rename: rename,
             remove: remove,
             removeSelected: removeSelected
         )
         .navigationTitle(model.selectedSourceName)
         .navigationSubtitle(navigationSubtitle)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .toolbar {
             ToolbarItem {
                 Toggle(isOn: downloadingFilterBinding) {
@@ -503,7 +505,7 @@ private struct TorrentWorkspaceView: View {
             guard !supportedURLs.isEmpty else { return false }
             openURLs(supportedURLs)
             return true
-        } isTargeted: { isURLDropTargeted = $0 }
+        } isTargeted: { setDropTargeted($0, kind: .url) }
         .dropDestination(for: String.self) { strings, _ in
             for string in strings {
                 if let magnet = normalizedMagnetLink(from: string) {
@@ -512,7 +514,7 @@ private struct TorrentWorkspaceView: View {
                 }
             }
             return false
-        } isTargeted: { isTextDropTargeted = $0 }
+        } isTargeted: { setDropTargeted($0, kind: .text) }
         .overlay {
             if isTorrentDropTargeted {
                 ZStack {
@@ -547,30 +549,6 @@ private struct TorrentWorkspaceView: View {
                 )
             }
         }
-        .animation(accessibilityReduceMotion ? nil : .snappy(duration: 0.28), value: pendingRemovals)
-        .animation(accessibilityReduceMotion ? nil : .easeOut(duration: 0.16), value: isTorrentDropTargeted)
-    }
-
-    private var visibleTorrents: [TorrentSummary] {
-        let sourceID = model.selectedSourceID
-        let hiddenKeys = Set(pendingRemovals.map(\.key)).union(committingRemovalKeys)
-        return model.filteredTorrents
-            .filter { torrent in
-                !hiddenKeys.contains(PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString))
-            }
-            .map { torrent in
-                let key = PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString)
-                guard let pendingRename = pendingRenames[key] else { return torrent }
-                return torrent.renamed(to: pendingRename.newName)
-            }
-    }
-
-    private var pendingRenameOldNames: [String: String] {
-        let sourceID = model.selectedSourceID
-        return Dictionary(uniqueKeysWithValues: pendingRenames.values.compactMap { pendingRename in
-            guard pendingRename.key.sourceID == sourceID else { return nil }
-            return (pendingRename.key.hashString, pendingRename.oldName)
-        })
     }
 
     private var navigationSubtitle: String {
@@ -604,6 +582,70 @@ private struct TorrentWorkspaceView: View {
 
     private var isTorrentDropTargeted: Bool {
         isURLDropTargeted || isTextDropTargeted
+    }
+
+    private func setDropTargeted(_ isTargeted: Bool, kind: DropKind) {
+        withAnimation(.easeOut(duration: 0.16)) {
+            switch kind {
+            case .url:
+                isURLDropTargeted = isTargeted
+            case .text:
+                isTextDropTargeted = isTargeted
+            }
+        }
+    }
+
+    private enum DropKind {
+        case url
+        case text
+    }
+}
+
+private struct TorrentListContent: View {
+    let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
+    @Binding var selection: String?
+    let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
+    let pendingRemovals: [PendingTorrentRemoval]
+    let committingRemovalKeys: Set<PendingRemovalKey>
+    let rename: (TorrentSummary) -> Void
+    let remove: (TorrentSummary, Bool) -> Void
+    let removeSelected: (Bool) -> Void
+
+    var body: some View {
+        TorrentListView(
+            model: model,
+            platformIntegration: platformIntegration,
+            torrents: visibleTorrents,
+            pendingRenameOldNames: pendingRenameOldNames,
+            selection: $selection,
+            rename: rename,
+            remove: remove,
+            removeSelected: removeSelected
+        )
+        .id(model.selectedSourceID)
+    }
+
+    private var visibleTorrents: [TorrentSummary] {
+        let sourceID = model.selectedSourceID
+        let hiddenKeys = Set(pendingRemovals.map(\.key)).union(committingRemovalKeys)
+        return model.filteredTorrents
+            .filter { torrent in
+                !hiddenKeys.contains(PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString))
+            }
+            .map { torrent in
+                let key = PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString)
+                guard let pendingRename = pendingRenames[key] else { return torrent }
+                return torrent.renamed(to: pendingRename.newName)
+            }
+    }
+
+    private var pendingRenameOldNames: [String: String] {
+        let sourceID = model.selectedSourceID
+        return Dictionary(uniqueKeysWithValues: pendingRenames.values.compactMap { pendingRename in
+            guard pendingRename.key.sourceID == sourceID else { return nil }
+            return (pendingRename.key.hashString, pendingRename.oldName)
+        })
     }
 }
 

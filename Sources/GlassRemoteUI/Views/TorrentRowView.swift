@@ -3,8 +3,9 @@ import GlassRemoteCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-struct TorrentRowView: View {
+struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
+    var showsIcon = true
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
@@ -14,26 +15,30 @@ struct TorrentRowView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            row(showsIcon: true)
-            row(showsIcon: false)
-        }
+        row
         .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
-    private func row(showsIcon: Bool) -> some View {
+    private var row: some View {
         HStack(alignment: .center, spacing: 12) {
             if showsIcon {
                 leadingIcon
-                    .transition(.opacity)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
             }
 
             torrentContent
             transferButton
         }
-        .frame(minWidth: showsIcon ? 390 : 0)
         .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.16), value: showsIcon)
+    }
+
+    nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
+        lhs.torrent == rhs.torrent
+            && lhs.showsIcon == rhs.showsIcon
+            && lhs.groupIsExpanded == rhs.groupIsExpanded
+            && lhs.groupCount == rhs.groupCount
+            && lhs.pendingOldName == rhs.pendingOldName
     }
 
     @ViewBuilder
