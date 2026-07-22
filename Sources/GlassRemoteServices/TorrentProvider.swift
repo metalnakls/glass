@@ -9,7 +9,12 @@ public protocol TransmissionRPCServicing: Sendable {
     func fetchSessionSettings() async throws -> TransmissionSessionSettings
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrents() async throws -> [TorrentSummary]
+    func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
     func addTorrentFile(
         data: Data,
@@ -30,6 +35,28 @@ public protocol TransmissionRPCServicing: Sendable {
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
     func setTorrentPriority(ids: [String], priority: Int) async throws
+}
+
+public extension TransmissionRPCServicing {
+    func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate {
+        .full(try await fetchTorrents())
+    }
+
+    func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
 }
 
 extension TransmissionRPCClient: TransmissionRPCServicing {}
@@ -61,14 +88,20 @@ public struct TorrentSourceInfo: Sendable, Hashable, Identifiable {
 
 public struct TorrentProviderSnapshot: Sendable {
     public let stats: SessionStats
-    public let torrents: [TorrentSummary]
+    public let torrentUpdate: TorrentCollectionUpdate
     public let freeSpace: ServerFreeSpace?
 
     public init(stats: SessionStats, torrents: [TorrentSummary], freeSpace: ServerFreeSpace?) {
+        self.init(stats: stats, torrentUpdate: .full(torrents), freeSpace: freeSpace)
+    }
+
+    public init(stats: SessionStats, torrentUpdate: TorrentCollectionUpdate, freeSpace: ServerFreeSpace?) {
         self.stats = stats
-        self.torrents = torrents
+        self.torrentUpdate = torrentUpdate
         self.freeSpace = freeSpace
     }
+
+    public var torrents: [TorrentSummary] { torrentUpdate.changedTorrents }
 }
 
 public protocol TorrentProvider: Sendable {
@@ -79,6 +112,10 @@ public protocol TorrentProvider: Sendable {
     func fetchSessionSettings() async throws -> TransmissionSessionSettings
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
     func addTorrentFile(
         data: Data,
@@ -99,6 +136,24 @@ public protocol TorrentProvider: Sendable {
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
     func setTorrentPriority(ids: [String], priority: Int) async throws
+}
+
+public extension TorrentProvider {
+    func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(hashString: hashString)
+    }
 }
 
 public protocol LocalTransmissionServicing: Sendable {
@@ -179,17 +234,25 @@ public enum LocalTransmissionSessionError: LocalizedError {
 }
 
 public actor RemoteTorrentProvider: TorrentProvider {
-    private struct SupplementalSnapshot {
+    private struct CachedStats {
         let fetchedAt: Date
         let stats: SessionStats
+    }
+
+    private struct CachedFreeSpace {
+        let fetchedAt: Date
         let freeSpace: ServerFreeSpace?
     }
 
-    private static let supplementalRefreshInterval: TimeInterval = 30
+    private static let statsRefreshInterval: TimeInterval = 30
+    private static let freeSpaceRefreshInterval: TimeInterval = 60
+    private static let fullTorrentRefreshInterval: TimeInterval = 60
 
     public nonisolated let source: TorrentSourceInfo
     private let client: any TransmissionRPCServicing
-    private var cachedSupplementalSnapshot: SupplementalSnapshot?
+    private var cachedStats: CachedStats?
+    private var cachedFreeSpace: CachedFreeSpace?
+    private var lastFullTorrentRefresh: Date?
 
     public init(
         profile: RemoteProfile,
@@ -223,14 +286,31 @@ public actor RemoteTorrentProvider: TorrentProvider {
     }
 
     public func fetchSnapshot() async throws -> TorrentProviderSnapshot {
-        async let fetchedTorrents = client.fetchTorrents()
-        async let fetchedSupplemental = supplementalSnapshot()
-        let (torrents, supplemental) = try await (fetchedTorrents, fetchedSupplemental)
-        return TorrentProviderSnapshot(
-            stats: supplemental.stats,
-            torrents: torrents,
-            freeSpace: supplemental.freeSpace
+        async let fetchedTorrentUpdate = torrentUpdate()
+        async let fetchedStats = sessionStats()
+        async let fetchedFreeSpace = freeSpace()
+        let (torrentUpdate, stats, freeSpace) = try await (
+            fetchedTorrentUpdate,
+            fetchedStats,
+            fetchedFreeSpace
         )
+        return TorrentProviderSnapshot(
+            stats: stats,
+            torrentUpdate: torrentUpdate,
+            freeSpace: freeSpace
+        )
+    }
+
+    private func torrentUpdate(now: Date = Date()) async throws -> TorrentCollectionUpdate {
+        if let lastFullTorrentRefresh,
+           now.timeIntervalSince(lastFullTorrentRefresh) < Self.fullTorrentRefreshInterval
+        {
+            return try await client.fetchRecentlyActiveTorrents()
+        }
+
+        let torrents = try await client.fetchTorrents()
+        lastFullTorrentRefresh = now
+        return .full(torrents)
     }
 
     public func fetchDefaultDownloadDirectory() async throws -> String? {
@@ -247,6 +327,22 @@ public actor RemoteTorrentProvider: TorrentProvider {
 
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
         try await client.fetchTorrentDetails(hashString: hashString)
+    }
+
+    public func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
+        try await client.fetchTorrentFiles(hashString: hashString)
+    }
+
+    public func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails {
+        try await client.fetchTorrentPeers(hashString: hashString)
+    }
+
+    public func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails {
+        try await client.fetchTorrentTrackers(hashString: hashString)
+    }
+
+    public func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
+        try await client.fetchTorrentPieces(hashString: hashString)
     }
 
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {
@@ -323,23 +419,28 @@ public actor RemoteTorrentProvider: TorrentProvider {
         try? await client.fetchDefaultFreeSpace()
     }
 
-    private func supplementalSnapshot() async throws -> SupplementalSnapshot {
+    private func sessionStats() async throws -> SessionStats {
         let now = Date()
-        if let cachedSupplementalSnapshot,
-           now.timeIntervalSince(cachedSupplementalSnapshot.fetchedAt) < Self.supplementalRefreshInterval {
-            return cachedSupplementalSnapshot
+        if let cachedStats,
+           now.timeIntervalSince(cachedStats.fetchedAt) < Self.statsRefreshInterval {
+            return cachedStats.stats
         }
 
-        async let fetchedStats = client.fetchSessionStats()
-        async let fetchedFreeSpace = defaultFreeSpace()
-        let (stats, freeSpace) = try await (fetchedStats, fetchedFreeSpace)
-        let snapshot = SupplementalSnapshot(
-            fetchedAt: now,
-            stats: stats,
-            freeSpace: freeSpace
-        )
-        cachedSupplementalSnapshot = snapshot
-        return snapshot
+        let stats = try await client.fetchSessionStats()
+        cachedStats = CachedStats(fetchedAt: now, stats: stats)
+        return stats
+    }
+
+    private func freeSpace() async -> ServerFreeSpace? {
+        let now = Date()
+        if let cachedFreeSpace,
+           now.timeIntervalSince(cachedFreeSpace.fetchedAt) < Self.freeSpaceRefreshInterval {
+            return cachedFreeSpace.freeSpace
+        }
+
+        let freeSpace = await defaultFreeSpace()
+        cachedFreeSpace = CachedFreeSpace(fetchedAt: now, freeSpace: freeSpace)
+        return freeSpace
     }
 }
 

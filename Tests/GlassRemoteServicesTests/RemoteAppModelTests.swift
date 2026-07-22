@@ -52,8 +52,8 @@ struct RemoteAppModelTests {
         #expect(model.stats == nil)
     }
 
-    @Test("concurrent refreshes coalesce")
-    func concurrentRefreshesCoalesce() async throws {
+    @Test("concurrent refreshes coalesce into one trailing refresh")
+    func concurrentRefreshesCoalesceWithTrailingRefresh() async throws {
         let profile = makeProfile()
         let factory = StubRPCClientFactory { _ in
             StubRPCClient(fetchDelay: .milliseconds(120))
@@ -67,7 +67,86 @@ struct RemoteAppModelTests {
 
         #expect(factory.createdCount == 1)
         let client = try #require(factory.clients.first)
-        #expect(await client.fetchTorrentsCount == 1)
+        #expect(await client.fetchTorrentsCount == 2)
+    }
+
+    @Test("command bursts debounce into one refresh")
+    func commandBurstsDebounceRefresh() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let client = try #require(factory.clients.first)
+
+        await model.start(torrent)
+        await model.stop(torrent)
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(await client.fetchTorrentsCount == 2)
+    }
+
+    @Test("polling backs off while inactive")
+    func pollingBacksOffWhileInactive() async {
+        let profile = makeProfile()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory())
+        await model.refresh()
+
+        #expect(model.currentAutoRefreshInterval == RemoteAppModel.activeAutoRefreshInterval)
+        model.setApplicationActive(false)
+        #expect(model.currentAutoRefreshInterval == RemoteAppModel.quietAutoRefreshInterval)
+    }
+
+    @Test("loads only visible torrent detail sections")
+    func loadsOnlyVisibleTorrentDetailSections() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let client = try #require(factory.clients.first)
+
+        await model.loadDetails(for: torrent)
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await model.loadDetailSection(.files, forHashString: torrent.hashString)
+
+        #expect(await client.fetchTorrentDetailsCount == 1)
+        #expect(await client.fetchTorrentFilesCount == 1)
+        #expect(await client.fetchTorrentPeersCount == 0)
+        #expect(model.selectedTorrentDetails?.files.first?.name == "Episode.mkv")
+    }
+
+    @Test("changing selection cancels obsolete detail work")
+    func changingSelectionCancelsDetails() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient(detailDelay: .milliseconds(120))
+        let factory = StubRPCClientFactory { _ in client }
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let firstTorrent = try #require(model.torrents.first)
+        let secondTorrent = TorrentSummary(
+            id: 2,
+            hashString: "hash-2",
+            name: "Second",
+            status: TransmissionTorrentStatus.downloading.rawValue,
+            percentDone: 0.25,
+            rateDownload: 1,
+            rateUpload: 0,
+            sizeWhenDone: 100,
+            leftUntilDone: 75,
+            eta: 60,
+            uploadRatio: 0,
+            peersConnected: 1,
+            downloadDir: "/downloads"
+        )
+
+        async let firstLoad: Void = model.loadDetails(for: firstTorrent)
+        try await Task.sleep(for: .milliseconds(20))
+        await model.loadDetails(for: secondTorrent)
+        _ = await firstLoad
+
+        #expect(await client.cancelledTorrentDetailsCount == 1)
+        #expect(model.selectedTorrentDetails?.hashString == "hash-2")
     }
 
     @Test("torrent refresh does not invalidate sidebar-facing observation")
@@ -106,6 +185,49 @@ struct RemoteAppModelTests {
         await model.refresh()
 
         #expect(invalidated.value == false)
+    }
+
+    @Test("telemetry refresh mutates one stable torrent record without republishing structure")
+    func telemetryRefreshKeepsStableRecord() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let client = try #require(factory.clients.first)
+        let originalRecord = try #require(model.torrentRecords.first)
+        let originalRevision = model.torrentStructureRevision
+        let structureInvalidated = LockedFlag()
+
+        withObservationTracking {
+            _ = model.torrentRecords
+            _ = model.torrentStructureRevision
+        } onChange: {
+            structureInvalidated.set()
+        }
+
+        await client.setTorrentRateDownload(4096)
+        await model.refresh()
+
+        let updatedRecord = try #require(model.torrentRecords.first)
+        #expect(updatedRecord === originalRecord)
+        #expect(updatedRecord.summary.rateDownload == 4096)
+        #expect(model.torrentStructureRevision == originalRevision)
+        #expect(structureInvalidated.value == false)
+    }
+
+    @Test("recently-active removal deletes the matching stable record")
+    func recentlyActiveRemovalDeletesRecord() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let client = try #require(factory.clients.first)
+
+        await client.setRecentlyActiveUpdate(.delta(changed: [], removedIDs: [1]))
+        await model.refresh()
+
+        #expect(model.torrentRecords.isEmpty)
+        #expect(model.torrents.isEmpty)
     }
 
     @Test("refresh defers torrent cache persistence")
@@ -339,18 +461,26 @@ private final class StubRPCClientFactory: @unchecked Sendable {
 
 private actor StubRPCClient: TransmissionRPCServicing {
     private let fetchDelay: Duration?
+    private let detailDelay: Duration?
     private var fetchTorrentsError: (any Error)?
     private var addTorrentError: (any Error)?
     private var renameError: (any Error)?
     private var renameAppliesBeforeThrow = false
     private var torrentName = "Spider-Noir"
+    private var torrentRateDownload: Double = 1024
+    private var recentlyActiveUpdate: TorrentCollectionUpdate?
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0
     private(set) var fetchFreeSpaceCount = 0
+    private(set) var fetchTorrentDetailsCount = 0
+    private(set) var fetchTorrentFilesCount = 0
+    private(set) var fetchTorrentPeersCount = 0
+    private(set) var cancelledTorrentDetailsCount = 0
     private(set) var renamedPaths: [TorrentPathRename] = []
 
-    init(fetchDelay: Duration? = nil) {
+    init(fetchDelay: Duration? = nil, detailDelay: Duration? = nil) {
         self.fetchDelay = fetchDelay
+        self.detailDelay = detailDelay
     }
 
     func setAddTorrentError(_ error: (any Error)?) {
@@ -364,6 +494,14 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func setRenameBehavior(error: (any Error)?, appliesBeforeThrow: Bool) {
         renameError = error
         renameAppliesBeforeThrow = appliesBeforeThrow
+    }
+
+    func setTorrentRateDownload(_ rate: Double) {
+        torrentRateDownload = rate
+    }
+
+    func setRecentlyActiveUpdate(_ update: TorrentCollectionUpdate?) {
+        recentlyActiveUpdate = update
     }
 
     func testConnection() async throws {}
@@ -409,7 +547,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
                 name: torrentName,
                 status: TransmissionTorrentStatus.downloading.rawValue,
                 percentDone: 0.5,
-                rateDownload: 1024,
+                rateDownload: torrentRateDownload,
                 rateUpload: 0,
                 sizeWhenDone: 100,
                 leftUntilDone: 50,
@@ -422,8 +560,39 @@ private actor StubRPCClient: TransmissionRPCServicing {
         ]
     }
 
+    func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate {
+        if let recentlyActiveUpdate {
+            return recentlyActiveUpdate
+        }
+        return .full(try await fetchTorrents())
+    }
+
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        TorrentDetails(id: 1, hashString: hashString, name: "Spider-Noir")
+        fetchTorrentDetailsCount += 1
+        if let detailDelay {
+            do {
+                try await Task.sleep(for: detailDelay)
+            } catch {
+                cancelledTorrentDetailsCount += 1
+                throw error
+            }
+        }
+        return TorrentDetails(id: 1, hashString: hashString, name: "Spider-Noir")
+    }
+
+    func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
+        fetchTorrentFilesCount += 1
+        return TorrentDetails(
+            id: 1,
+            hashString: hashString,
+            name: "Spider-Noir",
+            files: [TorrentFile(name: "Episode.mkv", length: 100, bytesCompleted: 50)]
+        )
+    }
+
+    func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails {
+        fetchTorrentPeersCount += 1
+        return TorrentDetails(id: 1, hashString: hashString, name: "Spider-Noir")
     }
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}

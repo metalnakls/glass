@@ -7,6 +7,7 @@ struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
     var showsIcon = true
     var groupIsExpanded: Bool?
+    var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
     let toggleTransfer: () -> Void
@@ -32,6 +33,7 @@ struct TorrentRowView: View, Equatable {
         lhs.torrent == rhs.torrent
             && lhs.showsIcon == rhs.showsIcon
             && lhs.groupIsExpanded == rhs.groupIsExpanded
+            && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
     }
 
@@ -39,12 +41,17 @@ struct TorrentRowView: View, Equatable {
     private var leadingIcon: some View {
         if let groupIsExpanded {
             Button {
-            toggleGroupExpansion?()
-        } label: {
-                Image(systemName: "chevron.forward")
-                    .font(.body.weight(.semibold))
-                    .rotationEffect(groupIsExpanded ? .degrees(90) : .zero)
-                    .frame(width: 36, height: 42)
+                toggleGroupExpansion?()
+            } label: {
+                if groupIsExpanded {
+                    Image(systemName: "chevron.down")
+                        .font(.body.weight(.semibold))
+                        .frame(width: 36, height: 42)
+                        .contentTransition(.symbolEffect(.replace))
+                } else {
+                    GroupFolderFanIcon(count: groupCount)
+                        .frame(width: 36, height: 42)
+                }
             }
             .buttonStyle(.plain)
             .help(groupIsExpanded ? "Hide Torrents" : "Show Torrents")
@@ -230,6 +237,34 @@ private enum RatePresentation {
     case download
     case upload
     case downloadAndUpload
+}
+
+private struct GroupFolderFanIcon: View {
+    let count: Int
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<count, id: \.self) { index in
+                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                    .rotationEffect(rotation(for: index), anchor: .bottom)
+                    .offset(offset(for: index))
+                    .zIndex(Double(index))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func rotation(for index: Int) -> Angle {
+        guard count > 1 else { return .zero }
+        let progress = Double(index) / Double(count - 1)
+        return .degrees(-9 + (18 * progress))
+    }
+
+    private func offset(for index: Int) -> CGSize {
+        guard count > 1 else { return .zero }
+        let progress = CGFloat(index) / CGFloat(count - 1)
+        return CGSize(width: -5 + (10 * progress), height: abs(progress - 0.5) * 2)
+    }
 }
 
 struct TorrentFileIcon: View {

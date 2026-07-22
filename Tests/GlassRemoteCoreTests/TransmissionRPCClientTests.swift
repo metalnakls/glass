@@ -281,6 +281,68 @@ struct TransmissionRPCClientTests {
         #expect(values.contains(.string("metadataPercentComplete")))
     }
 
+    @Test("recent torrent request uses Transmission delta selector and decodes removals")
+    func fetchRecentlyActiveTorrentsRequestsDelta() async throws {
+        let transport = URLProtocolStubTransport(responses: [
+            .http(
+                status: 200,
+                headers: [:],
+                body: #"{"result":"success","arguments":{"torrents":[],"removed":[7,11]}}"#
+            )
+        ])
+
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        let update = try await client.fetchRecentlyActiveTorrents()
+
+        let body = try #require(transport.recordedRequestBodies.first ?? nil)
+        let rpcRequest = try JSONDecoder().decode(RecordedRPCRequest.self, from: body)
+        #expect(rpcRequest.method == "torrent-get")
+        #expect(rpcRequest.arguments["ids"] == .string("recently-active"))
+        guard case let .delta(changed, removedIDs) = update else {
+            Issue.record("Expected a recently-active delta response")
+            return
+        }
+        #expect(changed.isEmpty)
+        #expect(removedIDs == [7, 11])
+    }
+
+    @Test("torrent details request expensive collections only by section")
+    func fetchTorrentDetailsUsesSectionFields() async throws {
+        let response = URLProtocolStubTransport.StubResponse.http(
+            status: 200,
+            headers: [:],
+            body: #"{"result":"success","arguments":{"torrents":[{"id":1,"hashString":"hash-1","name":"Example"}]}}"#
+        )
+        let transport = URLProtocolStubTransport(responses: [response, response, response, response, response])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+
+        _ = try await client.fetchTorrentDetails(hashString: "hash-1")
+        _ = try await client.fetchTorrentFiles(hashString: "hash-1")
+        _ = try await client.fetchTorrentPeers(hashString: "hash-1")
+        _ = try await client.fetchTorrentTrackers(hashString: "hash-1")
+        _ = try await client.fetchTorrentPieces(hashString: "hash-1")
+
+        let requests = try transport.recordedRequestBodies.map { body in
+            try JSONDecoder().decode(RecordedRPCRequest.self, from: #require(body))
+        }
+        let fields = try requests.map { request -> Set<String> in
+            guard case let .array(values) = try #require(request.arguments["fields"]) else {
+                Issue.record("Expected a fields array")
+                return []
+            }
+            return Set(values.compactMap { value in
+                guard case let .string(field) = value else { return nil }
+                return field
+            })
+        }
+
+        #expect(fields[0].isDisjoint(with: ["files", "fileStats", "peers", "trackerStats", "pieces"]))
+        #expect(fields[1] == ["id", "hashString", "name", "files", "fileStats"])
+        #expect(fields[2] == ["id", "hashString", "name", "peers"])
+        #expect(fields[3] == ["id", "hashString", "name", "trackerStats"])
+        #expect(fields[4] == ["id", "hashString", "name", "pieceCount", "pieceSize", "pieces"])
+    }
+
     @Test("decodes session settings")
     func decodesSessionSettings() async throws {
         let transport = URLProtocolStubTransport(responses: [
