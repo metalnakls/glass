@@ -214,6 +214,27 @@ public enum TorrentListMerger {
     }
 }
 
+public enum TorrentCollectionUpdate: Sendable, Hashable {
+    case full([TorrentSummary])
+    case delta(changed: [TorrentSummary], removedIDs: [Int])
+
+    public var changedTorrents: [TorrentSummary] {
+        switch self {
+        case let .full(torrents):
+            torrents
+        case let .delta(changed, _):
+            changed
+        }
+    }
+}
+
+public enum TorrentDetailSection: String, CaseIterable, Sendable, Hashable {
+    case files
+    case peers
+    case trackers
+    case pieces
+}
+
 public struct TorrentDetails: Sendable, Hashable, Codable, Identifiable {
     public let id: Int
     public let hashString: String
@@ -252,6 +273,55 @@ public struct TorrentDetails: Sendable, Hashable, Codable, Identifiable {
     public let queuePosition: Int?
     public let honorsSessionLimits: Bool?
     public let isPrivate: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, hashString, name, status, percentDone, totalSize, sizeWhenDone, leftUntilDone, eta
+        case uploadRatio, uploadedEver, downloadedEver, corruptEver, downloadDir, addedDate, activityDate
+        case startDate, doneDate, secondsDownloading, secondsSeeding, files, fileStats, peers, trackerStats
+        case pieceCount, pieceSize, pieces, downloadLimit, downloadLimited, uploadLimit, uploadLimited
+        case seedRatioLimit, seedRatioMode, bandwidthPriority, queuePosition, honorsSessionLimits, isPrivate
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        hashString = try container.decode(String.self, forKey: .hashString)
+        name = try container.decode(String.self, forKey: .name)
+        status = try container.decodeIfPresent(Int.self, forKey: .status)
+        percentDone = try container.decodeIfPresent(Double.self, forKey: .percentDone)
+        totalSize = try container.decodeIfPresent(UInt64.self, forKey: .totalSize)
+        sizeWhenDone = try container.decodeIfPresent(UInt64.self, forKey: .sizeWhenDone)
+        leftUntilDone = try container.decodeIfPresent(UInt64.self, forKey: .leftUntilDone)
+        eta = try container.decodeIfPresent(Int.self, forKey: .eta)
+        uploadRatio = try container.decodeIfPresent(Double.self, forKey: .uploadRatio)
+        uploadedEver = try container.decodeIfPresent(UInt64.self, forKey: .uploadedEver)
+        downloadedEver = try container.decodeIfPresent(UInt64.self, forKey: .downloadedEver)
+        corruptEver = try container.decodeIfPresent(UInt64.self, forKey: .corruptEver)
+        downloadDir = try container.decodeIfPresent(String.self, forKey: .downloadDir)
+        addedDate = try container.decodeIfPresent(Int.self, forKey: .addedDate)
+        activityDate = try container.decodeIfPresent(Int.self, forKey: .activityDate)
+        startDate = try container.decodeIfPresent(Int.self, forKey: .startDate)
+        doneDate = try container.decodeIfPresent(Int.self, forKey: .doneDate)
+        secondsDownloading = try container.decodeIfPresent(Int.self, forKey: .secondsDownloading)
+        secondsSeeding = try container.decodeIfPresent(Int.self, forKey: .secondsSeeding)
+        files = try container.decodeIfPresent([TorrentFile].self, forKey: .files) ?? []
+        fileStats = try container.decodeIfPresent([TorrentFileStats].self, forKey: .fileStats) ?? []
+        peers = try container.decodeIfPresent([TorrentPeer].self, forKey: .peers) ?? []
+        trackerStats = try container.decodeIfPresent([TorrentTracker].self, forKey: .trackerStats) ?? []
+        pieceCount = try container.decodeIfPresent(Int.self, forKey: .pieceCount)
+        pieceSize = try container.decodeIfPresent(UInt64.self, forKey: .pieceSize)
+        pieces = try container.decodeIfPresent(String.self, forKey: .pieces)
+        downloadLimit = try container.decodeIfPresent(Int.self, forKey: .downloadLimit)
+        downloadLimited = try container.decodeIfPresent(Bool.self, forKey: .downloadLimited)
+        uploadLimit = try container.decodeIfPresent(Int.self, forKey: .uploadLimit)
+        uploadLimited = try container.decodeIfPresent(Bool.self, forKey: .uploadLimited)
+        seedRatioLimit = try container.decodeIfPresent(Double.self, forKey: .seedRatioLimit)
+        seedRatioMode = try container.decodeIfPresent(Int.self, forKey: .seedRatioMode)
+        bandwidthPriority = try container.decodeIfPresent(Int.self, forKey: .bandwidthPriority)
+        queuePosition = try container.decodeIfPresent(Int.self, forKey: .queuePosition)
+        honorsSessionLimits = try container.decodeIfPresent(Bool.self, forKey: .honorsSessionLimits)
+        isPrivate = try container.decodeIfPresent(Bool.self, forKey: .isPrivate)
+    }
 
     public init(
         id: Int,
@@ -329,6 +399,49 @@ public struct TorrentDetails: Sendable, Hashable, Codable, Identifiable {
         self.queuePosition = queuePosition
         self.honorsSessionLimits = honorsSessionLimits
         self.isPrivate = isPrivate
+    }
+
+    public func merging(_ update: TorrentDetails, section: TorrentDetailSection) -> TorrentDetails {
+        guard id == update.id || hashString == update.hashString else { return self }
+        return TorrentDetails(
+            id: id,
+            hashString: hashString,
+            name: name,
+            status: status,
+            percentDone: percentDone,
+            totalSize: totalSize,
+            sizeWhenDone: sizeWhenDone,
+            leftUntilDone: leftUntilDone,
+            eta: eta,
+            uploadRatio: uploadRatio,
+            uploadedEver: uploadedEver,
+            downloadedEver: downloadedEver,
+            corruptEver: corruptEver,
+            downloadDir: downloadDir,
+            addedDate: addedDate,
+            activityDate: activityDate,
+            startDate: startDate,
+            doneDate: doneDate,
+            secondsDownloading: secondsDownloading,
+            secondsSeeding: secondsSeeding,
+            files: section == .files ? update.files : files,
+            fileStats: section == .files ? update.fileStats : fileStats,
+            peers: section == .peers ? update.peers : peers,
+            trackerStats: section == .trackers ? update.trackerStats : trackerStats,
+            pieceCount: section == .pieces ? update.pieceCount : pieceCount,
+            pieceSize: section == .pieces ? update.pieceSize : pieceSize,
+            pieces: section == .pieces ? update.pieces : pieces,
+            downloadLimit: downloadLimit,
+            downloadLimited: downloadLimited,
+            uploadLimit: uploadLimit,
+            uploadLimited: uploadLimited,
+            seedRatioLimit: seedRatioLimit,
+            seedRatioMode: seedRatioMode,
+            bandwidthPriority: bandwidthPriority,
+            queuePosition: queuePosition,
+            honorsSessionLimits: honorsSessionLimits,
+            isPrivate: isPrivate
+        )
     }
 }
 

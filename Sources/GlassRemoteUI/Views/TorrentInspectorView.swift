@@ -52,6 +52,31 @@ struct TorrentInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: detailLoadInput) {
+            guard let selectedTorrentHash else { return }
+            let sections = Set(detailLoadInput.sections)
+            model.setVisibleTorrentDetailSections(sections, forHashString: selectedTorrentHash)
+            await withTaskGroup(of: Void.self) { group in
+                for section in sections {
+                    group.addTask {
+                        await model.loadDetailSection(section, forHashString: selectedTorrentHash)
+                    }
+                }
+            }
+        }
+    }
+
+    private var detailLoadInput: TorrentInspectorDetailLoadInput {
+        TorrentInspectorDetailLoadInput(
+            hashString: selectedTorrentHash,
+            detailsID: model.selectedTorrentDetails?.id,
+            sections: [
+                isFilesExpanded ? .files : nil,
+                isPeersExpanded ? .peers : nil,
+                isTrackersExpanded ? .trackers : nil,
+                isPiecesExpanded ? .pieces : nil
+            ].compactMap { $0 }
+        )
     }
 
     @ViewBuilder
@@ -82,14 +107,20 @@ struct TorrentInspectorView: View {
 
                 DisclosureGroup(isExpanded: animatedBinding($isFilesExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        filesControls
-                        TorrentFilesSection(
-                            model: model,
-                            details: details,
-                            searchText: fileSearchText,
-                            sort: fileSort,
-                            isAscending: isFileSortAscending
-                        )
+                        if model.loadingTorrentDetailSections.contains(.files) {
+                            detailLoadingView("Loading files")
+                        } else if let error = model.torrentDetailSectionErrors[.files] {
+                            detailErrorView(error)
+                        } else {
+                            filesControls
+                            TorrentFilesSection(
+                                model: model,
+                                details: details,
+                                searchText: fileSearchText,
+                                sort: fileSort,
+                                isAscending: isFileSortAscending
+                            )
+                        }
                     }
                     .padding(.top, 8)
                 } label: {
@@ -106,7 +137,11 @@ struct TorrentInspectorView: View {
 
                 DisclosureGroup(isExpanded: animatedBinding($isPeersExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        if details.peers.isEmpty {
+                        if model.loadingTorrentDetailSections.contains(.peers) {
+                            detailLoadingView("Loading peers")
+                        } else if let error = model.torrentDetailSectionErrors[.peers] {
+                            detailErrorView(error)
+                        } else if details.peers.isEmpty {
                             Text("No peers")
                                 .foregroundStyle(.secondary)
                         } else {
@@ -125,7 +160,11 @@ struct TorrentInspectorView: View {
 
                 DisclosureGroup(isExpanded: animatedBinding($isTrackersExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        if details.trackerStats.isEmpty {
+                        if model.loadingTorrentDetailSections.contains(.trackers) {
+                            detailLoadingView("Loading trackers")
+                        } else if let error = model.torrentDetailSectionErrors[.trackers] {
+                            detailErrorView(error)
+                        } else if details.trackerStats.isEmpty {
                             Text("No trackers")
                                 .foregroundStyle(.secondary)
                         } else {
@@ -145,12 +184,18 @@ struct TorrentInspectorView: View {
 
                 DisclosureGroup(isExpanded: animatedBinding($isPiecesExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        InspectorField("Pieces", details.pieceCount.map(String.init) ?? "Unavailable")
-                        InspectorField("Piece Size", formatBytes(details.pieceSize))
-                        if let pieceCount = details.pieceCount, let pieces = details.pieces {
-                            InspectorField(
-                                "Complete",
-                                "\(completedPieceCount(from: pieces, total: pieceCount)) of \(pieceCount)")
+                        if model.loadingTorrentDetailSections.contains(.pieces) {
+                            detailLoadingView("Loading pieces")
+                        } else if let error = model.torrentDetailSectionErrors[.pieces] {
+                            detailErrorView(error)
+                        } else {
+                            InspectorField("Pieces", details.pieceCount.map(String.init) ?? "Unavailable")
+                            InspectorField("Piece Size", formatBytes(details.pieceSize))
+                            if let pieceCount = details.pieceCount, let pieces = details.pieces {
+                                InspectorField(
+                                    "Complete",
+                                    "\(completedPieceCount(from: pieces, total: pieceCount)) of \(pieceCount)")
+                            }
                         }
                     }
                     .padding(.top, 8)
@@ -244,6 +289,20 @@ struct TorrentInspectorView: View {
         )
     }
 
+    private func detailLoadingView(_ label: LocalizedStringKey) -> some View {
+        HStack(spacing: 8) {
+            GlassActivityIndicator(label: label)
+                .foregroundStyle(.secondary)
+            Text(label)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func detailErrorView(_ error: String) -> some View {
+        Text(error)
+            .foregroundStyle(.secondary)
+    }
+
     private func setAllFiles(in details: TorrentDetails, wanted: Bool) {
         let indices = Array(details.files.indices)
         guard !indices.isEmpty else { return }
@@ -251,6 +310,12 @@ struct TorrentInspectorView: View {
             await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted)
         }
     }
+}
+
+private struct TorrentInspectorDetailLoadInput: Equatable {
+    let hashString: String?
+    let detailsID: Int?
+    let sections: [TorrentDetailSection]
 }
 
 private struct TorrentFilesSection: View {

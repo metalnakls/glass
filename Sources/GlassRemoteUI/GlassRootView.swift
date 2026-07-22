@@ -8,6 +8,7 @@ public struct GlassRootView: View {
     private let platformIntegration: any GlassPlatformIntegrating
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("GlassRoot.columnVisibility") private var storedColumnVisibility = "automatic"
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
@@ -61,10 +62,6 @@ public struct GlassRootView: View {
                 dismissRemovals: dismissPendingRemovals
             )
         }
-        .inspector(isPresented: .constant(true)) {
-            TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
-                .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
-        }
         .toolbar(id: "Glass.main") {
             ToolbarSpacer(.flexible)
 
@@ -83,6 +80,10 @@ public struct GlassRootView: View {
                 .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
             }
             .visibilityPriority(.high)
+        }
+        .inspector(isPresented: .constant(true)) {
+            TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
+                .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
         }
         .sheet(item: $activeSheet, onDismiss: presentNextTorrentFileDraftIfNeeded) { sheet in
             NavigationStack {
@@ -150,6 +151,7 @@ public struct GlassRootView: View {
         .task {
             restoreColumnVisibilityIfNeeded()
             persistSelectedSourceID()
+            model.setApplicationActive(scenePhase == .active)
             let registrationID = GlassOpenURLRouter.shared.register { urls in
                 openURLs(urls)
             }
@@ -160,6 +162,9 @@ public struct GlassRootView: View {
             persistSelectedSourceID()
             selectedTorrentHash = nil
             Task { await model.refresh() }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            model.setApplicationActive(phase == .active)
         }
         .onChange(of: columnVisibility) { _, visibility in
             storedColumnVisibility = key(for: visibility)
@@ -615,7 +620,6 @@ private struct TorrentListContent: View {
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
     let removeSelected: (Bool) -> Void
-    @State private var presentation: TorrentListContentPresentation
 
     init(
         model: RemoteAppModel,
@@ -637,82 +641,53 @@ private struct TorrentListContent: View {
         self.rename = rename
         self.remove = remove
         self.removeSelected = removeSelected
-        _presentation = State(initialValue: TorrentListContentPresentation(
-            input: TorrentListContentInput(
-                sourceID: model.selectedSourceID,
-                group: model.selectedTorrentGroup,
-                torrents: model.torrents,
-                pendingRenames: pendingRenames,
-                pendingRemovals: pendingRemovals,
-                committingRemovalKeys: committingRemovalKeys
-            )
-        ))
     }
 
     var body: some View {
         TorrentListView(
             model: model,
             platformIntegration: platformIntegration,
-            sourceID: presentation.sourceID,
-            torrents: presentation.torrents,
-            pendingRenameOldNames: presentation.pendingRenameOldNames,
+            sourceID: model.selectedSourceID,
+            records: visibleRecords,
+            structureRevision: model.torrentStructureRevision,
+            pendingRenameNames: pendingRenameNames,
+            pendingRenameOldNames: pendingRenameOldNames,
             selection: $selection,
             rename: rename,
             remove: remove,
             removeSelected: removeSelected
         )
-        .onChange(of: input) { _, input in
-            presentation = TorrentListContentPresentation(input: input)
-        }
     }
 
-    private var input: TorrentListContentInput {
-        TorrentListContentInput(
-            sourceID: model.selectedSourceID,
-            group: model.selectedTorrentGroup,
-            torrents: model.torrents,
-            pendingRenames: pendingRenames,
-            pendingRemovals: pendingRemovals,
-            committingRemovalKeys: committingRemovalKeys
-        )
-    }
-}
-
-private struct TorrentListContentInput: Equatable {
-    let sourceID: UUID
-    let group: TorrentGroup
-    let torrents: [TorrentSummary]
-    let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
-    let pendingRemovals: [PendingTorrentRemoval]
-    let committingRemovalKeys: Set<PendingRemovalKey>
-}
-
-private struct TorrentListContentPresentation: Equatable {
-    let sourceID: UUID
-    let torrents: [TorrentSummary]
-    let pendingRenameOldNames: [String: String]
-
-    init(input: TorrentListContentInput) {
-        sourceID = input.sourceID
-        let hiddenKeys = Set(input.pendingRemovals.map(\.key)).union(input.committingRemovalKeys)
-        torrents = input.torrents.compactMap { torrent in
+    private var visibleRecords: [TorrentRecord] {
+        let sourceID = model.selectedSourceID
+        let hiddenKeys = Set(pendingRemovals.map(\.key)).union(committingRemovalKeys)
+        return model.torrentRecords.filter { record in
             let isIncluded: Bool
-            switch input.group {
+            switch model.selectedTorrentGroup {
             case .all:
                 isIncluded = true
             case .downloading:
-                isIncluded = torrent.isDownloading
+                isIncluded = record.isDownloading
             case .completed:
-                isIncluded = torrent.isCompleted
+                isIncluded = record.isCompleted
             }
-            guard isIncluded else { return nil }
-
-            let key = PendingRemovalKey(sourceID: input.sourceID, hashString: torrent.hashString)
-            guard !hiddenKeys.contains(key) else { return nil }
-            return input.pendingRenames[key].map { torrent.renamed(to: $0.newName) } ?? torrent
+            guard isIncluded else { return false }
+            let key = PendingRemovalKey(sourceID: sourceID, hashString: record.hashString)
+            return !hiddenKeys.contains(key)
         }
-        pendingRenameOldNames = Dictionary(uniqueKeysWithValues: input.pendingRenames.values.compactMap { pendingRename in
-            guard pendingRename.key.sourceID == input.sourceID else { return nil }
+    }
+
+    private var pendingRenameNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: pendingRenames.values.compactMap { pendingRename in
+            guard pendingRename.key.sourceID == model.selectedSourceID else { return nil }
+            return (pendingRename.key.hashString, pendingRename.newName)
+        })
+    }
+
+    private var pendingRenameOldNames: [String: String] {
+        Dictionary(uniqueKeysWithValues: pendingRenames.values.compactMap { pendingRename in
+            guard pendingRename.key.sourceID == model.selectedSourceID else { return nil }
             return (pendingRename.key.hashString, pendingRename.oldName)
         })
     }

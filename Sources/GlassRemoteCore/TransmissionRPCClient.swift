@@ -137,16 +137,62 @@ public actor TransmissionRPCClient {
         return envelope.arguments.torrents
     }
 
+    public func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate {
+        let fields = [
+            "id", "hashString", "name", "status", "percentDone", "metadataPercentComplete", "rateDownload", "rateUpload",
+            "sizeWhenDone", "leftUntilDone", "eta", "uploadRatio", "peersConnected", "downloadDir",
+            "bandwidthPriority", "queuePosition", "file-count"
+        ]
+
+        let envelope: RPCEnvelope<TorrentGetArgs> = try await request(method: "torrent-get", arguments: [
+            "ids": .string("recently-active"),
+            "fields": .array(fields.map { .string($0) })
+        ])
+        return .delta(changed: envelope.arguments.torrents, removedIDs: envelope.arguments.removed)
+    }
+
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
         let fields = [
             "id", "hashString", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
             "leftUntilDone", "eta", "uploadRatio", "uploadedEver", "downloadedEver", "corruptEver",
             "downloadDir", "addedDate", "activityDate", "startDate", "doneDate",
-            "secondsDownloading", "secondsSeeding", "files", "fileStats", "peers", "trackerStats",
-            "pieceCount", "pieceSize", "pieces", "downloadLimit", "downloadLimited", "uploadLimit",
+            "secondsDownloading", "secondsSeeding", "downloadLimit", "downloadLimited", "uploadLimit",
             "uploadLimited", "seedRatioLimit", "seedRatioMode", "bandwidthPriority", "queuePosition",
             "honorsSessionLimits", "isPrivate"
         ]
+
+        return try await fetchTorrentDetails(hashString: hashString, fields: fields)
+    }
+
+    public func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(
+            hashString: hashString,
+            fields: ["id", "hashString", "name", "files", "fileStats"]
+        )
+    }
+
+    public func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(
+            hashString: hashString,
+            fields: ["id", "hashString", "name", "peers"]
+        )
+    }
+
+    public func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(
+            hashString: hashString,
+            fields: ["id", "hashString", "name", "trackerStats"]
+        )
+    }
+
+    public func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
+        try await fetchTorrentDetails(
+            hashString: hashString,
+            fields: ["id", "hashString", "name", "pieceCount", "pieceSize", "pieces"]
+        )
+    }
+
+    private func fetchTorrentDetails(hashString: String, fields: [String]) async throws -> TorrentDetails {
 
         let envelope: RPCEnvelope<TorrentDetailsGetArgs> = try await request(method: "torrent-get", arguments: [
             "ids": .array([.string(hashString)]),
@@ -704,6 +750,18 @@ private struct SessionGetArgs: Decodable, Sendable {
 
 private struct TorrentGetArgs: Decodable, Sendable {
     let torrents: [TorrentSummary]
+    let removed: [Int]
+
+    private enum CodingKeys: String, CodingKey {
+        case torrents
+        case removed
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        torrents = try container.decode([TorrentSummary].self, forKey: .torrents)
+        removed = try container.decodeIfPresent([Int].self, forKey: .removed) ?? []
+    }
 }
 
 private struct TorrentDetailsGetArgs: Decodable, Sendable {
