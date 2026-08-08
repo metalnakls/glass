@@ -61,29 +61,28 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
-        }
-        .toolbar(id: "Glass.main") {
-            ToolbarSpacer(.flexible)
-
-            ToolbarItem(id: "downloadingFilter", placement: .primaryAction) {
-                Toggle(isOn: downloadingFilterBinding) {
-                    Label(
-                        isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents",
-                        systemImage: isDownloadingFilterActive
-                            ? "line.3.horizontal.decrease.circle.fill"
-                            : "line.3.horizontal.decrease.circle"
-                    )
+                .toolbarRole(.editor)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Toggle(isOn: downloadingFilterBinding) {
+                            Label(
+                                isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents",
+                                systemImage: isDownloadingFilterActive
+                                    ? "line.3.horizontal.decrease.circle.fill"
+                                    : "line.3.horizontal.decrease.circle"
+                            )
+                        }
+                        .toggleStyle(.button)
+                        .buttonBorderShape(.circle)
+                        .labelStyle(.iconOnly)
+                        .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
+                    }
+                    .visibilityPriority(.high)
                 }
-                .toggleStyle(.button)
-                .buttonBorderShape(.circle)
-                .labelStyle(.iconOnly)
-                .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
-            }
-            .visibilityPriority(.high)
-        }
-        .inspector(isPresented: .constant(true)) {
-            TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
-                .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
+                .inspector(isPresented: .constant(true)) {
+                    TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
+                        .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
+                }
         }
         .sheet(item: $activeSheet, onDismiss: presentNextTorrentFileDraftIfNeeded) { sheet in
             NavigationStack {
@@ -166,8 +165,15 @@ public struct GlassRootView: View {
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActive(phase == .active)
         }
-        .onChange(of: columnVisibility) { _, visibility in
-            storedColumnVisibility = key(for: visibility)
+        .task(id: columnVisibility) {
+            guard didRestoreColumnVisibility else { return }
+            do {
+                try await Task.sleep(for: .milliseconds(400))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            storedColumnVisibility = key(for: columnVisibility)
         }
         .onChange(of: selectedTorrentHash) { _, _ in
             Task { await loadSelectedTorrentDetails() }
