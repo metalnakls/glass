@@ -356,9 +356,13 @@ public final class RemoteAppModel {
 
     public func runAutoRefresh() async {
         while !Task.isCancelled {
-            await refresh()
+            if isApplicationActive {
+                await refresh()
+            }
             do {
-                try await Task.sleep(for: currentAutoRefreshInterval)
+                try await Task.sleep(
+                    for: isApplicationActive ? currentAutoRefreshInterval : .milliseconds(500)
+                )
             } catch {
                 break
             }
