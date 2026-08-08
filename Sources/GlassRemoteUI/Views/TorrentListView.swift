@@ -1,6 +1,7 @@
 import Foundation
 import GlassRemoteCore
 import GlassRemoteServices
+import Observation
 import SwiftUI
 
 struct TorrentListView: View {
@@ -17,51 +18,17 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @State private var collapsedAutoGroupIDs: Set<String>
-    @State private var rows: [TorrentListRowPresentation]
-    @State private var showsTorrentIcons = true
-
-    init(
-        model: RemoteAppModel,
-        platformIntegration: any GlassPlatformIntegrating,
-        sourceID: UUID,
-        records: [TorrentRecord],
-        structureRevision: Int,
-        pendingRenameNames: [String: String],
-        pendingRenameOldNames: [String: String],
-        selection: Binding<String?>,
-        rename: @escaping (TorrentSummary) -> Void,
-        remove: @escaping (TorrentSummary, Bool) -> Void,
-        removeSelected: @escaping (Bool) -> Void
-    ) {
-        self.model = model
-        self.platformIntegration = platformIntegration
-        self.sourceID = sourceID
-        self.records = records
-        self.structureRevision = structureRevision
-        self.pendingRenameNames = pendingRenameNames
-        self.pendingRenameOldNames = pendingRenameOldNames
-        _selection = selection
-        self.rename = rename
-        self.remove = remove
-        self.removeSelected = removeSelected
-        let collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
-        _collapsedAutoGroupIDs = State(initialValue: collapsedGroupIDs)
-        _rows = State(initialValue: TorrentListRowPresentation.rows(
-            records: records,
-            pendingRenameNames: pendingRenameNames,
-            collapsedGroupIDs: collapsedGroupIDs
-        ))
-    }
+    @State private var presentation = TorrentListPresentationModel()
+    @State private var rowDensity: TorrentRowDensity = .regular
 
     var body: some View {
         List(selection: $selection) {
-            ForEach(rows) { row in
+            ForEach(presentation.rows) { row in
                 TorrentListLiveRow(
                     row: row,
                     model: model,
                     platformIntegration: platformIntegration,
-                    showsIcon: showsTorrentIcons,
+                    density: rowDensity,
                     pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
                     select: { selection = row.id },
                     toggleGroupExpansion: { toggleAutoGroup(row) },
@@ -75,18 +42,26 @@ struct TorrentListView: View {
         }
         .listStyle(.inset)
         .glassSwipeActionsContainer()
-        .onChange(of: sourceID) { _, _ in
-            resetPresentation()
+        .onAppear {
+            synchronizePresentation(sourceChanged: false, animated: false)
         }
         .onChange(of: structureInput) { oldInput, newInput in
+            let sourceChanged = oldInput.sourceID != newInput.sourceID
             let hasRowIdentityChanges = oldInput.recordIDs != newInput.recordIDs
                 || oldInput.pendingRenameNames != newInput.pendingRenameNames
-            rebuildRows(animated: hasRowIdentityChanges)
+            synchronizePresentation(
+                sourceChanged: sourceChanged,
+                animated: !sourceChanged && hasRowIdentityChanges
+            )
         }
-        .onGeometryChange(for: Bool.self, of: { geometry in
-            geometry.size.width >= 430
-        }) { shouldShowIcons in
-            showsTorrentIcons = shouldShowIcons
+        .onGeometryChange(for: TorrentRowDensity.self, of: { geometry in
+            TorrentRowDensity(width: geometry.size.width)
+        }) { density in
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                rowDensity = density
+            }
         }
         .onKeyPress(.delete, phases: [.down]) { keyPress in
             guard selectedTorrent != nil else { return .ignored }
@@ -116,8 +91,7 @@ struct TorrentListView: View {
             sourceID: sourceID,
             revision: structureRevision,
             recordIDs: records.map(\.id),
-            pendingRenameNames: pendingRenameNames,
-            pendingRenameOldNames: pendingRenameOldNames
+            pendingRenameNames: pendingRenameNames
         )
     }
 
@@ -128,56 +102,31 @@ struct TorrentListView: View {
 
     private func toggleAutoGroup(_ row: TorrentListRowPresentation) {
         guard let memberIDs = row.groupMemberIDs else { return }
-        let animation: Animation? = accessibilityReduceMotion ? nil : .easeInOut(duration: 0.22)
-        withAnimation(animation) {
-            if collapsedAutoGroupIDs.contains(row.id) {
-                collapsedAutoGroupIDs.remove(row.id)
-            } else {
-                if let selection, memberIDs.contains(selection) {
-                    self.selection = row.id
-                }
-                collapsedAutoGroupIDs.insert(row.id)
-            }
-            rows = makeRows()
-            TorrentGroupExpansionStore.save(collapsedAutoGroupIDs, for: sourceID)
+        if row.groupIsExpanded == true, let selection, memberIDs.contains(selection) {
+            self.selection = row.id
         }
-    }
-
-    private func resetPresentation() {
-        let collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            collapsedAutoGroupIDs = collapsedGroupIDs
-            selection = nil
-            rows = makeRows(collapsedGroupIDs: collapsedGroupIDs)
-        }
-    }
-
-    private func rebuildRows(animated: Bool) {
-        let updatedRows = makeRows()
-        reconcileSelection(with: updatedRows)
-        if animated, !accessibilityReduceMotion {
-            withAnimation(.easeInOut(duration: 0.22)) {
-                rows = updatedRows
-            }
-        } else {
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                rows = updatedRows
-            }
-        }
-    }
-
-    private func makeRows(
-        collapsedGroupIDs: Set<String>? = nil
-    ) -> [TorrentListRowPresentation] {
-        TorrentListRowPresentation.rows(
+        let updatedRows = presentation.toggleGroup(
+            row.id,
+            sourceID: sourceID,
             records: records,
             pendingRenameNames: pendingRenameNames,
-            collapsedGroupIDs: collapsedGroupIDs ?? collapsedAutoGroupIDs
+            reduceMotion: accessibilityReduceMotion
         )
+        reconcileSelection(with: updatedRows)
+    }
+
+    private func synchronizePresentation(sourceChanged: Bool, animated: Bool) {
+        if sourceChanged {
+            selection = nil
+        }
+        let updatedRows = presentation.synchronize(
+            sourceID: sourceID,
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            animated: animated,
+            reduceMotion: accessibilityReduceMotion
+        )
+        reconcileSelection(with: updatedRows)
     }
 
     private func reconcileSelection(with rows: [TorrentListRowPresentation]) {
@@ -238,7 +187,7 @@ private struct TorrentListLiveRow: View {
     let row: TorrentListRowPresentation
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
-    let showsIcon: Bool
+    let density: TorrentRowDensity
     let pendingOldName: String?
     let select: () -> Void
     let toggleGroupExpansion: () -> Void
@@ -249,7 +198,7 @@ private struct TorrentListLiveRow: View {
     var body: some View {
         TorrentRowView(
             torrent: summary,
-            showsIcon: showsIcon,
+            density: density,
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
@@ -381,7 +330,85 @@ private struct TorrentListStructureInput: Equatable {
     let revision: Int
     let recordIDs: [String]
     let pendingRenameNames: [String: String]
-    let pendingRenameOldNames: [String: String]
+}
+
+@MainActor
+@Observable
+private final class TorrentListPresentationModel {
+    private(set) var rows: [TorrentListRowPresentation] = []
+
+    @ObservationIgnored private var activeSourceID: UUID?
+    @ObservationIgnored private var collapsedGroupIDs: Set<String> = []
+
+    @discardableResult
+    func synchronize(
+        sourceID: UUID,
+        records: [TorrentRecord],
+        pendingRenameNames: [String: String],
+        animated: Bool,
+        reduceMotion: Bool
+    ) -> [TorrentListRowPresentation] {
+        let sourceChanged = activeSourceID != sourceID
+        if sourceChanged {
+            activeSourceID = sourceID
+            collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
+        }
+
+        let updatedRows = TorrentListRowPresentation.rows(
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            collapsedGroupIDs: collapsedGroupIDs
+        )
+        setRows(updatedRows, animated: animated && !sourceChanged, reduceMotion: reduceMotion)
+        return updatedRows
+    }
+
+    @discardableResult
+    func toggleGroup(
+        _ groupID: String,
+        sourceID: UUID,
+        records: [TorrentRecord],
+        pendingRenameNames: [String: String],
+        reduceMotion: Bool
+    ) -> [TorrentListRowPresentation] {
+        if activeSourceID != sourceID {
+            activeSourceID = sourceID
+            collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
+        }
+
+        if collapsedGroupIDs.contains(groupID) {
+            collapsedGroupIDs.remove(groupID)
+        } else {
+            collapsedGroupIDs.insert(groupID)
+        }
+        TorrentGroupExpansionStore.save(collapsedGroupIDs, for: sourceID)
+
+        let updatedRows = TorrentListRowPresentation.rows(
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            collapsedGroupIDs: collapsedGroupIDs
+        )
+        setRows(updatedRows, animated: true, reduceMotion: reduceMotion)
+        return updatedRows
+    }
+
+    private func setRows(
+        _ updatedRows: [TorrentListRowPresentation],
+        animated: Bool,
+        reduceMotion: Bool
+    ) {
+        if animated, !reduceMotion {
+            withAnimation(.easeInOut(duration: 0.22)) {
+                rows = updatedRows
+            }
+        } else {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                rows = updatedRows
+            }
+        }
+    }
 }
 
 @MainActor
