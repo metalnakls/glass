@@ -356,15 +356,11 @@ private struct TorrentFilesSection: View {
                                 }
                             )
                         ) {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(displayName(for: entry.file))
-                                    .lineLimit(2)
-                                Text(
-                                    "\(formatBytes(entry.file.bytesCompleted)) of \(formatBytes(entry.file.length))"
-                                )
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            }
+                            TorrentFileRowLabel(
+                                file: entry.file,
+                                displayName: displayName(for: entry.file),
+                                completedBytes: entry.file.bytesCompleted
+                            )
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
 
