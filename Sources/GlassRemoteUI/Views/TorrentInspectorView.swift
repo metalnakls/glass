@@ -64,6 +64,14 @@ struct TorrentInspectorView: View {
                 }
             }
         }
+        .onChange(of: selectedTorrentHash) { _, hashString in
+            if hashString == nil {
+                fileSearchText = ""
+            }
+        }
+        .onDisappear {
+            fileSearchText = ""
+        }
     }
 
     private var detailLoadInput: TorrentInspectorDetailLoadInput {
