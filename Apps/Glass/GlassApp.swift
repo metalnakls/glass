@@ -65,6 +65,7 @@ struct GlassApp: App {
 
 private struct GlassCommands: Commands {
     @FocusedValue(\.glassCommandActions) private var actions
+    @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -113,13 +114,13 @@ private struct GlassCommands: Commands {
                 actions?.removeSelectedTorrent(false)
             }
             .keyboardShortcut(.delete, modifiers: [])
-            .disabled(actions?.canRemoveSelectedTorrent != true)
+            .disabled(actions?.canRemoveSelectedTorrent != true || isInspectorFileFilterFocused == true)
 
             Button("Delete Torrent + Data") {
                 actions?.removeSelectedTorrent(true)
             }
             .keyboardShortcut(.delete, modifiers: [.command])
-            .disabled(actions?.canRemoveSelectedTorrent != true)
+            .disabled(actions?.canRemoveSelectedTorrent != true || isInspectorFileFilterFocused == true)
         }
     }
 
