@@ -69,9 +69,18 @@ private struct GlassCommandActionsKey: FocusedValueKey {
     typealias Value = GlassCommandActions
 }
 
+private struct GlassInspectorFileFilterFocusedKey: FocusedValueKey {
+    typealias Value = Bool
+}
+
 public extension FocusedValues {
     var glassCommandActions: GlassCommandActions? {
         get { self[GlassCommandActionsKey.self] }
         set { self[GlassCommandActionsKey.self] = newValue }
+    }
+
+    var glassInspectorFileFilterFocused: Bool? {
+        get { self[GlassInspectorFileFilterFocusedKey.self] }
+        set { self[GlassInspectorFileFilterFocusedKey.self] = newValue }
     }
 }

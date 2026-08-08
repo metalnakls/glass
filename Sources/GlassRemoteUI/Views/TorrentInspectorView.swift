@@ -263,6 +263,7 @@ struct TorrentInspectorView: View {
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .frame(minWidth: 72, maxWidth: .infinity)
+                .focusedValue(\.glassInspectorFileFilterFocused, true)
 
             Menu {
                 Picker("Sort By", selection: fileSortBinding) {
