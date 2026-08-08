@@ -10,9 +10,20 @@ struct AddMagnetView: View {
     @State private var downloadDirectory = ""
     @State private var isAdding = false
     @State private var isChoosingDownloadDirectory = false
+    @State private var addErrorMessage: String?
 
     var body: some View {
         Form {
+            if let addErrorMessage {
+                Section {
+                    Label(addErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                } header: {
+                    Text("Couldn’t Add Torrent")
+                }
+            }
+
             TextField("Magnet Link", text: $magnet, axis: .vertical)
                 .lineLimit(4...8)
 
@@ -68,6 +79,7 @@ struct AddMagnetView: View {
 
     private func add() async {
         guard let magnet = normalizedMagnetLink(from: magnet) else { return }
+        addErrorMessage = nil
         isAdding = true
         let didAdd = await model.addMagnet(
             magnet,
@@ -76,6 +88,9 @@ struct AddMagnetView: View {
         isAdding = false
         if didAdd {
             dismiss()
+        } else {
+            addErrorMessage = model.errorMessage ?? "Glass couldn’t add this torrent."
+            model.errorMessage = nil
         }
     }
 
@@ -90,7 +105,7 @@ struct AddMagnetView: View {
                 downloadDirectory = path
             }
         } catch {
-            model.errorMessage = error.localizedDescription
+            addErrorMessage = error.localizedDescription
         }
     }
 }

@@ -20,6 +20,8 @@ struct AddTorrentFileView: View {
     @State private var isAdding = false
     @State private var isChoosingDownloadDirectory = false
     @State private var isAutoCleanEnabled = false
+    @State private var nameBeforeAutoClean: String?
+    @State private var addErrorMessage: String?
     @State private var isExtensionWarningPresented = false
 
     init(
@@ -39,6 +41,16 @@ struct AddTorrentFileView: View {
 
     var body: some View {
         Form {
+            if let addErrorMessage {
+                Section {
+                    Label(addErrorMessage, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .textSelection(.enabled)
+                } header: {
+                    Text("Couldn’t Add Torrent")
+                }
+            }
+
             Section {
                 LabeledContent("Name") {
                     StemSelectingTextField(text: $name, initialSelection: initialNameSelection)
@@ -410,6 +422,7 @@ struct AddTorrentFileView: View {
 
     private func add() async {
         guard canAdd else { return }
+        addErrorMessage = nil
         isAdding = true
         let didAdd = await submit(
             sourceID,
@@ -421,6 +434,9 @@ struct AddTorrentFileView: View {
         isAdding = false
         if didAdd {
             dismiss()
+        } else {
+            addErrorMessage = model.errorMessage ?? "Glass couldn’t add this torrent."
+            model.errorMessage = nil
         }
     }
 
@@ -444,7 +460,7 @@ struct AddTorrentFileView: View {
                 destination = .directory(path)
             }
         } catch {
-            model.errorMessage = error.localizedDescription
+            addErrorMessage = error.localizedDescription
         }
     }
 
