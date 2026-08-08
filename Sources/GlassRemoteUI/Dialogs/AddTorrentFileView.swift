@@ -56,6 +56,21 @@ struct AddTorrentFileView: View {
                     StemSelectingTextField(text: $name, initialSelection: initialNameSelection)
                 }
 
+                if let suggestion = autoCleanSuggestion {
+                    LabeledContent(isAutoCleanEnabled ? "Applied" : "Suggestion") {
+                        HStack(spacing: 8) {
+                            Text(suggestion.rootName)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+
+                            Button(isAutoCleanEnabled ? "Undo" : "Use Suggestion") {
+                                toggleAutoCleanSuggestion(suggestion)
+                            }
+                        }
+                    }
+                }
+
                 Picker("Add To", selection: $sourceID) {
                     Label(model.localSourceName, systemImage: model.localSourceSystemImage)
                         .tag(model.localSourceID)
@@ -75,12 +90,9 @@ struct AddTorrentFileView: View {
                 }
             }
 
-            if autoCleanSuggestion != nil {
+            if isAutoCleanEnabled, autoCleanSuggestion != nil {
                 Section {
-                    Toggle("Auto Clean Names", isOn: $isAutoCleanEnabled)
-
-                    if isAutoCleanEnabled, let plan = resolvedAutoCleanPlan {
-                        namingPreview("Torrent", from: draft.preview.name, to: plan.rootName)
+                    if let plan = resolvedAutoCleanPlan {
                         ForEach(plan.pathRenames.prefix(5)) { rename in
                             namingPreview("File", from: rename.path, to: rename.name)
                         }
@@ -90,9 +102,9 @@ struct AddTorrentFileView: View {
                         }
                     }
                 } header: {
-                    Text("Names")
+                    Text("File Name Suggestions")
                 } footer: {
-                    Text("Suggested. Nothing changes until you enable Auto Clean and add the torrent.")
+                    Text("Suggested file names are applied only when you add the torrent. Choose Undo to restore the name you entered.")
                 }
             }
 
@@ -173,11 +185,6 @@ struct AddTorrentFileView: View {
         .onChange(of: sourceID) { _, _ in
             destination = .defaultLocation
             customDownloadDirectory = ""
-        }
-        .onChange(of: isAutoCleanEnabled) { _, isEnabled in
-            if isEnabled, let suggestion = autoCleanSuggestion {
-                name = suggestion.rootName
-            }
         }
     }
 
@@ -471,6 +478,18 @@ struct AddTorrentFileView: View {
             isFavorite: !isCurrentDownloadDirectoryFavorite,
             for: sourceID
         )
+    }
+
+    private func toggleAutoCleanSuggestion(_ suggestion: TorrentAddNamingPlan) {
+        if isAutoCleanEnabled {
+            name = nameBeforeAutoClean ?? draft.preview.name
+            nameBeforeAutoClean = nil
+            isAutoCleanEnabled = false
+        } else {
+            nameBeforeAutoClean = name
+            name = suggestion.rootName
+            isAutoCleanEnabled = true
+        }
     }
 }
 
