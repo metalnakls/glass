@@ -111,17 +111,7 @@ struct AddTorrentFileView: View {
             Section {
                 ForEach(Array(draft.preview.files.enumerated()), id: \.offset) { index, file in
                     Toggle(isOn: fileSelectionBinding(for: index)) {
-                        HStack(spacing: 12) {
-                            Text(file.name)
-                                .lineLimit(1)
-                                .truncationMode(.middle)
-
-                            Spacer(minLength: 12)
-
-                            Text(formatBytes(file.length))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
+                        TorrentFileRowLabel(file: file)
                     }
                     .toggleStyle(.checkbox)
                     .disabled(isAdding)
