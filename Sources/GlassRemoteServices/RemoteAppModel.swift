@@ -47,7 +47,6 @@ public final class TorrentRecord: Identifiable {
     func apply(_ updatedSummary: TorrentSummary) -> Bool {
         guard summary != updatedSummary else { return false }
         let structureChanged = name != updatedSummary.name
-            || summary.queuePosition != updatedSummary.queuePosition
         if status != updatedSummary.status {
             status = updatedSummary.status
         }

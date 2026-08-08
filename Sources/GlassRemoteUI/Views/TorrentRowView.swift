@@ -5,7 +5,7 @@ import UniformTypeIdentifiers
 
 struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
-    var showsIcon = true
+    var density: TorrentRowDensity = .regular
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
@@ -19,9 +19,10 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var row: some View {
-        HStack(alignment: .center, spacing: 12) {
-            if showsIcon {
+        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
+            if density.showsIcon {
                 leadingIcon
+                    .frame(width: 36, height: 42)
             }
 
             torrentContent
@@ -31,7 +32,7 @@ struct TorrentRowView: View, Equatable {
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
         lhs.torrent == rhs.torrent
-            && lhs.showsIcon == rhs.showsIcon
+            && lhs.density == rhs.density
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
@@ -96,14 +97,11 @@ struct TorrentRowView: View, Equatable {
                 .truncationMode(.tail)
                 .layoutPriority(3)
 
-            ViewThatFits(in: .horizontal) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    sizeLabel
-                    oldNameLabel
-                }
-                oldNameLabel
-                EmptyView()
+            if density.showsSize {
+                sizeLabel
             }
+
+            oldNameLabel
 
             Spacer(minLength: 4)
 
@@ -114,6 +112,7 @@ struct TorrentRowView: View, Equatable {
                 .lineLimit(1)
                 .fixedSize(horizontal: true, vertical: false)
         }
+        .animation(.easeInOut(duration: 0.2), value: pendingOldName)
     }
 
     @ViewBuilder
@@ -144,13 +143,13 @@ struct TorrentRowView: View, Equatable {
                 .truncationMode(.tail)
                 .layoutPriority(2)
 
-            ViewThatFits(in: .horizontal) {
+            if density.showsAllRelevantRates {
                 completeRateLabels
+            } else if density.showsPrimaryRate {
                 primaryRateLabel
-                EmptyView()
             }
 
-            if let queuePosition = torrent.queuePosition {
+            if density.showsQueuePosition, let queuePosition = torrent.queuePosition {
                 Text("#\(queuePosition + 1)")
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
@@ -229,6 +228,42 @@ struct TorrentRowView: View, Equatable {
 
     private var isFolderLike: Bool {
         URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
+    }
+}
+
+enum TorrentRowDensity: Equatable {
+    case compact
+    case standard
+    case regular
+
+    init(width: CGFloat) {
+        if width >= 540 {
+            self = .regular
+        } else if width >= 430 {
+            self = .standard
+        } else {
+            self = .compact
+        }
+    }
+
+    var showsIcon: Bool {
+        self != .compact
+    }
+
+    var showsSize: Bool {
+        self != .compact
+    }
+
+    var showsAllRelevantRates: Bool {
+        self == .regular
+    }
+
+    var showsPrimaryRate: Bool {
+        self != .compact
+    }
+
+    var showsQueuePosition: Bool {
+        self == .regular
     }
 }
 
