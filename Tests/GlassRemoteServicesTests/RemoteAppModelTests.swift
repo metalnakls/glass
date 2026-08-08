@@ -369,6 +369,24 @@ struct RemoteAppModelTests {
         #expect(factory.createdCount == 0)
     }
 
+    @Test("local source moves torrent data to the selected directory")
+    func localSourceMovesTorrentData() async throws {
+        let localSession = StubLocalTransmissionSession()
+        let model = makeModel(
+            profiles: [],
+            factory: StubRPCClientFactory(),
+            localSession: localSession
+        )
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+
+        let moved = await model.moveLocalData(torrent, to: "/Users/me/Movies")
+
+        #expect(moved)
+        #expect(await localSession.movedData == ["local-hash": "/Users/me/Movies"])
+        #expect(model.downloadDirectoriesForSelectedProfile().first == "/Users/me/Movies")
+    }
+
     @Test("torrent file dialog can target a source other than the sidebar selection")
     func torrentFileCanTargetAnotherSource() async {
         let profile = makeProfile()
@@ -676,6 +694,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private(set) var fetchSnapshotCount = 0
     private(set) var addTorrentFileCount = 0
+    private(set) var movedData: [String: String] = [:]
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         fetchSnapshotCount += 1
@@ -727,6 +746,9 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     func queueMoveUp(ids: [String]) async throws {}
     func queueMoveDown(ids: [String]) async throws {}
     func queueMoveBottom(ids: [String]) async throws {}
+    func moveData(id: String, to downloadDirectory: String) async throws {
+        movedData[id] = downloadDirectory
+    }
     func renamePath(id: String, path: String, name: String) async throws {}
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}

@@ -107,12 +107,6 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 
     tr_session_stats const stats = tr_sessionGetStats(self.session);
     NSArray *torrents = [self torrentDictionaries];
-    int64_t freeBytes = -1;
-    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfFileSystemForPath:self.downloadPath error:nil];
-    NSNumber *freeSize = attributes[NSFileSystemFreeSize];
-    if (freeSize != nil) {
-        freeBytes = freeSize.longLongValue;
-    }
 
     return @{
         @"stats": @{
@@ -120,11 +114,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
             @"uploadSpeed": @(tr_sessionGetRawSpeed_KBps(self.session, tr_direction::Up) * 1000.0),
             @"ratio": @(stats.ratio)
         },
-        @"torrents": torrents,
-        @"freeSpace": @{
-            @"path": self.downloadPath,
-            @"sizeBytes": @(freeBytes)
-        }
+        @"torrents": torrents
     };
 }
 
@@ -280,6 +270,37 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         tr_torrentSetQueuePosition(torrent, static_cast<size_t>(std::max<NSInteger>(0, queuePosition + offset)));
         offset += 1;
     }];
+}
+
+- (BOOL)moveDataForTorrent:(NSString *)hashString
+       toDownloadDirectory:(NSString *)downloadDirectory
+                     error:(NSError **)error
+{
+    if (downloadDirectory.length == 0) {
+        if (error != nullptr) {
+            *error = GlassError(5, @"Choose a destination folder.");
+        }
+        return NO;
+    }
+
+    tr_torrent *torrent = [self torrentForHash:hashString error:error];
+    if (torrent == nullptr) {
+        return NO;
+    }
+
+    int volatile state = TR_LOC_MOVING;
+    tr_torrentSetLocation(torrent, downloadDirectory.UTF8String, true, &state);
+    while (state == TR_LOC_MOVING) {
+        [NSThread sleepForTimeInterval:0.02];
+    }
+
+    if (state != TR_LOC_DONE) {
+        if (error != nullptr) {
+            *error = GlassError(6, @"Transmission could not move the torrent data to the selected folder.");
+        }
+        return NO;
+    }
+    return YES;
 }
 
 - (BOOL)renameTorrent:(NSString *)hashString path:(NSString *)path name:(NSString *)name error:(NSError **)error

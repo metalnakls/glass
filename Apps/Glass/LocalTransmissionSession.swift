@@ -3,9 +3,17 @@ import GlassRemoteCore
 import GlassRemoteServices
 
 actor LocalTransmissionSession: LocalTransmissionServicing {
+    private struct CachedFreeSpace {
+        let fetchedAt: Date
+        let value: ServerFreeSpace
+    }
+
+    private static let freeSpaceRefreshInterval: TimeInterval = 60
+
     private let configDirectory: URL
     private let downloadDirectory: URL
     private var bridge: LocalTransmissionBridge?
+    private var cachedFreeSpace: CachedFreeSpace?
 
     init(appName: String = "Glass") throws {
         let support = try FileManager.default.url(
@@ -34,17 +42,11 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         let dictionary = try Self.stringDictionary(bridge.snapshot())
         let statsDictionary = dictionary["stats"] as? [String: Any] ?? [:]
         let torrentsArray = dictionary["torrents"] as? [[String: Any]] ?? []
-        let freeSpaceDictionary = dictionary["freeSpace"] as? [String: Any]
 
         return TorrentProviderSnapshot(
             stats: Self.makeSessionStats(from: statsDictionary),
             torrents: torrentsArray.map(Self.makeSummary(from:)),
-            freeSpace: freeSpaceDictionary.map {
-                ServerFreeSpace(
-                    path: $0.string("path") ?? "",
-                    sizeBytes: $0.int64("sizeBytes")
-                )
-            }
+            freeSpace: localFreeSpace()
         )
     }
 
@@ -143,6 +145,13 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         try ensureBridge().moveTorrents(ids, toQueuePosition: snapshot.torrents.count)
     }
 
+    func moveData(id: String, to downloadDirectory: String) async throws {
+        try ensureBridge().moveData(
+            forTorrent: id,
+            toDownloadDirectory: downloadDirectory
+        )
+    }
+
     func renamePath(id: String, path: String, name: String) async throws {
         try ensureBridge().renameTorrent(id, path: path, name: name)
     }
@@ -218,8 +227,21 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         TorrentProviderSnapshot(
             stats: SessionStats(downloadSpeed: 0, uploadSpeed: 0),
             torrents: [],
-            freeSpace: ServerFreeSpace(path: downloadDirectory.path, sizeBytes: availableBytes(at: downloadDirectory) ?? -1)
+            freeSpace: localFreeSpace()
         )
+    }
+
+    private func localFreeSpace(now: Date = Date()) -> ServerFreeSpace {
+        if let cachedFreeSpace,
+           now.timeIntervalSince(cachedFreeSpace.fetchedAt) < Self.freeSpaceRefreshInterval {
+            return cachedFreeSpace.value
+        }
+        let value = ServerFreeSpace(
+            path: downloadDirectory.path,
+            sizeBytes: availableBytes(at: downloadDirectory) ?? -1
+        )
+        cachedFreeSpace = CachedFreeSpace(fetchedAt: now, value: value)
+        return value
     }
 
     private func availableBytes(at url: URL) -> Int64? {
