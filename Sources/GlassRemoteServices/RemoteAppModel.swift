@@ -752,6 +752,26 @@ public final class RemoteAppModel {
     }
 
     @discardableResult
+    public func moveLocalData(_ torrent: TorrentSummary, to downloadDirectory: String) async -> Bool {
+        let trimmedDirectory = downloadDirectory.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard selectedSourceID == localSourceID, !trimmedDirectory.isEmpty else { return false }
+        if let currentDirectory = torrent.downloadDir,
+           URL(fileURLWithPath: currentDirectory).standardizedFileURL
+            == URL(fileURLWithPath: trimmedDirectory).standardizedFileURL
+        {
+            return true
+        }
+        let sourceID = selectedSourceID
+        let didMove = await performProviderAction(sourceID: sourceID) { provider in
+            try await provider.moveData(id: torrent.hashString, to: trimmedDirectory)
+        }
+        if didMove {
+            rememberDownloadDirectory(trimmedDirectory, for: sourceID)
+        }
+        return didMove
+    }
+
+    @discardableResult
     public func rename(_ torrent: TorrentSummary, to name: String) async -> Bool {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let sourceID = selectedSourceID

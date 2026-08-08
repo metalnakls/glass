@@ -20,6 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (BOOL)verifyTorrents:(NSArray<NSString *> *)hashes error:(NSError **)error;
 - (BOOL)reannounceTorrents:(NSArray<NSString *> *)hashes error:(NSError **)error;
 - (BOOL)moveTorrents:(NSArray<NSString *> *)hashes toQueuePosition:(NSInteger)queuePosition error:(NSError **)error;
+- (BOOL)moveDataForTorrent:(NSString *)hashString toDownloadDirectory:(NSString *)downloadDirectory error:(NSError **)error;
 - (BOOL)renameTorrent:(NSString *)hashString path:(NSString *)path name:(NSString *)name error:(NSError **)error;
 - (BOOL)setWanted:(BOOL)wanted forTorrent:(NSString *)hashString fileIndices:(NSArray<NSNumber *> *)fileIndices error:(NSError **)error;
 - (BOOL)setPriority:(NSInteger)priority forTorrent:(NSString *)hashString fileIndices:(NSArray<NSNumber *> *)fileIndices error:(NSError **)error;

@@ -132,6 +132,7 @@ public protocol TorrentProvider: Sendable {
     func queueMoveUp(ids: [String]) async throws
     func queueMoveDown(ids: [String]) async throws
     func queueMoveBottom(ids: [String]) async throws
+    func moveData(id: String, to downloadDirectory: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
@@ -153,6 +154,10 @@ public extension TorrentProvider {
 
     func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
         try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func moveData(id: String, to downloadDirectory: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("Moving torrent data is only available for local torrents.")
     }
 }
 
@@ -178,10 +183,17 @@ public protocol LocalTransmissionServicing: Sendable {
     func queueMoveUp(ids: [String]) async throws
     func queueMoveDown(ids: [String]) async throws
     func queueMoveBottom(ids: [String]) async throws
+    func moveData(id: String, to downloadDirectory: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
     func setTorrentPriority(ids: [String], priority: Int) async throws
+}
+
+public extension LocalTransmissionServicing {
+    func moveData(id: String, to downloadDirectory: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("This local torrent engine cannot move data.")
+    }
 }
 
 public struct UnavailableLocalTransmissionSession: LocalTransmissionServicing {
@@ -212,6 +224,7 @@ public struct UnavailableLocalTransmissionSession: LocalTransmissionServicing {
     public func queueMoveUp(ids: [String]) async throws { throw error }
     public func queueMoveDown(ids: [String]) async throws { throw error }
     public func queueMoveBottom(ids: [String]) async throws { throw error }
+    public func moveData(id: String, to downloadDirectory: String) async throws { throw error }
     public func renamePath(id: String, path: String, name: String) async throws { throw error }
     public func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws { throw error }
     public func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws { throw error }
@@ -537,6 +550,10 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func queueMoveBottom(ids: [String]) async throws {
         try await session.queueMoveBottom(ids: ids)
+    }
+
+    public func moveData(id: String, to downloadDirectory: String) async throws {
+        try await session.moveData(id: id, to: downloadDirectory)
     }
 
     public func renamePath(id: String, path: String, name: String) async throws {

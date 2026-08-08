@@ -332,6 +332,19 @@ private struct TorrentListLiveRow: View {
         if model.isLocalSourceSelected {
             Divider()
 
+            Button("Move Data…", systemImage: "folder") {
+                Task {
+                    do {
+                        guard let directory = try await platformIntegration.chooseLocalDownloadDirectory(
+                            startingAt: torrent.downloadDir
+                        ) else { return }
+                        _ = await model.moveLocalData(torrent, to: directory)
+                    } catch {
+                        model.errorMessage = error.localizedDescription
+                    }
+                }
+            }
+
             Button("Quick Look") {
                 platformIntegration.previewDownloadedItem(for: torrent)
             }
