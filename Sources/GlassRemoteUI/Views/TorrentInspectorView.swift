@@ -115,9 +115,9 @@ struct TorrentInspectorView: View {
 
                 DisclosureGroup(isExpanded: animatedBinding($isFilesExpanded)) {
                     VStack(alignment: .leading, spacing: 8) {
-                        if model.loadingTorrentDetailSections.contains(.files) {
+                        if model.loadingTorrentDetailSections.contains(.files), details.files.isEmpty {
                             detailLoadingView("Loading files")
-                        } else if let error = model.torrentDetailSectionErrors[.files] {
+                        } else if let error = model.torrentDetailSectionErrors[.files], details.files.isEmpty {
                             detailErrorView(error)
                         } else {
                             filesControls

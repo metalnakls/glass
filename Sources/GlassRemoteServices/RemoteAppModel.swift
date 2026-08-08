@@ -340,6 +340,7 @@ public final class RemoteAppModel {
                 self.refreshErrorMessage = nil
             }
             updateTorrentCache(mergedTorrents, for: sourceID)
+            await refreshVisibleTorrentDetailsAfterListRefresh(sourceID: sourceID, provider: provider)
         } catch {
             guard !(error is CancellationError) else { return }
             guard selectedSourceID == sourceID else { return }
@@ -585,7 +586,8 @@ public final class RemoteAppModel {
     public func loadDetailSection(
         _ section: TorrentDetailSection,
         forHashString hashString: String,
-        force: Bool = false
+        force: Bool = false,
+        showsLoadingIndicator: Bool = true
     ) async {
         guard
             selectedDetailsTorrentHash == hashString,
@@ -600,7 +602,9 @@ public final class RemoteAppModel {
         }
 
         detailSectionTasks[section]?.cancel()
-        loadingTorrentDetailSections.insert(section)
+        if showsLoadingIndicator {
+            loadingTorrentDetailSections.insert(section)
+        }
         torrentDetailSectionErrors[section] = nil
 
         do {
@@ -628,10 +632,14 @@ public final class RemoteAppModel {
             selectedTorrentDetails = details.merging(update, section: section)
             loadedTorrentDetailSections.insert(section)
             detailSectionTasks[section] = nil
-            loadingTorrentDetailSections.remove(section)
+            if showsLoadingIndicator {
+                loadingTorrentDetailSections.remove(section)
+            }
         } catch {
             detailSectionTasks[section] = nil
-            loadingTorrentDetailSections.remove(section)
+            if showsLoadingIndicator {
+                loadingTorrentDetailSections.remove(section)
+            }
             guard !(error is CancellationError), selectedDetailsTorrentHash == hashString else { return }
             torrentDetailSectionErrors[section] = error.localizedDescription
         }
@@ -643,7 +651,8 @@ public final class RemoteAppModel {
         await performProviderAction(
             sourceID: sourceID,
             detailHash: torrent.hashString,
-            detailSections: [.files]
+            detailSections: [.files],
+            showsActivity: false
         ) { provider in
             try await provider.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
         }
@@ -655,7 +664,8 @@ public final class RemoteAppModel {
         await performProviderAction(
             sourceID: sourceID,
             detailHash: torrent.hashString,
-            detailSections: [.files]
+            detailSections: [.files],
+            showsActivity: false
         ) { provider in
             try await provider.setFilePriority(ids: [torrent.hashString], fileIndices: fileIndices, priority: priority)
         }
@@ -975,14 +985,19 @@ public final class RemoteAppModel {
         detailHash: String? = nil,
         reloadCoreDetails: Bool = false,
         detailSections: Set<TorrentDetailSection> = [],
+        showsActivity: Bool = true,
         action: (any TorrentProvider) async throws -> Void
     ) async -> Bool {
-        isLoading = true
-        loadingProfileID = sourceID
+        if showsActivity {
+            isLoading = true
+            loadingProfileID = sourceID
+        }
         errorMessage = nil
         defer {
-            isLoading = false
-            loadingProfileID = nil
+            if showsActivity {
+                isLoading = false
+                loadingProfileID = nil
+            }
         }
 
         do {
@@ -1049,7 +1064,52 @@ public final class RemoteAppModel {
             await reloadCoreDetailsPreservingSections(for: torrent)
         }
         for section in detailSections where visibleTorrentDetailSections.contains(section) {
-            await loadDetailSection(section, forHashString: detailHash, force: true)
+            await loadDetailSection(
+                section,
+                forHashString: detailHash,
+                force: true,
+                showsLoadingIndicator: false
+            )
+        }
+    }
+
+    private func refreshVisibleTorrentDetailsAfterListRefresh(
+        sourceID: UUID,
+        provider: any TorrentProvider
+    ) async {
+        guard
+            selectedSourceID == sourceID,
+            !isLoadingTorrentDetails,
+            detailSectionTasks.isEmpty,
+            let hashString = selectedDetailsTorrentHash,
+            let previousDetails = selectedTorrentDetails
+        else { return }
+
+        do {
+            let coreDetails = try await provider.fetchTorrentDetails(hashString: hashString)
+            guard
+                selectedSourceID == sourceID,
+                selectedDetailsTorrentHash == hashString
+            else { return }
+
+            var mergedDetails = coreDetails
+            for section in loadedTorrentDetailSections {
+                mergedDetails = mergedDetails.merging(previousDetails, section: section)
+            }
+            selectedTorrentDetails = mergedDetails
+        } catch {
+            guard !(error is CancellationError) else { return }
+            return
+        }
+
+        let sections = visibleTorrentDetailSections.intersection(loadedTorrentDetailSections)
+        for section in sections where detailSectionTasks[section] == nil {
+            await loadDetailSection(
+                section,
+                forHashString: hashString,
+                force: true,
+                showsLoadingIndicator: false
+            )
         }
     }
 

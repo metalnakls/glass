@@ -116,6 +116,28 @@ struct RemoteAppModelTests {
         #expect(model.selectedTorrentDetails?.files.first?.name == "Episode.mkv")
     }
 
+    @Test("refresh updates selected inspector details and visible sections")
+    func refreshUpdatesSelectedInspectorDetails() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let client = try #require(factory.clients.first)
+
+        await model.loadDetails(for: torrent)
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await model.loadDetailSection(.files, forHashString: torrent.hashString)
+        await client.setInspectorProgress(percentDone: 0.75, fileBytesCompleted: 75)
+
+        await model.refresh()
+
+        #expect(model.selectedTorrentDetails?.percentDone == 0.75)
+        #expect(model.selectedTorrentDetails?.files.first?.bytesCompleted == 75)
+        #expect(model.loadingTorrentDetailSections.isEmpty)
+        #expect(await client.fetchTorrentPeersCount == 0)
+    }
+
     @Test("changing selection cancels obsolete detail work")
     func changingSelectionCancelsDetails() async throws {
         let profile = makeProfile()
@@ -468,6 +490,8 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var renameAppliesBeforeThrow = false
     private var torrentName = "Spider-Noir"
     private var torrentRateDownload: Double = 1024
+    private var inspectorPercentDone = 0.5
+    private var inspectorFileBytesCompleted: UInt64 = 50
     private var recentlyActiveUpdate: TorrentCollectionUpdate?
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0
@@ -498,6 +522,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func setTorrentRateDownload(_ rate: Double) {
         torrentRateDownload = rate
+    }
+
+    func setInspectorProgress(percentDone: Double, fileBytesCompleted: UInt64) {
+        inspectorPercentDone = percentDone
+        inspectorFileBytesCompleted = fileBytesCompleted
     }
 
     func setRecentlyActiveUpdate(_ update: TorrentCollectionUpdate?) {
@@ -577,7 +606,12 @@ private actor StubRPCClient: TransmissionRPCServicing {
                 throw error
             }
         }
-        return TorrentDetails(id: 1, hashString: hashString, name: "Spider-Noir")
+        return TorrentDetails(
+            id: 1,
+            hashString: hashString,
+            name: "Spider-Noir",
+            percentDone: inspectorPercentDone
+        )
     }
 
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
@@ -586,7 +620,13 @@ private actor StubRPCClient: TransmissionRPCServicing {
             id: 1,
             hashString: hashString,
             name: "Spider-Noir",
-            files: [TorrentFile(name: "Episode.mkv", length: 100, bytesCompleted: 50)]
+            files: [
+                TorrentFile(
+                    name: "Episode.mkv",
+                    length: 100,
+                    bytesCompleted: inspectorFileBytesCompleted
+                )
+            ]
         )
     }
 
