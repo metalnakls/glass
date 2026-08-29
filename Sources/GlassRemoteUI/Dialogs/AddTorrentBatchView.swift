@@ -51,6 +51,11 @@ struct AddTorrentBatchView: View {
         let groups = TorrentNameCleaner.batchGroups(for: drafts.map {
             TorrentBatchNamingInput(rootName: $0.preview.name, files: $0.preview.files)
         })
+        for group in groups where group.isSeasonGroup {
+            for (offset, itemIndex) in group.itemIndices.enumerated() {
+                items[itemIndex].applySeasonDisplayName(group.displayName, season: group.seasons[offset])
+            }
+        }
         _items = State(initialValue: items)
         _groups = State(initialValue: groups)
         _selectedGroupID = State(initialValue: groups.first?.id ?? "")
@@ -144,6 +149,7 @@ struct AddTorrentBatchView: View {
     private var canAdd: Bool {
         !isAdding
             && resolvedDownloadDirectoryIsValid
+            && (!groups.contains(where: \.isSeasonGroup) || resolvedBaseDownloadDirectory != nil)
             && items.filter({ !$0.wasAdded }).allSatisfy(\.canAdd)
     }
 
@@ -258,20 +264,24 @@ struct AddTorrentBatchView: View {
         defer { isAdding = false }
 
         var failures: [String] = []
-        for item in items where !item.wasAdded {
-            let didAdd = await submit(
-                item.draft,
-                sourceID,
-                item.normalizedName,
-                resolvedDownloadDirectory,
-                item.fileSelection,
-                item.namingPlan
-            )
-            if didAdd {
-                item.wasAdded = true
-            } else {
-                failures.append("\(item.normalizedName): \(model.errorMessage ?? "Glass couldn’t add this torrent.")")
-                model.errorMessage = nil
+        for group in groups {
+            for (offset, itemIndex) in group.itemIndices.enumerated() {
+                let item = items[itemIndex]
+                guard !item.wasAdded else { continue }
+                let didAdd = await submit(
+                    item.draft,
+                    sourceID,
+                    item.normalizedName,
+                    downloadDirectory(for: group),
+                    item.fileSelection,
+                    namingPlan(for: item, in: group, offset: offset)
+                )
+                if didAdd {
+                    item.wasAdded = true
+                } else {
+                    failures.append("\(item.normalizedName): \(model.errorMessage ?? "Glass couldn’t add this torrent.")")
+                    model.errorMessage = nil
+                }
             }
         }
 
@@ -280,6 +290,30 @@ struct AddTorrentBatchView: View {
         } else {
             addErrorMessage = failures.joined(separator: "\n")
         }
+    }
+
+    private var resolvedBaseDownloadDirectory: String? {
+        resolvedDownloadDirectory ?? defaultDownloadDirectory
+    }
+
+    private func downloadDirectory(for group: TorrentBatchGroup) -> String? {
+        guard group.isSeasonGroup, let base = resolvedBaseDownloadDirectory else {
+            return resolvedDownloadDirectory
+        }
+        return (base as NSString).appendingPathComponent(group.displayName)
+    }
+
+    private func namingPlan(
+        for item: TorrentBatchItemState,
+        in group: TorrentBatchGroup,
+        offset: Int
+    ) -> TorrentAddNamingPlan? {
+        guard group.isSeasonGroup else { return item.namingPlan }
+        let pathRenames = item.isAutoCleanEnabled ? (item.suggestion?.pathRenames ?? []) : []
+        return TorrentAddNamingPlan(
+            rootName: "Season \(group.seasons[offset])",
+            pathRenames: pathRenames
+        )
     }
 }
 
@@ -297,7 +331,7 @@ private struct TorrentBatchGroupEditor: View {
                         systemImage: "rectangle.stack"
                     )
                 } footer: {
-                    Text("Each season remains independently controllable and seedable.")
+                    Text("Each season remains independently controllable and seedable inside one \(group.displayName) folder.")
                 }
             }
 
@@ -435,6 +469,12 @@ private final class TorrentBatchItemState {
             name = suggestion.rootName
             isAutoCleanEnabled = true
         }
+    }
+
+    func applySeasonDisplayName(_ title: String, season: Int) {
+        nameBeforeAutoClean = draft.preview.name
+        name = "\(title) \(season)"
+        isAutoCleanEnabled = true
     }
 }
 
