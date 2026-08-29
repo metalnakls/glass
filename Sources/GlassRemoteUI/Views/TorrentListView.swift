@@ -63,6 +63,7 @@ struct TorrentListView: View {
                     platformIntegration: platformIntegration,
                     showsIcon: showsTorrentIcons,
                     pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
+                    select: { selection = row.id },
                     toggleGroupExpansion: { toggleAutoGroup(row) },
                     rename: rename,
                     remove: remove,
@@ -239,6 +240,7 @@ private struct TorrentListLiveRow: View {
     let platformIntegration: any GlassPlatformIntegrating
     let showsIcon: Bool
     let pendingOldName: String?
+    let select: () -> Void
     let toggleGroupExpansion: () -> Void
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
@@ -255,6 +257,7 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
+        .glassSelectOnSecondaryClick(select)
         .contextMenu {
             if row.isTorrent {
                 torrentContextMenu(for: summary)
