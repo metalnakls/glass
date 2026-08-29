@@ -572,6 +572,48 @@ public final class RemoteAppModel {
         }
     }
 
+    public func fetchDetails(
+        for torrents: [TorrentSummary],
+        including sections: Set<TorrentDetailSection>
+    ) async throws -> [TorrentDetails] {
+        guard !torrents.isEmpty else { return [] }
+        let sourceID = selectedSourceID
+        let provider = try providerForSelectedSource()
+        let indexedDetails = try await withThrowingTaskGroup(
+            of: (Int, TorrentDetails).self,
+            returning: [(Int, TorrentDetails)].self
+        ) { group in
+            for (index, torrent) in torrents.enumerated() {
+                group.addTask {
+                    var details = try await provider.fetchTorrentDetails(hashString: torrent.hashString)
+                    for section in sections {
+                        let update: TorrentDetails
+                        switch section {
+                        case .files:
+                            update = try await provider.fetchTorrentFiles(hashString: torrent.hashString)
+                        case .peers:
+                            update = try await provider.fetchTorrentPeers(hashString: torrent.hashString)
+                        case .trackers:
+                            update = try await provider.fetchTorrentTrackers(hashString: torrent.hashString)
+                        case .pieces:
+                            update = try await provider.fetchTorrentPieces(hashString: torrent.hashString)
+                        }
+                        details = details.merging(update, section: section)
+                    }
+                    return (index, details)
+                }
+            }
+
+            var values: [(Int, TorrentDetails)] = []
+            for try await value in group {
+                values.append(value)
+            }
+            return values
+        }
+        guard selectedSourceID == sourceID else { throw CancellationError() }
+        return indexedDetails.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
     public func setVisibleTorrentDetailSections(
         _ sections: Set<TorrentDetailSection>,
         forHashString hashString: String
