@@ -1,6 +1,100 @@
 import Foundation
 
+public struct TorrentBatchNamingInput: Sendable, Hashable {
+    public let rootName: String
+    public let files: [TorrentFile]
+
+    public init(rootName: String, files: [TorrentFile]) {
+        self.rootName = rootName
+        self.files = files
+    }
+}
+
+public struct TorrentSeasonDescriptor: Sendable, Hashable {
+    public let title: String
+    public let season: Int
+
+    public init(title: String, season: Int) {
+        self.title = title
+        self.season = season
+    }
+}
+
+public struct TorrentBatchGroup: Sendable, Hashable, Identifiable {
+    public let displayName: String
+    public let itemIndices: [Int]
+    public let seasons: [Int]
+
+    public init(displayName: String, itemIndices: [Int], seasons: [Int] = []) {
+        self.displayName = displayName
+        self.itemIndices = itemIndices
+        self.seasons = seasons
+    }
+
+    public var id: String { itemIndices.map(String.init).joined(separator: ":") }
+    public var isSeasonGroup: Bool { itemIndices.count > 1 && itemIndices.count == seasons.count }
+}
+
 public enum TorrentNameCleaner {
+    public static func seasonDescriptor(for input: TorrentBatchNamingInput) -> TorrentSeasonDescriptor? {
+        if let descriptor = seasonDescriptor(in: input.rootName) {
+            return descriptor
+        }
+
+        let descriptors = input.files.prefix(32).compactMap { seasonDescriptor(in: $0.name) }
+        guard let first = descriptors.first else { return nil }
+        let key = normalizedSeriesKey(first.title)
+        guard descriptors.allSatisfy({ $0.season == first.season && normalizedSeriesKey($0.title) == key }) else {
+            return nil
+        }
+        return first
+    }
+
+    public static func batchGroups(for inputs: [TorrentBatchNamingInput]) -> [TorrentBatchGroup] {
+        let descriptors = inputs.map(seasonDescriptor(for:))
+        var candidatesByKey: [String: [(index: Int, descriptor: TorrentSeasonDescriptor)]] = [:]
+        for (index, descriptor) in descriptors.enumerated() {
+            guard let descriptor else { continue }
+            candidatesByKey[normalizedSeriesKey(descriptor.title), default: []].append((index, descriptor))
+        }
+
+        let qualifying = candidatesByKey.filter { _, values in
+            values.count >= 2 && Set(values.map(\.descriptor.season)).count == values.count
+        }
+        var groupByIndex: [Int: TorrentBatchGroup] = [:]
+        for values in qualifying.values {
+            let sorted = values.sorted {
+                $0.descriptor.season == $1.descriptor.season
+                    ? $0.index < $1.index
+                    : $0.descriptor.season < $1.descriptor.season
+            }
+            guard let first = sorted.first else { continue }
+            let group = TorrentBatchGroup(
+                displayName: first.descriptor.title,
+                itemIndices: sorted.map(\.index),
+                seasons: sorted.map(\.descriptor.season)
+            )
+            for value in sorted {
+                groupByIndex[value.index] = group
+            }
+        }
+
+        var emittedGroupIDs = Set<String>()
+        var result: [TorrentBatchGroup] = []
+        for index in inputs.indices {
+            if let group = groupByIndex[index] {
+                guard emittedGroupIDs.insert(group.id).inserted else { continue }
+                result.append(group)
+            } else {
+                result.append(TorrentBatchGroup(
+                    displayName: cleanRootName(inputs[index].rootName),
+                    itemIndices: [index]
+                ))
+            }
+        }
+        return result
+    }
+
     public static func plan(
         rootName: String,
         files: [TorrentFile],
@@ -62,6 +156,28 @@ public enum TorrentNameCleaner {
 
         let cleaned = releaseTitle(from: url.lastPathComponent)
         return cleaned.isEmpty ? rootName : cleaned
+    }
+
+    private static func seasonDescriptor(in value: String) -> TorrentSeasonDescriptor? {
+        let name = URL(fileURLWithPath: value).lastPathComponent
+        let range = NSRange(name.startIndex..<name.endIndex, in: name)
+        guard let match = seasonIdentityRegex.firstMatch(in: name, range: range) else { return nil }
+        guard
+            let titleText = capture(1, in: match, text: name),
+            let seasonText = capture(2, in: match, text: name),
+            let season = Int(seasonText),
+            (1...99).contains(season)
+        else {
+            return nil
+        }
+        let title = releaseTitle(from: titleText)
+        guard title.count >= 2 else { return nil }
+        return TorrentSeasonDescriptor(title: title, season: season)
+    }
+
+    private static func normalizedSeriesKey(_ title: String) -> String {
+        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "", options: .regularExpression)
     }
 
     private static func episodeDescription(in stem: String) -> String? {
@@ -141,6 +257,10 @@ public enum TorrentNameCleaner {
 
     private static let episodeRegex = try! NSRegularExpression(
         pattern: #"(?i)(?:s(\d{1,2})[\s._-]*e(\d{1,3})|(\d{1,2})x(\d{1,3}))"#
+    )
+
+    private static let seasonIdentityRegex = try! NSRegularExpression(
+        pattern: #"(?i)^(.+?)[\s._\-\[(]+(?:s(?:eason)?|season|series)[\s._-]*0?(\d{1,2})(?:\D|$)"#
     )
 
     private static let mediaExtensions: Set<String> = [
