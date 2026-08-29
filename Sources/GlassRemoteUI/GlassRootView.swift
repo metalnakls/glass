@@ -16,7 +16,6 @@ public struct GlassRootView: View {
     @State private var selectedTorrentHash: String?
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
-    @State private var pendingTorrentFileDrafts: [TorrentFileAddDraft] = []
     @State private var pendingProfileDeletion: RemoteProfile?
     @State private var pendingRenames: [PendingRemovalKey: PendingTorrentRename] = [:]
     @State private var pendingRemovals: [PendingTorrentRemoval] = []
@@ -84,7 +83,7 @@ public struct GlassRootView: View {
                         .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
                 }
         }
-        .sheet(item: $activeSheet, onDismiss: presentNextTorrentFileDraftIfNeeded) { sheet in
+        .sheet(item: $activeSheet) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
@@ -93,12 +92,12 @@ public struct GlassRootView: View {
                     ProfileEditorView(model: model, profile: profile)
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
-                case let .addTorrentFile(draft):
-                    AddTorrentFileView(
+                case let .addTorrentFiles(drafts):
+                    AddTorrentBatchView(
                         model: model,
                         platformIntegration: platformIntegration,
-                        draft: draft,
-                        submit: { sourceID, name, downloadDirectory, fileSelection, namingPlan in
+                        drafts: drafts,
+                        submit: { draft, sourceID, name, downloadDirectory, fileSelection, namingPlan in
                             await submitTorrentFile(
                                 draft,
                                 sourceID: sourceID,
@@ -333,13 +332,19 @@ public struct GlassRootView: View {
 
         guard !torrentFileURLs.isEmpty else { return }
         Task {
+            var drafts: [TorrentFileAddDraft] = []
             for url in torrentFileURLs {
-                await prepareTorrentFile(at: url)
+                if let draft = await prepareTorrentFile(at: url) {
+                    drafts.append(draft)
+                }
+            }
+            if !drafts.isEmpty {
+                activeSheet = .addTorrentFiles(drafts)
             }
         }
     }
 
-    private func prepareTorrentFile(at url: URL) async {
+    private func prepareTorrentFile(at url: URL) async -> TorrentFileAddDraft? {
         do {
             let didAccess = url.startAccessingSecurityScopedResource()
             defer {
@@ -348,29 +353,15 @@ public struct GlassRootView: View {
                 }
             }
             let data = try Data(contentsOf: url)
-            enqueueTorrentFileDraft(
-                TorrentFileAddDraft(
-                    data: data,
-                    preview: TorrentFilePreview(data: data, fallbackURL: url),
-                    sourceURL: url
-                )
+            return TorrentFileAddDraft(
+                data: data,
+                preview: TorrentFilePreview(data: data, fallbackURL: url),
+                sourceURL: url
             )
         } catch {
             model.errorMessage = error.localizedDescription
+            return nil
         }
-    }
-
-    private func enqueueTorrentFileDraft(_ draft: TorrentFileAddDraft) {
-        guard activeSheet == nil else {
-            pendingTorrentFileDrafts.append(draft)
-            return
-        }
-        activeSheet = .addTorrentFile(draft)
-    }
-
-    private func presentNextTorrentFileDraftIfNeeded() {
-        guard activeSheet == nil, !pendingTorrentFileDrafts.isEmpty else { return }
-        activeSheet = .addTorrentFile(pendingTorrentFileDrafts.removeFirst())
     }
 
     private func submitTorrentFile(
@@ -703,7 +694,7 @@ private enum ActiveSheet: Identifiable {
     case newProfile
     case editProfile(RemoteProfile)
     case addMagnet(String)
-    case addTorrentFile(TorrentFileAddDraft)
+    case addTorrentFiles([TorrentFileAddDraft])
     case renameTorrent(TorrentSummary)
 
     var id: String {
@@ -714,8 +705,8 @@ private enum ActiveSheet: Identifiable {
             return "edit-profile-\(profile.id.uuidString)"
         case let .addMagnet(magnet):
             return "add-magnet-\(magnet)"
-        case let .addTorrentFile(draft):
-            return "add-torrent-file-\(draft.id.uuidString)"
+        case let .addTorrentFiles(drafts):
+            return "add-torrent-files-\(drafts.map(\.id.uuidString).joined(separator: "-"))"
         case let .renameTorrent(torrent):
             return "rename-torrent-\(torrent.hashString)"
         }
