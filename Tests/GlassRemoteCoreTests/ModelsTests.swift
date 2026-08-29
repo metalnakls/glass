@@ -97,6 +97,13 @@ struct ModelsTests {
         )
         #expect(TorrentNameCleaner.cleanMediaFileName("Show.Name.2x20.720p.mkv") == "S02E20.mkv")
         #expect(TorrentNameCleaner.cleanMediaFileName("Film.2024.2160p.BluRay.x265.mkv") == "Film.mkv")
+        #expect(TorrentNameCleaner.cleanMediaFileName("Loki.S02E01.Ouroboros.DSNP.mkv") == "S02E01 — Ouroboros.mkv")
+        #expect(
+            TorrentNameCleaner.cleanMediaFileName(
+                "Loki.S02E02.Breaking.Brad.PURPLECAT.2160p.mkv",
+                removingTokens: ["PURPLECAT"]
+            ) == "S02E02 — Breaking Brad.mkv"
+        )
     }
 
     @Test("builds an opt-in naming plan for selected media only")
