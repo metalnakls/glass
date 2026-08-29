@@ -332,7 +332,7 @@ private struct TorrentFilesSection: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(entries) { entry in
-                    HStack(alignment: .firstTextBaseline) {
+                    HStack(alignment: .top, spacing: 8) {
                         Toggle(
                             isOn: Binding(
                                 get: { entry.stats?.wanted ?? true },
@@ -357,6 +357,7 @@ private struct TorrentFilesSection: View {
                                 .foregroundStyle(.secondary)
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                         Menu {
                             priorityMenu(for: entry)
@@ -368,6 +369,7 @@ private struct TorrentFilesSection: View {
                         .menuStyle(.borderlessButton)
                         .menuIndicator(.hidden)
                         .fixedSize()
+                        .padding(.top, 1)
                         .help("Priority: \(formatPriority(entry.stats?.priority))")
                     }
                     .contentShape(Rectangle())
