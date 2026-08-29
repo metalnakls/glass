@@ -481,9 +481,23 @@ private struct TorrentListRowPresentation: Identifiable {
                 ))
                 if isExpanded {
                     rows.append(contentsOf: memberRecords.map { record in
-                        TorrentListRowPresentation(
+                        let displayName: String?
+                        if record.summary.name.range(
+                            of: #"(?i)^season[\s._-]+[1-9]\d?$"#,
+                            options: .regularExpression
+                        ) != nil {
+                            let season = record.summary.name.replacingOccurrences(
+                                of: #"(?i)^season[\s._-]+"#,
+                                with: "",
+                                options: .regularExpression
+                            )
+                            displayName = "\(group.displayName) \(season)"
+                        } else {
+                            displayName = pendingRenameNames[record.id]
+                        }
+                        return TorrentListRowPresentation(
                             id: record.id,
-                            kind: .torrent(record: record, displayName: pendingRenameNames[record.id])
+                            kind: .torrent(record: record, displayName: displayName)
                         )
                     })
                 }

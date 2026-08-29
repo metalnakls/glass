@@ -125,6 +125,32 @@ enum TorrentNameSequenceGrouper {
 
     private static func parsedTorrent(_ torrent: TorrentSummary, originalIndex: Int) -> ParsedTorrent? {
         let trimmedName = torrent.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if
+            let downloadDir = torrent.downloadDir,
+            trimmedName.range(
+                of: #"(?i)^season[\s._-]+[1-9]\d?$"#,
+                options: .regularExpression
+            ) != nil,
+            let numberRange = trimmedName.range(of: #"[1-9]\d?$"#, options: .regularExpression),
+            let number = Int(trimmedName[numberRange])
+        {
+            let displayName = URL(fileURLWithPath: downloadDir).lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let key = displayName
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if displayName.count >= 2, !key.isEmpty {
+                return ParsedTorrent(
+                    key: key,
+                    displayName: displayName,
+                    number: number,
+                    torrent: torrent,
+                    originalIndex: originalIndex
+                )
+            }
+        }
+
         guard
             let suffixRange = trimmedName.range(of: #"(?<!\d)[1-9]\d?$"#, options: .regularExpression),
             suffixRange.upperBound == trimmedName.endIndex,
