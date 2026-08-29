@@ -79,7 +79,11 @@ public struct GlassRootView: View {
                     .visibilityPriority(.high)
                 }
                 .inspector(isPresented: .constant(true)) {
-                    TorrentInspectorView(model: model, selectedTorrentHash: selectedTorrentHash)
+                    TorrentInspectorView(
+                        model: model,
+                        selectedTorrentHash: selectedTorrentHash,
+                        selectedTorrentGroup: selectedTorrentGroup
+                    )
                         .inspectorColumnWidth(min: 240, ideal: 280, max: 420)
                 }
         }
@@ -183,6 +187,14 @@ public struct GlassRootView: View {
     private var selectedTorrent: TorrentSummary? {
         guard let selectedTorrentHash else { return nil }
         return model.filteredTorrents.first { $0.hashString == selectedTorrentHash }
+    }
+
+    private var selectedTorrentGroup: TorrentNameSequenceGroup? {
+        guard let selectedTorrentHash else { return nil }
+        return TorrentNameSequenceGrouper.items(for: model.filteredTorrents).compactMap { item in
+            guard case let .group(group) = item, group.id == selectedTorrentHash else { return nil }
+            return group
+        }.first
     }
 
     private var commandActions: GlassCommandActions {
