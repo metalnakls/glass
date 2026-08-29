@@ -98,9 +98,10 @@ public enum TorrentNameCleaner {
     public static func plan(
         rootName: String,
         files: [TorrentFile],
-        selectedFileIndices: Set<Int>
+        selectedFileIndices: Set<Int>,
+        removingTokens: [String] = []
     ) -> TorrentAddNamingPlan? {
-        let cleanedRoot = cleanRootName(rootName)
+        let cleanedRoot = cleanRootName(rootName, removingTokens: removingTokens)
         var renames: [TorrentPathRename] = []
 
         if files.count > 1 {
@@ -110,7 +111,7 @@ public enum TorrentNameCleaner {
             for (index, file) in files.enumerated() {
                 guard selectedFileIndices.contains(index), isMediaFile(file.name) else { continue }
                 let oldName = URL(fileURLWithPath: file.name).lastPathComponent
-                let newName = cleanMediaFileName(oldName)
+                let newName = cleanMediaFileName(oldName, removingTokens: removingTokens)
                 guard newName != oldName else { continue }
 
                 let parent = (file.name as NSString).deletingLastPathComponent
@@ -132,29 +133,32 @@ public enum TorrentNameCleaner {
         return TorrentAddNamingPlan(rootName: cleanedRoot, pathRenames: renames)
     }
 
-    public static func cleanMediaFileName(_ fileName: String) -> String {
+    public static func cleanMediaFileName(
+        _ fileName: String,
+        removingTokens: [String] = []
+    ) -> String {
         let url = URL(fileURLWithPath: fileName)
         let fileExtension = url.pathExtension
         let stem = url.deletingPathExtension().lastPathComponent
         let cleanedStem: String
 
-        if let episode = episodeDescription(in: stem) {
+        if let episode = episodeDescription(in: stem, removingTokens: removingTokens) {
             cleanedStem = episode
         } else {
-            cleanedStem = releaseTitle(from: stem)
+            cleanedStem = releaseTitle(from: stem, removingTokens: removingTokens)
         }
 
         guard !fileExtension.isEmpty else { return cleanedStem }
         return "\(cleanedStem).\(fileExtension)"
     }
 
-    private static func cleanRootName(_ rootName: String) -> String {
+    private static func cleanRootName(_ rootName: String, removingTokens: [String] = []) -> String {
         let url = URL(fileURLWithPath: rootName)
         if isMediaFile(rootName) {
-            return cleanMediaFileName(rootName)
+            return cleanMediaFileName(rootName, removingTokens: removingTokens)
         }
 
-        let cleaned = releaseTitle(from: url.lastPathComponent)
+        let cleaned = releaseTitle(from: url.lastPathComponent, removingTokens: removingTokens)
         return cleaned.isEmpty ? rootName : cleaned
     }
 
@@ -180,7 +184,7 @@ public enum TorrentNameCleaner {
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "", options: .regularExpression)
     }
 
-    private static func episodeDescription(in stem: String) -> String? {
+    private static func episodeDescription(in stem: String, removingTokens: [String] = []) -> String? {
         let range = NSRange(stem.startIndex..<stem.endIndex, in: stem)
         guard let match = episodeRegex.firstMatch(in: stem, range: range) else { return nil }
 
@@ -193,11 +197,11 @@ public enum TorrentNameCleaner {
         let code = String(format: "S%02dE%02d", season, episode)
         guard let matchRange = Range(match.range, in: stem) else { return code }
         let suffix = String(stem[matchRange.upperBound...])
-        let title = releaseTitle(from: suffix)
+        let title = releaseTitle(from: suffix, removingTokens: removingTokens)
         return title.isEmpty ? code : "\(code) — \(title)"
     }
 
-    private static func releaseTitle(from value: String) -> String {
+    private static func releaseTitle(from value: String, removingTokens: [String] = []) -> String {
         let withoutBrackets = value.replacingOccurrences(
             of: #"[\[\(\{].*?[\]\)\}]"#,
             with: " ",
@@ -212,7 +216,7 @@ public enum TorrentNameCleaner {
         for token in tokens {
             let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             guard !trimmed.isEmpty else { continue }
-            if isReleaseNoise(trimmed) {
+            if isReleaseNoise(trimmed, removingTokens: removingTokens) {
                 break
             }
             kept.append(trimmed)
@@ -228,12 +232,16 @@ public enum TorrentNameCleaner {
         return title
     }
 
-    private static func isReleaseNoise(_ token: String) -> Bool {
+    private static func isReleaseNoise(_ token: String, removingTokens: [String]) -> Bool {
         let normalized = token.lowercased().replacingOccurrences(of: "-", with: "")
+        let customTokens = Set(removingTokens.map {
+            $0.lowercased().replacingOccurrences(of: "-", with: "")
+        })
         if normalized.range(of: #"^(19|20)\d{2}$"#, options: .regularExpression) != nil { return true }
         if normalized.range(of: #"^\d{3,4}p$"#, options: .regularExpression) != nil { return true }
         if normalized.range(of: #"^s\d{1,2}$"#, options: .regularExpression) != nil { return true }
-        return releaseNoiseTokens.contains(normalized)
+        return customTokens.contains(normalized)
+            || releaseNoiseTokens.contains(normalized)
             || normalized.range(of: #"^(x|h)26[45]$"#, options: .regularExpression) != nil
             || normalized.range(of: #"^ddp?\d"#, options: .regularExpression) != nil
     }
@@ -268,7 +276,7 @@ public enum TorrentNameCleaner {
     ]
 
     private static let releaseNoiseTokens: Set<String> = [
-        "aac", "amzn", "atmos", "av1", "bdrip", "bluray", "brip", "cam", "dd", "dts", "dv",
+        "aac", "amzn", "atmos", "av1", "bdrip", "bluray", "brip", "cam", "dd", "dsnp", "dts", "dv",
         "dvdrip", "hdr", "hdr10", "hevc", "hdtv", "imax", "multi", "nf", "proper", "repack",
         "remux", "uhd", "web", "webdl", "webrip", "yify"
     ]

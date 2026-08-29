@@ -21,6 +21,7 @@ struct AddTorrentBatchView: View {
     @State private var items: [TorrentBatchItemState]
     @State private var groups: [TorrentBatchGroup]
     @State private var selectedGroupID: String
+    @State private var cleanupWordsByGroupID: [String: String]
     @State private var sourceID: UUID
     @State private var destination: BatchDestination = .defaultLocation
     @State private var defaultDownloadDirectory: String?
@@ -59,6 +60,9 @@ struct AddTorrentBatchView: View {
         _items = State(initialValue: items)
         _groups = State(initialValue: groups)
         _selectedGroupID = State(initialValue: groups.first?.id ?? "")
+        _cleanupWordsByGroupID = State(initialValue: Dictionary(
+            uniqueKeysWithValues: groups.map { ($0.id, "") }
+        ))
         _sourceID = State(initialValue: model.selectedSourceID)
     }
 
@@ -102,6 +106,7 @@ struct AddTorrentBatchView: View {
                     TorrentBatchGroupEditor(
                         group: group,
                         items: items,
+                        cleanupWords: cleanupWordsBinding(for: group),
                         isAdding: isAdding
                     )
                     .tabItem {
@@ -308,11 +313,21 @@ struct AddTorrentBatchView: View {
         in group: TorrentBatchGroup,
         offset: Int
     ) -> TorrentAddNamingPlan? {
-        guard group.isSeasonGroup else { return item.namingPlan }
-        let pathRenames = item.isAutoCleanEnabled ? (item.suggestion?.pathRenames ?? []) : []
+        let removingTokens = cleanupTokens(from: cleanupWordsByGroupID[group.id] ?? "")
+        guard group.isSeasonGroup else { return item.namingPlan(removingTokens: removingTokens) }
+        let pathRenames = item.isAutoCleanEnabled
+            ? (item.suggestion(removingTokens: removingTokens)?.pathRenames ?? [])
+            : []
         return TorrentAddNamingPlan(
             rootName: "Season \(group.seasons[offset])",
             pathRenames: pathRenames
+        )
+    }
+
+    private func cleanupWordsBinding(for group: TorrentBatchGroup) -> Binding<String> {
+        Binding(
+            get: { cleanupWordsByGroupID[group.id] ?? "" },
+            set: { cleanupWordsByGroupID[group.id] = $0 }
         )
     }
 }
@@ -320,7 +335,10 @@ struct AddTorrentBatchView: View {
 private struct TorrentBatchGroupEditor: View {
     let group: TorrentBatchGroup
     let items: [TorrentBatchItemState]
+    @Binding var cleanupWords: String
     let isAdding: Bool
+
+    private var removingTokens: [String] { cleanupTokens(from: cleanupWords) }
 
     var body: some View {
         Form {
@@ -335,8 +353,20 @@ private struct TorrentBatchGroupEditor: View {
                 }
             }
 
+            Section {
+                TextField("Words or tags", text: $cleanupWords, prompt: Text("PURPLECAT, release group"))
+            } header: {
+                Text("Also Remove")
+            } footer: {
+                Text("Separate literal words with commas. Glass applies them to every suggested file name in this tab.")
+            }
+
             ForEach(group.itemIndices, id: \.self) { index in
-                TorrentBatchItemEditor(item: items[index], isAdding: isAdding)
+                TorrentBatchItemEditor(
+                    item: items[index],
+                    removingTokens: removingTokens,
+                    isAdding: isAdding
+                )
             }
         }
         .formStyle(.grouped)
@@ -345,6 +375,7 @@ private struct TorrentBatchGroupEditor: View {
 
 private struct TorrentBatchItemEditor: View {
     @Bindable var item: TorrentBatchItemState
+    let removingTokens: [String]
     let isAdding: Bool
 
     var body: some View {
@@ -354,7 +385,7 @@ private struct TorrentBatchItemEditor: View {
                     .multilineTextAlignment(.trailing)
             }
 
-            if let suggestion = item.suggestion {
+            if let suggestion = item.suggestion(removingTokens: removingTokens) {
                 LabeledContent(item.isAutoCleanEnabled ? "Applied" : "Suggestion") {
                     HStack(spacing: 8) {
                         Text(suggestion.rootName)
@@ -362,7 +393,23 @@ private struct TorrentBatchItemEditor: View {
                             .lineLimit(1)
                             .truncationMode(.middle)
                         Button(item.isAutoCleanEnabled ? "Undo" : "Use Suggestion") {
-                            item.toggleSuggestion()
+                            item.toggleSuggestion(removingTokens: removingTokens)
+                        }
+                    }
+                }
+
+                if item.isAutoCleanEnabled, !suggestion.pathRenames.isEmpty {
+                    LabeledContent("File Suggestions") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            ForEach(suggestion.pathRenames.prefix(3)) { rename in
+                                Text(rename.name)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            if suggestion.pathRenames.count > 3 {
+                                Text("\(suggestion.pathRenames.count - 3) more")
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
@@ -420,16 +467,17 @@ private final class TorrentBatchItemState {
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canAdd: Bool { !normalizedName.isEmpty && !selectedFileIndices.isEmpty }
 
-    var suggestion: TorrentAddNamingPlan? {
+    func suggestion(removingTokens: [String] = []) -> TorrentAddNamingPlan? {
         TorrentNameCleaner.plan(
             rootName: draft.preview.name,
             files: draft.preview.files,
-            selectedFileIndices: selectedFileIndices
+            selectedFileIndices: selectedFileIndices,
+            removingTokens: removingTokens
         )
     }
 
-    var namingPlan: TorrentAddNamingPlan? {
-        guard isAutoCleanEnabled, let suggestion else { return nil }
+    func namingPlan(removingTokens: [String]) -> TorrentAddNamingPlan? {
+        guard isAutoCleanEnabled, let suggestion = suggestion(removingTokens: removingTokens) else { return nil }
         return TorrentAddNamingPlan(rootName: normalizedName, pathRenames: suggestion.pathRenames)
     }
 
@@ -459,12 +507,12 @@ private final class TorrentBatchItemState {
         )
     }
 
-    func toggleSuggestion() {
+    func toggleSuggestion(removingTokens: [String]) {
         if isAutoCleanEnabled {
             name = nameBeforeAutoClean ?? draft.preview.name
             nameBeforeAutoClean = nil
             isAutoCleanEnabled = false
-        } else if let suggestion {
+        } else if let suggestion = suggestion(removingTokens: removingTokens) {
             nameBeforeAutoClean = name
             name = suggestion.rootName
             isAutoCleanEnabled = true
@@ -476,6 +524,12 @@ private final class TorrentBatchItemState {
         name = "\(title) \(season)"
         isAutoCleanEnabled = true
     }
+}
+
+private func cleanupTokens(from text: String) -> [String] {
+    text.split(separator: ",")
+        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
 }
 
 private enum BatchDestination: Hashable {
