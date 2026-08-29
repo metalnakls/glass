@@ -348,7 +348,7 @@ private struct TorrentFilesSection: View {
                             )
                         ) {
                             VStack(alignment: .leading, spacing: 2) {
-                                Text(entry.file.name)
+                                Text(displayName(for: entry.file))
                                     .lineLimit(2)
                                 Text(
                                     "\(formatBytes(entry.file.bytesCompleted)) of \(formatBytes(entry.file.length))"
@@ -402,6 +402,12 @@ private struct TorrentFilesSection: View {
             }
             return isAscending ? comparison == .orderedAscending : comparison == .orderedDescending
         }
+    }
+
+    private func displayName(for file: TorrentFile) -> String {
+        let rootPrefix = details.name + "/"
+        guard file.name.hasPrefix(rootPrefix) else { return file.name }
+        return String(file.name.dropFirst(rootPrefix.count))
     }
 
     @ViewBuilder
