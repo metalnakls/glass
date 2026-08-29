@@ -130,6 +130,55 @@ struct ModelsTests {
         ])
     }
 
+    @Test("groups only distinct seasons of the same series in a mixed batch")
+    func groupsSeasonTorrentBatch() {
+        let inputs = [
+            TorrentBatchNamingInput(rootName: "Breaking.Bad.S01.1080p", files: [
+                TorrentFile(name: "Breaking.Bad.S01E01.1080p.mkv", length: 1, bytesCompleted: 0)
+            ]),
+            TorrentBatchNamingInput(rootName: "Arrival.2016.2160p", files: [
+                TorrentFile(name: "Arrival.2016.2160p.mkv", length: 1, bytesCompleted: 0)
+            ]),
+            TorrentBatchNamingInput(rootName: "Breaking Bad - Season 2", files: [
+                TorrentFile(name: "Breaking.Bad.S02E01.1080p.mkv", length: 1, bytesCompleted: 0)
+            ]),
+            TorrentBatchNamingInput(rootName: "Heat.1995.BluRay", files: [
+                TorrentFile(name: "Heat.1995.BluRay.mkv", length: 1, bytesCompleted: 0)
+            ])
+        ]
+
+        let groups = TorrentNameCleaner.batchGroups(for: inputs)
+
+        #expect(groups.map(\.itemIndices) == [[0, 2], [1], [3]])
+        #expect(groups.first?.displayName == "Breaking Bad")
+        #expect(groups.first?.seasons == [1, 2])
+        #expect(groups[1].seasons.isEmpty)
+    }
+
+    @Test("infers a season from consistent episode files")
+    func infersSeasonFromFiles() {
+        let input = TorrentBatchNamingInput(rootName: "Loki release", files: [
+            TorrentFile(name: "Loki.S02E01.Ouroboros.DSNP.mkv", length: 1, bytesCompleted: 0),
+            TorrentFile(name: "Loki.S02E02.Breaking.Brad.DSNP.mkv", length: 1, bytesCompleted: 0)
+        ])
+
+        #expect(TorrentNameCleaner.seasonDescriptor(for: input) == TorrentSeasonDescriptor(
+            title: "Loki",
+            season: 2
+        ))
+    }
+
+    @Test("does not group duplicate seasons or movies with a common prefix")
+    func rejectsAmbiguousBatchGroups() {
+        let inputs = [
+            TorrentBatchNamingInput(rootName: "Planet Earth S01 1080p", files: []),
+            TorrentBatchNamingInput(rootName: "Planet Earth Season 1 Remux", files: []),
+            TorrentBatchNamingInput(rootName: "Planet Earth The Movie 2024", files: [])
+        ]
+
+        #expect(TorrentNameCleaner.batchGroups(for: inputs).map(\.itemIndices) == [[0], [1], [2]])
+    }
+
     @Test("decodes download directory history saved before favorites")
     func downloadDirectoryHistoryBackwardsCompatibility() throws {
         let profileID = UUID(uuidString: "AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")!
