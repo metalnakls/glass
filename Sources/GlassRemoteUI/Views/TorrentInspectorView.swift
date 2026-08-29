@@ -414,15 +414,19 @@ private struct TorrentFilesSection: View {
 
     @ViewBuilder
     private func priorityMenu(for entry: TorrentFileEntry) -> some View {
-        Button("High", systemImage: entry.stats?.priority == 1 ? "checkmark" : "arrow.up") {
-            setPriority(1, for: entry)
-        }
-        Button("Normal", systemImage: entry.stats?.priority == 0 ? "checkmark" : "equal") {
-            setPriority(0, for: entry)
-        }
-        Button("Low", systemImage: entry.stats?.priority == -1 ? "checkmark" : "arrow.down") {
-            setPriority(-1, for: entry)
-        }
+        Toggle("High", isOn: priorityBinding(1, for: entry))
+        Toggle("Normal", isOn: priorityBinding(0, for: entry))
+        Toggle("Low", isOn: priorityBinding(-1, for: entry))
+    }
+
+    private func priorityBinding(_ priority: Int, for entry: TorrentFileEntry) -> Binding<Bool> {
+        Binding(
+            get: { entry.stats?.priority == priority },
+            set: { isSelected in
+                guard isSelected else { return }
+                setPriority(priority, for: entry)
+            }
+        )
     }
 
     private func setWanted(_ wanted: Bool, for entry: TorrentFileEntry) {

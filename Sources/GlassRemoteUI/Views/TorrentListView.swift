@@ -304,15 +304,9 @@ private struct TorrentListLiveRow: View {
             Task { await model.reannounce(torrent) }
         }
         Menu("Priority") {
-            Button("High") {
-                Task { await model.setTorrentPriority(torrent, priority: 1) }
-            }
-            Button("Normal") {
-                Task { await model.setTorrentPriority(torrent, priority: 0) }
-            }
-            Button("Low") {
-                Task { await model.setTorrentPriority(torrent, priority: -1) }
-            }
+            Toggle("High", isOn: priorityBinding(1, for: torrent))
+            Toggle("Normal", isOn: priorityBinding(0, for: torrent))
+            Toggle("Low", isOn: priorityBinding(-1, for: torrent))
         }
         Menu("Queue") {
             Button("Move to Top") {
@@ -353,6 +347,16 @@ private struct TorrentListLiveRow: View {
         Button("Delete Torrent + Data", role: .destructive) {
             remove(torrent, true)
         }
+    }
+
+    private func priorityBinding(_ priority: Int, for torrent: TorrentSummary) -> Binding<Bool> {
+        Binding(
+            get: { torrent.bandwidthPriority == priority },
+            set: { isSelected in
+                guard isSelected else { return }
+                Task { await model.setTorrentPriority(torrent, priority: priority) }
+            }
+        )
     }
 }
 
