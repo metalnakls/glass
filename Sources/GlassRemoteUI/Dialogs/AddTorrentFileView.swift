@@ -19,7 +19,7 @@ struct AddTorrentFileView: View {
     @State private var customDownloadDirectory = ""
     @State private var isAdding = false
     @State private var isChoosingDownloadDirectory = false
-    @State private var isAutoCleanEnabled = false
+    @State private var isAutoCleanEnabled: Bool
     @State private var nameBeforeAutoClean: String?
     @State private var addErrorMessage: String?
     @State private var isExtensionWarningPresented = false
@@ -34,9 +34,17 @@ struct AddTorrentFileView: View {
         self.platformIntegration = platformIntegration
         self.draft = draft
         self.submit = submit
-        _name = State(initialValue: draft.preview.name)
-        _selectedFileIndices = State(initialValue: Set(draft.preview.files.indices))
+        let selectedFileIndices = Set(draft.preview.files.indices)
+        let suggestion = TorrentNameCleaner.plan(
+            rootName: draft.preview.name,
+            files: draft.preview.files,
+            selectedFileIndices: selectedFileIndices
+        )
+        _name = State(initialValue: suggestion?.rootName ?? draft.preview.name)
+        _selectedFileIndices = State(initialValue: selectedFileIndices)
         _sourceID = State(initialValue: model.selectedSourceID)
+        _isAutoCleanEnabled = State(initialValue: suggestion != nil)
+        _nameBeforeAutoClean = State(initialValue: suggestion == nil ? nil : draft.preview.name)
     }
 
     var body: some View {
