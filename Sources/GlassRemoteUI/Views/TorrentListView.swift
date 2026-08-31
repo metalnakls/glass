@@ -13,6 +13,7 @@ struct TorrentListView: View {
     let pendingRenameNames: [String: String]
     let pendingRenameOldNames: [String: String]
     @Binding var selection: String?
+    let revealSelectionToken: UUID
     let rename: (TorrentSummary) -> Void
     let remove: (TorrentSummary, Bool) -> Void
     let removeSelected: (Bool) -> Void
@@ -22,26 +23,32 @@ struct TorrentListView: View {
     @State private var rowDensity: TorrentRowDensity = .regular
 
     var body: some View {
-        List(selection: $selection) {
-            ForEach(presentation.rows) { row in
-                TorrentListLiveRow(
-                    row: row,
-                    model: model,
-                    platformIntegration: platformIntegration,
-                    density: rowDensity,
-                    pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
-                    select: { selection = row.id },
-                    toggleGroupExpansion: { toggleAutoGroup(row) },
-                    rename: rename,
-                    remove: remove,
-                    toggleTransfers: { Task { await toggleTransfers(for: row) } }
-                )
-                .tag(row.id)
-                .accessibilityElement(children: .contain)
+        ScrollViewReader { scrollProxy in
+            List(selection: $selection) {
+                ForEach(presentation.rows) { row in
+                    TorrentListLiveRow(
+                        row: row,
+                        model: model,
+                        platformIntegration: platformIntegration,
+                        density: rowDensity,
+                        pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
+                        select: { selection = row.id },
+                        toggleGroupExpansion: { toggleAutoGroup(row) },
+                        rename: rename,
+                        remove: remove,
+                        toggleTransfers: { Task { await toggleTransfers(for: row) } }
+                    )
+                    .id(row.id)
+                    .tag(row.id)
+                    .accessibilityElement(children: .contain)
+                }
+            }
+            .listStyle(.inset)
+            .glassSwipeActionsContainer()
+            .onChange(of: revealSelectionToken) { _, _ in
+                revealAndScrollToTorrent(selection, using: scrollProxy)
             }
         }
-        .listStyle(.inset)
-        .glassSwipeActionsContainer()
         .onAppear {
             synchronizePresentation(sourceChanged: false, animated: false)
         }
@@ -133,6 +140,30 @@ struct TorrentListView: View {
         guard let selection else { return }
         if !rows.contains(where: { $0.id == selection }) {
             self.selection = nil
+        }
+    }
+
+    private func revealAndScrollToTorrent(_ selectedID: String?, using scrollProxy: ScrollViewProxy) {
+        guard let selectedID else { return }
+        let rows = presentation.revealTorrent(
+            selectedID,
+            sourceID: sourceID,
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            reduceMotion: accessibilityReduceMotion
+        )
+        reconcileSelection(with: rows)
+        guard selection == selectedID else { return }
+
+        Task { @MainActor in
+            await Task.yield()
+            if accessibilityReduceMotion {
+                scrollProxy.scrollTo(selectedID, anchor: .center)
+            } else {
+                withAnimation(.easeOut(duration: 0.22)) {
+                    scrollProxy.scrollTo(selectedID, anchor: .center)
+                }
+            }
         }
     }
 
@@ -383,6 +414,37 @@ private final class TorrentListPresentationModel {
         }
         TorrentGroupExpansionStore.save(collapsedGroupIDs, for: sourceID)
 
+        let updatedRows = TorrentListRowPresentation.rows(
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            collapsedGroupIDs: collapsedGroupIDs
+        )
+        setRows(updatedRows, animated: true, reduceMotion: reduceMotion)
+        return updatedRows
+    }
+
+    @discardableResult
+    func revealTorrent(
+        _ torrentID: String,
+        sourceID: UUID,
+        records: [TorrentRecord],
+        pendingRenameNames: [String: String],
+        reduceMotion: Bool
+    ) -> [TorrentListRowPresentation] {
+        _ = synchronize(
+            sourceID: sourceID,
+            records: records,
+            pendingRenameNames: pendingRenameNames,
+            animated: false,
+            reduceMotion: reduceMotion
+        )
+        guard let groupID = rows.first(where: { row in
+            row.groupMemberIDs?.contains(torrentID) == true
+        })?.id, collapsedGroupIDs.remove(groupID) != nil else {
+            return rows
+        }
+
+        TorrentGroupExpansionStore.save(collapsedGroupIDs, for: sourceID)
         let updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,

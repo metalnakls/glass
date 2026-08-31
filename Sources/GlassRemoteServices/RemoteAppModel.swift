@@ -422,10 +422,12 @@ public final class RemoteAppModel {
         namingPlan: TorrentAddNamingPlan? = nil,
         sourceID: UUID? = nil,
         sourceURL: URL? = nil,
-        trashSourceOnSuccess: Bool = false
+        trashSourceOnSuccess: Bool = false,
+        onSuccess: ((TorrentAddResult?) -> Void)? = nil
     ) async -> Bool {
         let sourceID = sourceID ?? selectedSourceID
         var renameWarnings: [String] = []
+        var navigationResult: TorrentAddResult?
         let didAdd = await performProviderAction(sourceID: sourceID) { provider in
             let result = try await provider.addTorrentFile(
                 data: data,
@@ -433,6 +435,7 @@ public final class RemoteAppModel {
                 downloadDirectory: downloadDirectory,
                 fileSelection: fileSelection
             )
+            navigationResult = result
 
             guard let namingPlan, let result, !result.wasDuplicate else { return }
             for rename in namingPlan.pathRenames {
@@ -455,6 +458,7 @@ public final class RemoteAppModel {
             }
         }
         if didAdd {
+            onSuccess?(navigationResult)
             rememberDownloadDirectory(downloadDirectory, for: sourceID)
         }
         if didAdd, trashSourceOnSuccess {

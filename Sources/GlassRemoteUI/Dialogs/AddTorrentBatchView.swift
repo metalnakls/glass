@@ -14,7 +14,8 @@ struct AddTorrentBatchView: View {
         String?,
         TorrentAddFileSelection,
         TorrentAddNamingPlan?
-    ) async -> Bool
+    ) async -> TorrentFileAddSubmissionResult
+    let didFinishAdding: @MainActor (UUID, String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -31,6 +32,7 @@ struct AddTorrentBatchView: View {
     @State private var isAdding = false
     @State private var isChoosingDownloadDirectory = false
     @State private var addErrorMessage: String?
+    @State private var lastAddedTorrentHash: String?
 
     init(
         model: RemoteAppModel,
@@ -43,12 +45,14 @@ struct AddTorrentBatchView: View {
             String?,
             TorrentAddFileSelection,
             TorrentAddNamingPlan?
-        ) async -> Bool
+        ) async -> TorrentFileAddSubmissionResult,
+        didFinishAdding: @escaping @MainActor (UUID, String?) -> Void
     ) {
         self.model = model
         self.platformIntegration = platformIntegration
         self.drafts = drafts
         self.submit = submit
+        self.didFinishAdding = didFinishAdding
 
         let items = drafts.map(TorrentBatchItemState.init)
         let groups = TorrentNameCleaner.batchGroups(for: drafts.map {
@@ -283,7 +287,7 @@ struct AddTorrentBatchView: View {
             for (offset, itemIndex) in group.itemIndices.enumerated() {
                 let item = items[itemIndex]
                 guard !item.wasAdded else { continue }
-                let didAdd = await submit(
+                let result = await submit(
                     item.draft,
                     sourceID,
                     submissionName(for: item, in: group, offset: offset),
@@ -291,8 +295,11 @@ struct AddTorrentBatchView: View {
                     item.fileSelection,
                     namingPlan(for: item, in: group, offset: offset)
                 )
-                if didAdd {
+                if result.succeeded {
                     item.wasAdded = true
+                    if let hashString = result.torrent?.hashString, !hashString.isEmpty {
+                        lastAddedTorrentHash = hashString
+                    }
                 } else {
                     failures.append("\(item.normalizedName): \(model.errorMessage ?? "Glass couldn’t add this torrent.")")
                     model.errorMessage = nil
@@ -301,6 +308,7 @@ struct AddTorrentBatchView: View {
         }
 
         if failures.isEmpty {
+            didFinishAdding(sourceID, lastAddedTorrentHash)
             dismiss()
         } else {
             addErrorMessage = failures.joined(separator: "\n")
@@ -371,6 +379,11 @@ struct AddTorrentBatchView: View {
             set: { cleanupWordsByGroupID[group.id] = $0 }
         )
     }
+}
+
+struct TorrentFileAddSubmissionResult: Sendable, Hashable {
+    let succeeded: Bool
+    let torrent: TorrentAddResult?
 }
 
 private struct TorrentBatchGroupEditor: View {
