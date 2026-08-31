@@ -15,7 +15,7 @@ public protocol TransmissionRPCServicing: Sendable {
     func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult?
     func addTorrentFile(
         data: Data,
         torrentName: String?,
@@ -116,7 +116,7 @@ public protocol TorrentProvider: Sendable {
     func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult?
     func addTorrentFile(
         data: Data,
         torrentName: String?,
@@ -167,7 +167,7 @@ public protocol LocalTransmissionServicing: Sendable {
     func fetchSessionSettings() async throws -> TransmissionSessionSettings
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult?
     func addTorrentFile(
         data: Data,
         torrentName: String?,
@@ -208,7 +208,7 @@ public struct UnavailableLocalTransmissionSession: LocalTransmissionServicing {
     public func fetchSessionSettings() async throws -> TransmissionSessionSettings { throw error }
     public func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws { throw error }
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails { throw error }
-    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws { throw error }
+    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? { throw error }
     public func addTorrentFile(
         data: Data,
         torrentName: String?,
@@ -358,7 +358,7 @@ public actor RemoteTorrentProvider: TorrentProvider {
         try await client.fetchTorrentPieces(hashString: hashString)
     }
 
-    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {
+    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
         try await client.addMagnet(magnet, downloadDirectory: downloadDirectory)
     }
 
@@ -498,7 +498,7 @@ public actor LocalTorrentProvider: TorrentProvider {
         try await session.fetchTorrentDetails(hashString: hashString)
     }
 
-    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {
+    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
         try await session.addMagnet(magnet, downloadDirectory: downloadDirectory)
     }
 

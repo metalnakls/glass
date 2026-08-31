@@ -3,6 +3,7 @@ import GlassRemoteCore
 import GlassRemoteServices
 import GlassRemoteUI
 import SwiftUI
+import UserNotifications
 
 @main
 struct GlassApp: App {
@@ -57,7 +58,8 @@ struct GlassApp: App {
                         errorDescription: "Local torrent engine could not start: \(error.localizedDescription)"
                     )
                 }
-            }
+            },
+            completionNotifier: GlassCompletionNotificationCenter.shared
         )
     }
 
@@ -133,6 +135,7 @@ private struct GlassCommands: Commands {
 @MainActor
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        UNUserNotificationCenter.current().delegate = GlassCompletionNotificationCenter.shared
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleOpenDocuments(_:withReplyEvent:)),
@@ -203,5 +206,59 @@ private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
     private func revealMainWindow(in application: NSApplication) {
         application.activate()
         application.windows.first(where: { $0.title == "Glass" })?.makeKeyAndOrderFront(nil)
+    }
+}
+
+@MainActor
+private final class GlassCompletionNotificationCenter: NSObject, TorrentCompletionNotifying,
+    UNUserNotificationCenterDelegate
+{
+    static let shared = GlassCompletionNotificationCenter()
+
+    private let center = UNUserNotificationCenter.current()
+    private var didRequestAuthorization = false
+    private var completedDownloadCount = 0
+
+    func requestAuthorization() {
+        guard !didRequestAuthorization else { return }
+        didRequestAuthorization = true
+        Task {
+            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+        }
+    }
+
+    func notifyTorrentCompleted(name: String) {
+        completedDownloadCount += 1
+        NSApp.dockTile.badgeLabel = completedDownloadCount.formatted()
+
+        Task {
+            let settings = await center.notificationSettings()
+            guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
+                return
+            }
+
+            let content = UNMutableNotificationContent()
+            content.title = "Download Complete"
+            content.body = name
+            content.sound = .default
+            let request = UNNotificationRequest(
+                identifier: "torrent-completed-\(UUID().uuidString)",
+                content: content,
+                trigger: nil
+            )
+            try? await center.add(request)
+        }
+    }
+
+    func clearBadge() {
+        completedDownloadCount = 0
+        NSApp.dockTile.badgeLabel = nil
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
     }
 }
