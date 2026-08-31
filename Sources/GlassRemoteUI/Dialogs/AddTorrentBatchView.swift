@@ -21,6 +21,8 @@ struct AddTorrentBatchView: View {
     @State private var items: [TorrentBatchItemState]
     @State private var groups: [TorrentBatchGroup]
     @State private var selectedGroupID: String
+    @State private var groupNamesByID: [String: String]
+    @State private var smartNamesByGroupID: [String: Bool]
     @State private var cleanupWordsByGroupID: [String: String]
     @State private var sourceID: UUID
     @State private var destination: BatchDestination = .defaultLocation
@@ -60,6 +62,12 @@ struct AddTorrentBatchView: View {
         _items = State(initialValue: items)
         _groups = State(initialValue: groups)
         _selectedGroupID = State(initialValue: groups.first?.id ?? "")
+        _groupNamesByID = State(initialValue: Dictionary(
+            uniqueKeysWithValues: groups.map { ($0.id, $0.displayName) }
+        ))
+        _smartNamesByGroupID = State(initialValue: Dictionary(
+            uniqueKeysWithValues: groups.map { ($0.id, true) }
+        ))
         _cleanupWordsByGroupID = State(initialValue: Dictionary(
             uniqueKeysWithValues: groups.map { ($0.id, "") }
         ))
@@ -106,12 +114,14 @@ struct AddTorrentBatchView: View {
                     TorrentBatchGroupEditor(
                         group: group,
                         items: items,
+                        groupName: groupNameBinding(for: group),
+                        smartNamesEnabled: smartNamesBinding(for: group),
                         cleanupWords: cleanupWordsBinding(for: group),
                         isAdding: isAdding
                     )
                     .tabItem {
                         Label(
-                            group.displayName,
+                            groupNamesByID[group.id] ?? group.displayName,
                             systemImage: group.isSeasonGroup ? "rectangle.stack" : "film"
                         )
                     }
@@ -276,7 +286,7 @@ struct AddTorrentBatchView: View {
                 let didAdd = await submit(
                     item.draft,
                     sourceID,
-                    item.normalizedName,
+                    submissionName(for: item, in: group, offset: offset),
                     downloadDirectory(for: group),
                     item.fileSelection,
                     namingPlan(for: item, in: group, offset: offset)
@@ -305,7 +315,7 @@ struct AddTorrentBatchView: View {
         guard group.isSeasonGroup, let base = resolvedBaseDownloadDirectory else {
             return resolvedDownloadDirectory
         }
-        return (base as NSString).appendingPathComponent(group.displayName)
+        return (base as NSString).appendingPathComponent(resolvedGroupName(for: group))
     }
 
     private func namingPlan(
@@ -314,13 +324,44 @@ struct AddTorrentBatchView: View {
         offset: Int
     ) -> TorrentAddNamingPlan? {
         let removingTokens = cleanupTokens(from: cleanupWordsByGroupID[group.id] ?? "")
-        guard group.isSeasonGroup else { return item.namingPlan(removingTokens: removingTokens) }
-        let pathRenames = item.isAutoCleanEnabled
+        let smartNamesEnabled = smartNamesByGroupID[group.id] ?? true
+        guard group.isSeasonGroup else {
+            return smartNamesEnabled ? item.namingPlan(removingTokens: removingTokens) : nil
+        }
+        let pathRenames = smartNamesEnabled
             ? (item.suggestion(removingTokens: removingTokens)?.pathRenames ?? [])
             : []
         return TorrentAddNamingPlan(
             rootName: "Season \(group.seasons[offset])",
             pathRenames: pathRenames
+        )
+    }
+
+    private func submissionName(
+        for item: TorrentBatchItemState,
+        in group: TorrentBatchGroup,
+        offset: Int
+    ) -> String {
+        guard group.isSeasonGroup else { return item.normalizedName }
+        return "\(resolvedGroupName(for: group)) \(group.seasons[offset])"
+    }
+
+    private func resolvedGroupName(for group: TorrentBatchGroup) -> String {
+        let value = groupNamesByID[group.id]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return value.isEmpty ? group.displayName : value
+    }
+
+    private func groupNameBinding(for group: TorrentBatchGroup) -> Binding<String> {
+        Binding(
+            get: { groupNamesByID[group.id] ?? group.displayName },
+            set: { groupNamesByID[group.id] = $0 }
+        )
+    }
+
+    private func smartNamesBinding(for group: TorrentBatchGroup) -> Binding<Bool> {
+        Binding(
+            get: { smartNamesByGroupID[group.id] ?? true },
+            set: { smartNamesByGroupID[group.id] = $0 }
         )
     }
 
@@ -335,6 +376,8 @@ struct AddTorrentBatchView: View {
 private struct TorrentBatchGroupEditor: View {
     let group: TorrentBatchGroup
     let items: [TorrentBatchItemState]
+    @Binding var groupName: String
+    @Binding var smartNamesEnabled: Bool
     @Binding var cleanupWords: String
     let isAdding: Bool
 
@@ -344,75 +387,87 @@ private struct TorrentBatchGroupEditor: View {
         Form {
             if group.isSeasonGroup {
                 Section {
-                    Label(
-                        "\(group.itemIndices.count) separate season torrents will stay grouped as \(group.displayName).",
-                        systemImage: "rectangle.stack"
-                    )
+                    TextField("Series Name", text: $groupName)
                 } footer: {
-                    Text("Each season remains independently controllable and seedable inside one \(group.displayName) folder.")
+                    Text("Glass creates one shared folder and keeps each season as a separate torrent.")
                 }
             }
 
             Section {
-                TextField("Words or tags", text: $cleanupWords, prompt: Text("PURPLECAT, release group"))
+                Toggle("Smart Names", isOn: $smartNamesEnabled)
+
+                if smartNamesEnabled {
+                    LabeledContent("Remove Extra Tags") {
+                        TextField("Optional", text: $cleanupWords, prompt: Text("PURPLECAT, release group"))
+                            .multilineTextAlignment(.trailing)
+                    }
+                }
             } header: {
-                Text("Also Remove")
+                Text("Naming")
             } footer: {
-                Text("Separate literal words with commas. Glass applies them to every suggested file name in this tab.")
+                Text(smartNamesEnabled
+                    ? "Glass cleans release tags and episode names. Add comma-separated tags only when the preview still contains one."
+                    : "Original torrent and file names will be kept.")
             }
 
-            ForEach(group.itemIndices, id: \.self) { index in
+            ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
                 TorrentBatchItemEditor(
                     item: items[index],
+                    season: group.isSeasonGroup ? group.seasons[offset] : nil,
+                    smartNamesEnabled: smartNamesEnabled,
                     removingTokens: removingTokens,
                     isAdding: isAdding
                 )
             }
         }
         .formStyle(.grouped)
+        .onChange(of: smartNamesEnabled) { _, enabled in
+            updateStandaloneNames(enabled: enabled)
+        }
+        .onChange(of: cleanupWords) { _, _ in
+            guard smartNamesEnabled else { return }
+            updateStandaloneNames(enabled: true)
+        }
+    }
+
+    private func updateStandaloneNames(enabled: Bool) {
+        guard !group.isSeasonGroup else { return }
+        for index in group.itemIndices {
+            if enabled {
+                items[index].applySmartName(removingTokens: removingTokens)
+            } else {
+                items[index].restoreOriginalName()
+            }
+        }
     }
 }
 
 private struct TorrentBatchItemEditor: View {
     @Bindable var item: TorrentBatchItemState
+    let season: Int?
+    let smartNamesEnabled: Bool
     let removingTokens: [String]
     let isAdding: Bool
 
     var body: some View {
         Section {
-            LabeledContent("Name") {
-                TextField("Name", text: $item.name)
-                    .multilineTextAlignment(.trailing)
+            if let season {
+                LabeledContent("Torrent") {
+                    Text("Season \(season)")
+                }
+            } else {
+                LabeledContent("Name") {
+                    TextField("Name", text: $item.name)
+                        .multilineTextAlignment(.trailing)
+                }
             }
 
-            if let suggestion = item.suggestion(removingTokens: removingTokens) {
-                LabeledContent(item.isAutoCleanEnabled ? "Applied" : "Suggestion") {
-                    HStack(spacing: 8) {
-                        Text(suggestion.rootName)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                        Button(item.isAutoCleanEnabled ? "Undo" : "Use Suggestion") {
-                            item.toggleSuggestion(removingTokens: removingTokens)
-                        }
-                    }
-                }
-
-                if item.isAutoCleanEnabled, !suggestion.pathRenames.isEmpty {
-                    LabeledContent("File Suggestions") {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            ForEach(suggestion.pathRenames.prefix(3)) { rename in
-                                Text(rename.name)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-                            }
-                            if suggestion.pathRenames.count > 3 {
-                                Text("\(suggestion.pathRenames.count - 3) more")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
+            if smartNamesEnabled, let suggestion = item.suggestion(removingTokens: removingTokens) {
+                TorrentRenamePreview(
+                    originalName: item.draft.preview.name,
+                    resultName: season.map { "Season \($0)" } ?? item.normalizedName,
+                    renames: suggestion.pathRenames
+                )
             }
 
             DisclosureGroup("Files — \(item.selectionSummary)") {
@@ -446,8 +501,6 @@ private final class TorrentBatchItemState {
     let draft: TorrentFileAddDraft
     var name: String
     var selectedFileIndices: Set<Int>
-    var isAutoCleanEnabled: Bool
-    var nameBeforeAutoClean: String?
     var wasAdded = false
 
     init(draft: TorrentFileAddDraft) {
@@ -460,8 +513,6 @@ private final class TorrentBatchItemState {
         )
         self.name = suggestion?.rootName ?? draft.preview.name
         self.selectedFileIndices = selected
-        self.isAutoCleanEnabled = suggestion != nil
-        self.nameBeforeAutoClean = suggestion == nil ? nil : draft.preview.name
     }
 
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -477,7 +528,7 @@ private final class TorrentBatchItemState {
     }
 
     func namingPlan(removingTokens: [String]) -> TorrentAddNamingPlan? {
-        guard isAutoCleanEnabled, let suggestion = suggestion(removingTokens: removingTokens) else { return nil }
+        guard let suggestion = suggestion(removingTokens: removingTokens) else { return nil }
         return TorrentAddNamingPlan(rootName: normalizedName, pathRenames: suggestion.pathRenames)
     }
 
@@ -507,22 +558,61 @@ private final class TorrentBatchItemState {
         )
     }
 
-    func toggleSuggestion(removingTokens: [String]) {
-        if isAutoCleanEnabled {
-            name = nameBeforeAutoClean ?? draft.preview.name
-            nameBeforeAutoClean = nil
-            isAutoCleanEnabled = false
-        } else if let suggestion = suggestion(removingTokens: removingTokens) {
-            nameBeforeAutoClean = name
+    func applySmartName(removingTokens: [String]) {
+        if let suggestion = suggestion(removingTokens: removingTokens) {
             name = suggestion.rootName
-            isAutoCleanEnabled = true
         }
     }
 
+    func restoreOriginalName() {
+        name = draft.preview.name
+    }
+
     func applySeasonDisplayName(_ title: String, season: Int) {
-        nameBeforeAutoClean = draft.preview.name
         name = "\(title) \(season)"
-        isAutoCleanEnabled = true
+    }
+}
+
+private struct TorrentRenamePreview: View {
+    let originalName: String
+    let resultName: String
+    let renames: [TorrentPathRename]
+
+    var body: some View {
+        DisclosureGroup("Review Name Changes") {
+            VStack(alignment: .leading, spacing: 8) {
+                if originalName != resultName {
+                    changeRow(from: originalName, to: resultName)
+                }
+
+                ForEach(renames.prefix(6)) { rename in
+                    changeRow(
+                        from: URL(fileURLWithPath: rename.path).lastPathComponent,
+                        to: rename.name
+                    )
+                }
+
+                if renames.count > 6 {
+                    Text("\(renames.count - 6) more file changes")
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 8)
+        }
+    }
+
+    private func changeRow(from original: String, to result: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(original)
+                .foregroundStyle(.secondary)
+                .strikethrough()
+            Text(result)
+        }
+        .font(.callout)
+        .lineLimit(1)
+        .truncationMode(.middle)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(original), changes to \(result)")
     }
 }
 
