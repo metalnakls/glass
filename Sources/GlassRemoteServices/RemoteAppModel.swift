@@ -71,6 +71,12 @@ public final class RemoteAppModel {
     public static let quietAutoRefreshInterval: Duration = .seconds(10)
     private static let torrentCachePersistenceDelay: Duration = .seconds(30)
     private static let commandRefreshDebounce: Duration = .milliseconds(200)
+    public static let completionWatchInterval: Duration = .seconds(10)
+
+    private struct WatchedTorrent: Hashable {
+        let sourceID: UUID
+        let hashString: String
+    }
 
     public private(set) var profiles: [RemoteProfile] = []
     public var selectedProfileID: UUID?
@@ -99,6 +105,8 @@ public final class RemoteAppModel {
     private let torrentSourceFileDisposer: TorrentSourceFileDisposing
     private let rpcClientFactory: @Sendable (TransmissionRPCConfig) -> any TransmissionRPCServicing
     private let localSessionFactory: @Sendable () -> any LocalTransmissionServicing
+    private let completionNotifier: (any TorrentCompletionNotifying)?
+    private let completionPollingInterval: Duration
     @ObservationIgnored private var torrentCache: [UUID: CachedTorrentList] = [:]
     @ObservationIgnored private var providersBySourceID: [UUID: any TorrentProvider] = [:]
     @ObservationIgnored private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
@@ -117,6 +125,8 @@ public final class RemoteAppModel {
     @ObservationIgnored private var loadedTorrentDetailSections: Set<TorrentDetailSection> = []
     @ObservationIgnored private var visibleTorrentDetailSections: Set<TorrentDetailSection> = []
     @ObservationIgnored private var isApplicationActive = true
+    @ObservationIgnored private var watchedTorrents: [WatchedTorrent: String] = [:]
+    @ObservationIgnored private var completionWatcherTask: Task<Void, Never>?
 
     public init(
         profileStore: ProfileStore,
@@ -128,13 +138,17 @@ public final class RemoteAppModel {
         },
         localSessionFactory: @escaping @Sendable () -> any LocalTransmissionServicing = {
             UnavailableLocalTransmissionSession()
-        }
+        },
+        completionNotifier: (any TorrentCompletionNotifying)? = nil,
+        completionPollingInterval: Duration = RemoteAppModel.completionWatchInterval
     ) {
         self.profileStore = profileStore
         self.credentialStore = credentialStore
         self.torrentSourceFileDisposer = torrentSourceFileDisposer
         self.rpcClientFactory = rpcClientFactory
         self.localSessionFactory = localSessionFactory
+        self.completionNotifier = completionNotifier
+        self.completionPollingInterval = completionPollingInterval
         loadProfiles(initialSourceID: initialSourceID)
     }
 
@@ -238,6 +252,7 @@ public final class RemoteAppModel {
     public func deleteProfile(_ profile: RemoteProfile) {
         invalidateProvider(for: profile.id)
         cancelRefresh(for: profile.id)
+        stopWatching(sourceID: profile.id)
         profiles.removeAll { $0.id == profile.id }
         try? credentialStore.deletePassword(for: profile.id)
         if selectedProfileID == profile.id {
@@ -377,6 +392,9 @@ public final class RemoteAppModel {
 
     public func setApplicationActive(_ isActive: Bool) {
         isApplicationActive = isActive
+        if isActive {
+            completionNotifier?.clearBadge()
+        }
     }
 
     public func updatePreferences(_ preferences: GlassRemotePreferences) {
@@ -404,11 +422,13 @@ public final class RemoteAppModel {
     @discardableResult
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async -> Bool {
         let sourceID = selectedSourceID
+        var addedTorrent: TorrentAddResult?
         let didAdd = await performProviderAction(sourceID: sourceID) { provider in
-            try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
+            addedTorrent = try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
         }
         if didAdd {
             rememberDownloadDirectory(downloadDirectory, for: sourceID)
+            watchAddedTorrent(addedTorrent, sourceID: sourceID)
         }
         return didAdd
     }
@@ -428,6 +448,7 @@ public final class RemoteAppModel {
         let sourceID = sourceID ?? selectedSourceID
         var renameWarnings: [String] = []
         var navigationResult: TorrentAddResult?
+        var addedTorrent: TorrentAddResult?
         let didAdd = await performProviderAction(sourceID: sourceID) { provider in
             let result = try await provider.addTorrentFile(
                 data: data,
@@ -436,6 +457,7 @@ public final class RemoteAppModel {
                 fileSelection: fileSelection
             )
             navigationResult = result
+            addedTorrent = result
 
             guard let namingPlan, let result, !result.wasDuplicate else { return }
             for rename in namingPlan.pathRenames {
@@ -460,6 +482,7 @@ public final class RemoteAppModel {
         if didAdd {
             onSuccess?(navigationResult)
             rememberDownloadDirectory(downloadDirectory, for: sourceID)
+            watchAddedTorrent(addedTorrent, sourceID: sourceID)
         }
         if didAdd, trashSourceOnSuccess {
             torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL)
@@ -765,7 +788,74 @@ public final class RemoteAppModel {
         if didRemove, let selectedDetailsTorrentHash, ids.contains(selectedDetailsTorrentHash) {
             clearTorrentDetails()
         }
+        if didRemove {
+            stopWatching(sourceID: sourceID, hashStrings: Set(ids))
+        }
         return didRemove
+    }
+
+    var isCompletionWatcherRunning: Bool {
+        completionWatcherTask != nil
+    }
+
+    func checkWatchedTorrentCompletions() async {
+        let watches = watchedTorrents
+        for (watch, fallbackName) in watches {
+            guard watchedTorrents[watch] != nil else { continue }
+            do {
+                let details = try await provider(for: watch.sourceID)
+                    .fetchTorrentDetails(hashString: watch.hashString)
+                guard Self.isCompleted(details) else { continue }
+                watchedTorrents[watch] = nil
+                completionNotifier?.notifyTorrentCompleted(name: details.name.isEmpty ? fallbackName : details.name)
+            } catch {
+                // Keep watching through transient server and network failures.
+            }
+        }
+        stopCompletionWatcherIfIdle()
+    }
+
+    private func watchAddedTorrent(_ result: TorrentAddResult?, sourceID: UUID) {
+        guard let result, !result.wasDuplicate, !result.hashString.isEmpty else { return }
+        let watch = WatchedTorrent(sourceID: sourceID, hashString: result.hashString)
+        watchedTorrents[watch] = result.name
+        completionNotifier?.requestAuthorization()
+        startCompletionWatcherIfNeeded()
+    }
+
+    private func startCompletionWatcherIfNeeded() {
+        guard completionWatcherTask == nil, !watchedTorrents.isEmpty else { return }
+        completionWatcherTask = Task { [weak self] in
+            while let self, !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: self.completionPollingInterval)
+                } catch {
+                    return
+                }
+                await self.checkWatchedTorrentCompletions()
+            }
+        }
+    }
+
+    private func stopWatching(sourceID: UUID, hashStrings: Set<String>? = nil) {
+        watchedTorrents = watchedTorrents.filter { watch, _ in
+            guard watch.sourceID == sourceID else { return true }
+            guard let hashStrings else { return false }
+            return !hashStrings.contains(watch.hashString)
+        }
+        stopCompletionWatcherIfIdle()
+    }
+
+    private func stopCompletionWatcherIfIdle() {
+        guard watchedTorrents.isEmpty else { return }
+        completionWatcherTask?.cancel()
+        completionWatcherTask = nil
+    }
+
+    private static func isCompleted(_ details: TorrentDetails) -> Bool {
+        if let percentDone = details.percentDone, percentDone >= 1 { return true }
+        if let doneDate = details.doneDate, doneDate > 0 { return true }
+        return details.leftUntilDone == 0 && (details.sizeWhenDone ?? 0) > 0
     }
 
     public func verify(_ torrent: TorrentSummary) async {

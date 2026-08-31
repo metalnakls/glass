@@ -97,6 +97,44 @@ struct RemoteAppModelTests {
         #expect(model.currentAutoRefreshInterval == RemoteAppModel.quietAutoRefreshInterval)
     }
 
+    @Test("watches only newly added torrents and stops after completion")
+    func watchesAddedTorrentUntilCompletion() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profile: profile, factory: factory, completionNotifier: notifier)
+
+        let didAdd = await model.addTorrentFile(Data([0x01]), downloadDirectory: nil)
+
+        #expect(didAdd)
+        #expect(notifier.authorizationRequestCount == 1)
+        #expect(model.isCompletionWatcherRunning)
+
+        let client = try #require(factory.clients.first)
+        await client.setInspectorProgress(percentDone: 1, fileBytesCompleted: 100)
+        await model.checkWatchedTorrentCompletions()
+
+        #expect(notifier.completedTorrentNames == ["Spider-Noir"])
+        #expect(model.isCompletionWatcherRunning == false)
+    }
+
+    @Test("does not watch a duplicate torrent")
+    func doesNotWatchDuplicateTorrent() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profile: profile, factory: factory, completionNotifier: notifier)
+        await model.refresh()
+        let client = try #require(factory.clients.first)
+        await client.setAddTorrentWasDuplicate(true)
+
+        let didAdd = await model.addTorrentFile(Data([0x01]), downloadDirectory: nil)
+
+        #expect(didAdd)
+        #expect(notifier.authorizationRequestCount == 0)
+        #expect(model.isCompletionWatcherRunning == false)
+    }
+
     @Test("loads only visible torrent detail sections")
     func loadsOnlyVisibleTorrentDetailSections() async throws {
         let profile = makeProfile()
@@ -436,13 +474,16 @@ struct RemoteAppModelTests {
 private func makeModel(
     profile: RemoteProfile,
     factory: StubRPCClientFactory,
-    disposer: RecordingTorrentSourceFileDisposer = RecordingTorrentSourceFileDisposer()
+    disposer: RecordingTorrentSourceFileDisposer = RecordingTorrentSourceFileDisposer(),
+    completionNotifier: (any TorrentCompletionNotifying)? = nil
 ) -> RemoteAppModel {
     RemoteAppModel(
         profileStore: MemoryProfileStore(profiles: [profile]),
         credentialStore: MemoryCredentialStore(password: "secret"),
         torrentSourceFileDisposer: disposer,
-        rpcClientFactory: factory.make(config:)
+        rpcClientFactory: factory.make(config:),
+        completionNotifier: completionNotifier,
+        completionPollingInterval: .seconds(60)
     )
 }
 
@@ -473,6 +514,25 @@ private func makeProfile() -> RemoteProfile {
 
 private enum TestError: Error {
     case failed
+}
+
+@MainActor
+private final class RecordingTorrentCompletionNotifier: TorrentCompletionNotifying {
+    private(set) var authorizationRequestCount = 0
+    private(set) var completedTorrentNames: [String] = []
+    private(set) var badgeClearCount = 0
+
+    func requestAuthorization() {
+        authorizationRequestCount += 1
+    }
+
+    func notifyTorrentCompleted(name: String) {
+        completedTorrentNames.append(name)
+    }
+
+    func clearBadge() {
+        badgeClearCount += 1
+    }
 }
 
 private final class StubRPCClientFactory: @unchecked Sendable {
@@ -511,6 +571,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var inspectorPercentDone = 0.5
     private var inspectorFileBytesCompleted: UInt64 = 50
     private var recentlyActiveUpdate: TorrentCollectionUpdate?
+    private var addTorrentWasDuplicate = false
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0
     private(set) var fetchFreeSpaceCount = 0
@@ -527,6 +588,10 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func setAddTorrentError(_ error: (any Error)?) {
         addTorrentError = error
+    }
+
+    func setAddTorrentWasDuplicate(_ wasDuplicate: Bool) {
+        addTorrentWasDuplicate = wasDuplicate
     }
 
     func setFetchTorrentsError(_ error: (any Error)?) {
@@ -653,7 +718,9 @@ private actor StubRPCClient: TransmissionRPCServicing {
         return TorrentDetails(id: 1, hashString: hashString, name: "Spider-Noir")
     }
 
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
+        TorrentAddResult(hashString: "hash-1", name: torrentName, wasDuplicate: false)
+    }
 
     func addTorrentFile(
         data: Data,
@@ -664,7 +731,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
         if let addTorrentError {
             throw addTorrentError
         }
-        return TorrentAddResult(hashString: "hash-1", name: torrentName ?? self.torrentName, wasDuplicate: false)
+        return TorrentAddResult(
+            hashString: "hash-1",
+            name: torrentName ?? self.torrentName,
+            wasDuplicate: addTorrentWasDuplicate
+        )
     }
 
     func start(ids: [String]) async throws {}
@@ -725,7 +796,9 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
         TorrentDetails(id: 7, hashString: hashString, name: "Local")
     }
 
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {}
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
+        TorrentAddResult(hashString: "local-hash", name: "Local", wasDuplicate: false)
+    }
 
     func addTorrentFile(
         data: Data,

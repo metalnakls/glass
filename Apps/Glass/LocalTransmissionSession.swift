@@ -74,8 +74,18 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         return Self.makeDetails(from: dictionary)
     }
 
-    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {
+    func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
+        let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
         try ensureBridge().addMagnet(magnet, downloadDirectory: downloadDirectory)
+        let snapshot = try await fetchSnapshot()
+        guard let addedTorrent = snapshot.torrents.first(where: { !existingTorrentHashes.contains($0.hashString) }) else {
+            return nil
+        }
+        return TorrentAddResult(
+            hashString: addedTorrent.hashString,
+            name: addedTorrent.name,
+            wasDuplicate: false
+        )
     }
 
     func addTorrentFile(

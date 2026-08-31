@@ -206,13 +206,19 @@ public actor TransmissionRPCClient {
         return details
     }
 
-    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws {
+    public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
         var args: [String: JSONValue] = ["filename": .string(magnet)]
         if let downloadDirectory, !downloadDirectory.isEmpty {
             args["download-dir"] = .string(downloadDirectory)
         }
 
-        let _: RPCEnvelope<EmptyArgs> = try await request(method: "torrent-add", arguments: args)
+        let envelope: RPCEnvelope<TorrentAddArgs> = try await request(method: "torrent-add", arguments: args)
+        guard let torrent = envelope.arguments.added ?? envelope.arguments.duplicate else { return nil }
+        return TorrentAddResult(
+            hashString: torrent.hashString,
+            name: torrent.name,
+            wasDuplicate: envelope.arguments.added == nil
+        )
     }
 
     @discardableResult

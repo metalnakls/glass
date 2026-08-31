@@ -137,6 +137,22 @@ struct TransmissionRPCClientTests {
         #expect(rpcRequest.arguments["priority-low"] == .array([.int(2)]))
     }
 
+    @Test("returns the added torrent identity for a magnet")
+    func returnsAddedMagnetIdentity() async throws {
+        let transport = URLProtocolStubTransport(responses: [
+            .http(
+                status: 200,
+                headers: [:],
+                body: #"{"result":"success","arguments":{"torrent-added":{"id":7,"name":"Magnet","hashString":"abc123"}}}"#
+            )
+        ])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+
+        let result = try await client.addMagnet("magnet:?xt=urn:btih:abc123", downloadDirectory: nil)
+
+        #expect(result == TorrentAddResult(hashString: "abc123", name: "Magnet", wasDuplicate: false))
+    }
+
     @Test("renames a newly added torrent when a custom name is supplied")
     func renamesNewTorrentOnAdd() async throws {
         let transport = URLProtocolStubTransport(responses: [
