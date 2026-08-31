@@ -14,6 +14,8 @@ public struct GlassRootView: View {
     @State private var columnVisibility: NavigationSplitViewVisibility = .automatic
     @State private var didRestoreColumnVisibility = false
     @State private var selectedTorrentHash: String?
+    @State private var pendingTorrentReveal: PendingTorrentReveal?
+    @State private var torrentRevealToken = UUID()
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
     @State private var pendingProfileDeletion: RemoteProfile?
@@ -47,6 +49,7 @@ public struct GlassRootView: View {
                 model: model,
                 platformIntegration: platformIntegration,
                 selection: $selectedTorrentHash,
+                torrentRevealToken: torrentRevealToken,
                 pendingRenames: pendingRenames,
                 pendingRemovals: pendingRemovals,
                 committingRemovalKeys: committingRemovalKeys,
@@ -110,7 +113,8 @@ public struct GlassRootView: View {
                                 fileSelection: fileSelection,
                                 namingPlan: namingPlan
                             )
-                        }
+                        },
+                        didFinishAdding: showAddedTorrent
                     )
                 case let .renameTorrent(torrent):
                     RenameTorrentView(torrent: torrent) { newName in
@@ -163,7 +167,10 @@ public struct GlassRootView: View {
         .onChange(of: model.selectedProfileID) { _, _ in
             persistSelectedSourceID()
             selectedTorrentHash = nil
-            Task { await model.refresh() }
+            if pendingTorrentReveal?.sourceID != model.selectedSourceID {
+                pendingTorrentReveal = nil
+            }
+            Task { await refreshAndRevealPendingTorrent() }
         }
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActive(phase == .active)
@@ -383,14 +390,15 @@ public struct GlassRootView: View {
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection,
         namingPlan: TorrentAddNamingPlan?
-    ) async -> Bool {
+    ) async -> TorrentFileAddSubmissionResult {
         let didAccess = draft.sourceURL.startAccessingSecurityScopedResource()
         defer {
             if didAccess {
                 draft.sourceURL.stopAccessingSecurityScopedResource()
             }
         }
-        return await model.addTorrentFile(
+        var addedTorrent: TorrentAddResult?
+        let succeeded = await model.addTorrentFile(
             draft.data,
             torrentName: name == draft.preview.name ? nil : name,
             downloadDirectory: downloadDirectory,
@@ -398,8 +406,32 @@ public struct GlassRootView: View {
             namingPlan: namingPlan,
             sourceID: sourceID,
             sourceURL: draft.sourceURL,
-            trashSourceOnSuccess: true
+            trashSourceOnSuccess: true,
+            onSuccess: { addedTorrent = $0 }
         )
+        return TorrentFileAddSubmissionResult(succeeded: succeeded, torrent: addedTorrent)
+    }
+
+    private func showAddedTorrent(sourceID: UUID, hashString: String?) {
+        pendingTorrentReveal = PendingTorrentReveal(sourceID: sourceID, hashString: hashString)
+        model.selectedTorrentGroup = .all
+
+        let profileID = sourceID == model.localSourceID ? nil : sourceID
+        if model.selectedProfileID == profileID {
+            Task { await refreshAndRevealPendingTorrent() }
+        } else {
+            model.selectedProfileID = profileID
+        }
+    }
+
+    private func refreshAndRevealPendingTorrent() async {
+        await model.refresh()
+        guard let pendingTorrentReveal, pendingTorrentReveal.sourceID == model.selectedSourceID else { return }
+        selectedTorrentHash = pendingTorrentReveal.hashString
+        if pendingTorrentReveal.hashString != nil {
+            torrentRevealToken = UUID()
+        }
+        self.pendingTorrentReveal = nil
     }
 
     private func loadSelectedTorrentDetails() async {
@@ -506,6 +538,7 @@ private struct TorrentWorkspaceView: View {
     @State private var isURLDropTargeted = false
     @State private var isTextDropTargeted = false
     @Binding var selection: String?
+    let torrentRevealToken: UUID
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
     let committingRemovalKeys: Set<PendingRemovalKey>
@@ -524,6 +557,7 @@ private struct TorrentWorkspaceView: View {
             model: model,
             platformIntegration: platformIntegration,
             selection: $selection,
+            torrentRevealToken: torrentRevealToken,
             pendingRenames: pendingRenames,
             pendingRemovals: pendingRemovals,
             committingRemovalKeys: committingRemovalKeys,
@@ -623,6 +657,7 @@ private struct TorrentListContent: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @Binding var selection: String?
+    let torrentRevealToken: UUID
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
     let committingRemovalKeys: Set<PendingRemovalKey>
@@ -634,6 +669,7 @@ private struct TorrentListContent: View {
         model: RemoteAppModel,
         platformIntegration: any GlassPlatformIntegrating,
         selection: Binding<String?>,
+        torrentRevealToken: UUID,
         pendingRenames: [PendingRemovalKey: PendingTorrentRename],
         pendingRemovals: [PendingTorrentRemoval],
         committingRemovalKeys: Set<PendingRemovalKey>,
@@ -644,6 +680,7 @@ private struct TorrentListContent: View {
         self.model = model
         self.platformIntegration = platformIntegration
         _selection = selection
+        self.torrentRevealToken = torrentRevealToken
         self.pendingRenames = pendingRenames
         self.pendingRemovals = pendingRemovals
         self.committingRemovalKeys = committingRemovalKeys
@@ -662,6 +699,7 @@ private struct TorrentListContent: View {
             pendingRenameNames: pendingRenameNames,
             pendingRenameOldNames: pendingRenameOldNames,
             selection: $selection,
+            revealSelectionToken: torrentRevealToken,
             rename: rename,
             remove: remove,
             removeSelected: removeSelected
@@ -733,6 +771,11 @@ private enum ActiveRootAlert {
 struct PendingRemovalKey: Hashable {
     let sourceID: UUID
     let hashString: String
+}
+
+private struct PendingTorrentReveal: Equatable {
+    let sourceID: UUID
+    let hashString: String?
 }
 
 struct PendingTorrentRename: Identifiable, Equatable {
