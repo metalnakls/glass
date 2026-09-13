@@ -1,47 +1,22 @@
 # Agents
 
-## Build And Signing
+## Local build and install
 
-Use the wrapper for signed macOS app builds:
+Run the one local build/install command:
 
 ```sh
-GLASS_CODESIGN_IDENTITY=2D7A6CBCAA6173CA3FC1904539A19C9800B39B78 \
+GLASS_CODESIGN_IDENTITY=919F9538E1E91B7C10FD2556CC9030B76ED39E58 \
   /Users/wsb/glass/Scripts/build-mac-app.sh debug
 ```
 
-The wrapper builds:
-
-- project: `/Users/wsb/glass/Apps/Glass/Glass.xcodeproj`
-- scheme: `Glass`
-- configuration: `Debug` or `Release`
-- derived data: `/Users/wsb/glass/.build/Xcode`
-
-It forces manual signing with:
-
-- `CODE_SIGN_STYLE=Manual`
-- `CODE_SIGN_IDENTITY=$GLASS_CODESIGN_IDENTITY`
-
-After building, it verifies the bundle with:
+The wrapper builds and strictly verifies the final app, then installs it at `/Applications/Glass.app`. If that wrapper exists, its contents are refreshed in place with `ditto`; the previous wrapper is retained as `/Applications/Glass.app.backup-YYYYMMDD-HHMMSS`. Backups are never removed by a normal build. Cleanup is explicit only:
 
 ```sh
-codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+/Users/wsb/glass/Scripts/build-mac-app.sh cleanup-backups
 ```
 
-Debug app output:
+Ordinary local signing requires Apple Development identity `919F9538E1E91B7C10FD2556CC9030B76ED39E58`; the wrapper stops if it is unavailable or another identity is supplied.
 
-```text
-/Users/wsb/glass/.build/Xcode/Build/Products/Debug/Glass.app
-```
-
-If `GLASS_CODESIGN_IDENTITY` is not set, the script tries the first local `Apple Development:` identity from:
-
-```sh
-security find-identity -v -p codesigning
-```
-
-Bundle metadata:
-
-- bundle id: `tsmc.glass`
-- entitlements: `/Users/wsb/glass/Resources/Glass.entitlements`
+For build-script, CI/CD, certificate, identity, and signing diagnostics, follow the global [`app-build-install-scripts`](/Users/wsb/.codex/skills/app-build-install-scripts/SKILL.md) and [`macos-app-signing`](/Users/wsb/.codex/skills/macos-app-signing/SKILL.md) skills.
 
 Run SwiftPM tests with: swift test --package-path /Users/wsb/glass --disable-sandbox
