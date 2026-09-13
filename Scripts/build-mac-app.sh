@@ -3,31 +3,37 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${1:-debug}"
-SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-}"
+SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-DEVELOPMENT_SIGNING_IDENTITY}"
+INSTALL_DIR="/Applications/Glass.app"
+BACKUP_PREFIX="/Applications/Glass.app.backup-"
+SYSTEM_SIGN_IDENTITY="DEVELOPMENT_SIGNING_IDENTITY"
 
 case "$CONFIGURATION" in
     debug|release) ;;
+    cleanup-backups)
+        find /Applications -maxdepth 1 -name 'Glass.app.backup-*' -exec rm -rf {} +
+        exit 0
+        ;;
     *)
-        echo "usage: $0 [debug|release]" >&2
+        echo "usage: $0 [debug|release|cleanup-backups]" >&2
         exit 64
         ;;
 esac
 
+if [ "$SIGN_IDENTITY" != "$SYSTEM_SIGN_IDENTITY" ]; then
+    echo "GLASS_CODESIGN_IDENTITY must be $SYSTEM_SIGN_IDENTITY for local development signing." >&2
+    exit 65
+fi
+
+AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
+if ! grep -Fq "$SIGN_IDENTITY " <<< "$AVAILABLE_IDENTITIES"; then
+    echo "Required Apple Development signing identity is unavailable: $SIGN_IDENTITY" >&2
+    exit 65
+fi
+
 cd "$ROOT_DIR"
 XCODE_CONFIGURATION="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIGURATION:0:1}")${CONFIGURATION:1}"
 DERIVED_DATA="$ROOT_DIR/.build/Xcode"
-
-if [ -z "$SIGN_IDENTITY" ]; then
-    SIGN_IDENTITY="$(
-        security find-identity -v -p codesigning |
-            awk -F '"' '/Apple Development:/ { print $2; exit }'
-    )"
-fi
-
-if [ -z "$SIGN_IDENTITY" ]; then
-    echo "No Apple Development signing identity found. Set GLASS_CODESIGN_IDENTITY explicitly." >&2
-    exit 65
-fi
 
 xcodebuild \
     -project "$ROOT_DIR/Apps/Glass/Glass.xcodeproj" \
@@ -40,5 +46,13 @@ xcodebuild \
 
 APP_DIR="$DERIVED_DATA/Build/Products/$XCODE_CONFIGURATION/Glass.app"
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
+if [ -d "$INSTALL_DIR" ]; then
+    BACKUP_PATH="${BACKUP_PREFIX}$(date '+%Y%m%d-%H%M%S')"
+    ditto "$INSTALL_DIR" "$BACKUP_PATH"
+fi
+
+ditto "$APP_DIR" "$INSTALL_DIR"
+codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 
 echo "$APP_DIR"

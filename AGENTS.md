@@ -1,47 +1,22 @@
 # Agents
 
-## Build And Signing
+## Local build and install
 
-Use the wrapper for signed macOS app builds:
+Run the one local build/install command:
 
 ```sh
 GLASS_CODESIGN_IDENTITY=DEVELOPMENT_SIGNING_IDENTITY \
   ~/glass/Scripts/build-mac-app.sh debug
 ```
 
-The wrapper builds:
-
-- project: `~/glass/Apps/Glass/Glass.xcodeproj`
-- scheme: `Glass`
-- configuration: `Debug` or `Release`
-- derived data: `~/glass/.build/Xcode`
-
-It forces manual signing with:
-
-- `CODE_SIGN_STYLE=Manual`
-- `CODE_SIGN_IDENTITY=$GLASS_CODESIGN_IDENTITY`
-
-After building, it verifies the bundle with:
+The wrapper builds and strictly verifies the final app, then installs it at `/Applications/Glass.app`. If that wrapper exists, its contents are refreshed in place with `ditto`; the previous wrapper is retained as `/Applications/Glass.app.backup-YYYYMMDD-HHMMSS`. Backups are never removed by a normal build. Cleanup is explicit only:
 
 ```sh
-codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+~/glass/Scripts/build-mac-app.sh cleanup-backups
 ```
 
-Debug app output:
+Ordinary local signing requires Apple Development identity `DEVELOPMENT_SIGNING_IDENTITY`; the wrapper stops if it is unavailable or another identity is supplied.
 
-```text
-~/glass/.build/Xcode/Build/Products/Debug/Glass.app
-```
-
-If `GLASS_CODESIGN_IDENTITY` is not set, the script tries the first local `Apple Development:` identity from:
-
-```sh
-security find-identity -v -p codesigning
-```
-
-Bundle metadata:
-
-- bundle id: `tsmc.glass`
-- entitlements: `~/glass/Resources/Glass.entitlements`
+For build-script, CI/CD, certificate, identity, and signing diagnostics, follow the global [`app-build-install-scripts`](~/.codex/skills/app-build-install-scripts/SKILL.md) and [`macos-app-signing`](~/.codex/skills/macos-app-signing/SKILL.md) skills.
 
 Run SwiftPM tests with: swift test --package-path ~/glass --disable-sandbox
