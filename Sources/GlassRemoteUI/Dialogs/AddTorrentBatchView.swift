@@ -393,6 +393,7 @@ private struct TorrentBatchGroupEditor: View {
     @Binding var smartNamesEnabled: Bool
     @Binding var cleanupWords: String
     let isAdding: Bool
+    @State private var fileSearchText = ""
 
     private var removingTokens: [String] { cleanupTokens(from: cleanupWords) }
 
@@ -423,12 +424,24 @@ private struct TorrentBatchGroupEditor: View {
                     : "Original torrent and file names will be kept.")
             }
 
+            Section {
+                TorrentFilesBrowserControls(
+                    searchText: $fileSearchText,
+                    onSetAllWanted: setAllFilesWanted
+                )
+            } header: {
+                Text("Files")
+            } footer: {
+                Text("Click a column heading to sort. Files start sorted by name.")
+            }
+
             ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
                 TorrentBatchItemEditor(
                     item: items[index],
                     season: group.isSeasonGroup ? group.seasons[offset] : nil,
                     smartNamesEnabled: smartNamesEnabled,
                     removingTokens: removingTokens,
+                    fileSearchText: $fileSearchText,
                     isAdding: isAdding
                 )
             }
@@ -453,6 +466,12 @@ private struct TorrentBatchGroupEditor: View {
             }
         }
     }
+
+    private func setAllFilesWanted(_ wanted: Bool) {
+        for index in group.itemIndices {
+            items[index].setAllFilesWanted(wanted)
+        }
+    }
 }
 
 private struct TorrentBatchItemEditor: View {
@@ -460,6 +479,7 @@ private struct TorrentBatchItemEditor: View {
     let season: Int?
     let smartNamesEnabled: Bool
     let removingTokens: [String]
+    @Binding var fileSearchText: String
     let isAdding: Bool
 
     var body: some View {
@@ -483,17 +503,16 @@ private struct TorrentBatchItemEditor: View {
                 )
             }
 
-            DisclosureGroup("Files — \(item.selectionSummary)") {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(item.draft.preview.files.enumerated()), id: \.offset) { index, file in
-                        Toggle(isOn: item.fileSelectionBinding(for: index)) {
-                            TorrentFileRowLabel(file: file)
-                        }
-                        .toggleStyle(.checkbox)
-                    }
-                }
-                .padding(.top, 8)
-            }
+            LabeledContent("Picked", value: item.selectionSummary)
+
+            TorrentFilesBrowser(
+                entries: fileEntries,
+                searchText: $fileSearchText,
+                onSetWanted: item.setFileWanted,
+                onSetPriority: item.setFilePriority,
+                onSetAllWanted: item.setAllFilesWanted,
+                showsControls: false
+            )
         } header: {
             HStack {
                 Text(item.draft.preview.name)
@@ -506,6 +525,23 @@ private struct TorrentBatchItemEditor: View {
         }
         .disabled(isAdding || item.wasAdded)
     }
+
+    private var fileEntries: [TorrentFileBrowserEntry] {
+        let suggestion = smartNamesEnabled ? item.suggestion(removingTokens: removingTokens) : nil
+        let renamedFiles = Dictionary(
+            uniqueKeysWithValues: (suggestion?.pathRenames ?? []).map { ($0.path, $0.name) }
+        )
+        return item.draft.preview.files.enumerated().map { index, file in
+            TorrentFileBrowserEntry(
+                index: index,
+                file: file,
+                rootName: item.draft.preview.name,
+                displayName: renamedFiles[file.name],
+                isWanted: item.selectedFileIndices.contains(index),
+                priority: item.filePriorities[index] ?? 0
+            )
+        }
+    }
 }
 
 @MainActor
@@ -514,6 +550,7 @@ private final class TorrentBatchItemState {
     let draft: TorrentFileAddDraft
     var name: String
     var selectedFileIndices: Set<Int>
+    var filePriorities: [Int: Int]
     var wasAdded = false
 
     init(draft: TorrentFileAddDraft) {
@@ -526,6 +563,9 @@ private final class TorrentBatchItemState {
         )
         self.name = suggestion?.rootName ?? draft.preview.name
         self.selectedFileIndices = selected
+        self.filePriorities = Dictionary(
+            uniqueKeysWithValues: draft.preview.files.indices.map { ($0, 0) }
+        )
     }
 
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
@@ -549,7 +589,10 @@ private final class TorrentBatchItemState {
         let all = Set(draft.preview.files.indices)
         return TorrentAddFileSelection(
             filesWanted: selectedFileIndices.sorted(),
-            filesUnwanted: all.subtracting(selectedFileIndices).sorted()
+            filesUnwanted: all.subtracting(selectedFileIndices).sorted(),
+            priorityHigh: priorityIndices(1),
+            priorityNormal: priorityIndices(0),
+            priorityLow: priorityIndices(-1)
         )
     }
 
@@ -558,17 +601,24 @@ private final class TorrentBatchItemState {
         return "\(selectedFileIndices.count) of \(draft.preview.files.count), \(formatBytes(size))"
     }
 
-    func fileSelectionBinding(for index: Int) -> Binding<Bool> {
-        Binding(
-            get: { self.selectedFileIndices.contains(index) },
-            set: { selected in
-                if selected {
-                    self.selectedFileIndices.insert(index)
-                } else {
-                    self.selectedFileIndices.remove(index)
-                }
-            }
-        )
+    func setFileWanted(_ index: Int, _ wanted: Bool) {
+        if wanted {
+            selectedFileIndices.insert(index)
+        } else {
+            selectedFileIndices.remove(index)
+        }
+    }
+
+    func setAllFilesWanted(_ wanted: Bool) {
+        selectedFileIndices = wanted ? Set(draft.preview.files.indices) : []
+    }
+
+    func setFilePriority(_ index: Int, _ priority: Int) {
+        filePriorities[index] = priority
+    }
+
+    private func priorityIndices(_ priority: Int) -> [Int] {
+        draft.preview.files.indices.filter { filePriorities[$0] == priority }
     }
 
     func applySmartName(removingTokens: [String]) {
