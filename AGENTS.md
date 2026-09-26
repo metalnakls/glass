@@ -2,6 +2,10 @@
 
 For build/install changes, follow the global [app-build-install-scripts](~/.codex/skills/app-build-install-scripts/SKILL.md) and [macos-app-signing](~/.codex/skills/macos-app-signing/SKILL.md) skills. The project workflow is implemented in [Scripts/build-mac-app.sh](Scripts/build-mac-app.sh).
 
+## Git delivery
+
+When a turn changes project files and all required validation succeeds, commit only that turn's files and push the commit to the current branch's configured upstream. Routine pushes to this private repository are authorized. Choose a concise commit name automatically, then ask whether the user wants it changed; push once the name is settled. If renamed, amend only before pushing. Preserve unrelated work, never force-push or rewrite published history, and stop to report if validation or the push fails. A user request not to push for a specific turn takes precedence.
+
 ## Local build and install
 
 Run the one local build/install command:
