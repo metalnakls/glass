@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 extension View {
@@ -11,11 +12,19 @@ extension View {
     }
 
     @ViewBuilder
-    func glassSelectOnSecondaryClick(_ action: @escaping () -> Void) -> some View {
+    func glassContextMenu<MenuContent: View>(
+        select: @escaping () -> Void,
+        @ViewBuilder menu: @escaping () -> MenuContent
+    ) -> some View {
         if #available(macOS 26.0, *) {
-            gesture(SecondaryClickSelectionGesture(action: action))
+            gesture(SecondaryClickSelectionGesture { event, view in
+                select()
+                // Present the native menu directly, without SwiftUI's contextual row outline.
+                let hostingMenu = NSHostingMenu(rootView: menu())
+                NSMenu.popUpContextMenu(hostingMenu, with: event, for: view)
+            })
         } else {
-            self
+            contextMenu(menuItems: menu)
         }
     }
 }

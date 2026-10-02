@@ -4,9 +4,9 @@ import SwiftUI
 @available(macOS 26.0, *)
 struct SecondaryClickSelectionGesture: NSGestureRecognizerRepresentable {
     final class Coordinator: NSObject, NSGestureRecognizerDelegate {
-        var action: () -> Void
+        var action: (NSEvent, NSView) -> Void
 
-        init(action: @escaping () -> Void) {
+        init(action: @escaping (NSEvent, NSView) -> Void) {
             self.action = action
         }
 
@@ -18,7 +18,7 @@ struct SecondaryClickSelectionGesture: NSGestureRecognizerRepresentable {
         }
     }
 
-    let action: () -> Void
+    let action: (NSEvent, NSView) -> Void
 
     func makeCoordinator(converter: CoordinateSpaceConverter) -> Coordinator {
         Coordinator(action: action)
@@ -39,15 +39,15 @@ struct SecondaryClickSelectionGesture: NSGestureRecognizerRepresentable {
 
 @available(macOS 26.0, *)
 final class SecondaryMouseDownRecognizer: NSGestureRecognizer {
-    var onMouseDown: (() -> Void)?
+    var onMouseDown: ((NSEvent, NSView) -> Void)?
 
     override func rightMouseDown(with event: NSEvent) {
-        recognizeMouseDown()
+        recognizeMouseDown(with: event)
     }
 
     override func mouseDown(with event: NSEvent) {
         if event.modifierFlags.contains(.control) {
-            recognizeMouseDown()
+            recognizeMouseDown(with: event)
         }
     }
 
@@ -55,8 +55,9 @@ final class SecondaryMouseDownRecognizer: NSGestureRecognizer {
         state = .possible
     }
 
-    private func recognizeMouseDown() {
-        onMouseDown?()
+    private func recognizeMouseDown(with event: NSEvent) {
+        guard let view else { return }
+        onMouseDown?(event, view)
         state = .began
         state = .ended
     }
