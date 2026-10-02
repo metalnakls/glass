@@ -1,6 +1,5 @@
 import GlassRemoteCore
 import GlassRemoteServices
-import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -67,11 +66,10 @@ public struct GlassRootView: View {
                             )
                         }
                         .toggleStyle(.button)
-                        .buttonStyle(.plain)
+                        .buttonBorderShape(.circle)
                         .labelStyle(.iconOnly)
                         .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
                     }
-                    .sharedBackgroundVisibility(.hidden)
                     .visibilityPriority(.high)
                 }
         }
@@ -81,11 +79,12 @@ public struct GlassRootView: View {
                 selectedID: selectedTorrentID,
                 presentation: presentation
             )
-            .inspectorColumnWidth(min: 180, ideal: 220, max: 280)
-            .background(Color(nsColor: .windowBackgroundColor))
-            .ignoresSafeArea(.container, edges: .top)
+            .inspectorColumnWidth(min: 240, ideal: 300, max: 360)
+            .toolbar {
+                // Reserve the native inspector toolbar region so main actions stay over the list.
+                ToolbarSpacer(.flexible, placement: .primaryAction)
+            }
         }
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
                 switch sheet {
@@ -516,7 +515,8 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
-        .navigationTitle(freeSpaceTitle)
+        .navigationTitle(model.sourceName(for: contextSourceID))
+        .navigationSubtitle(navigationSubtitle)
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -568,10 +568,19 @@ private struct TorrentWorkspaceView: View {
         }
     }
 
-    private var freeSpaceTitle: String {
-        let sourceID = presentation.rows.first { $0.id == selection }?.sourceID ?? model.selectedSourceID
-        return model.serverFreeSpace[sourceID]?.availableBytes.map { "\(formatBytes($0)) free" }
-            ?? "Free space unavailable"
+    private var contextSourceID: UUID {
+        presentation.rows.first { $0.id == selection }?.sourceID ?? model.selectedSourceID
+    }
+
+    private var navigationSubtitle: String {
+        if let freeSpace = model.serverFreeSpace[contextSourceID]?.availableBytes {
+            return "\(formatBytes(freeSpace)) free"
+        }
+        if contextSourceID == model.localSourceID {
+            return "Local downloads on this Mac"
+        }
+        guard let profile = model.profiles.first(where: { $0.id == contextSourceID }) else { return "" }
+        return profile.rpcURL.host(percentEncoded: false) ?? profile.rpcURL.absoluteString
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
