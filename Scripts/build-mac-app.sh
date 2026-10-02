@@ -3,11 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${1:-debug}"
-SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-DEVELOPMENT_SIGNING_IDENTITY}"
 INSTALL_DIR="/Applications/Glass.app"
 BACKUP_ROOT="$ROOT_DIR/.app-backups"
 BACKUP_APP="$BACKUP_ROOT/Glass.app.backup"
-SYSTEM_SIGN_IDENTITY="DEVELOPMENT_SIGNING_IDENTITY"
+SIGN_IDENTITY_FILE="$ROOT_DIR/.signing-identity"
+SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-}"
 INSTALL_BACKUP=""
 INSTALL_STARTED=0
 BACKUP_STAGE_DIR=""
@@ -27,10 +27,81 @@ case "$CONFIGURATION" in
         ;;
 esac
 
-if [ "$SIGN_IDENTITY" != "$SYSTEM_SIGN_IDENTITY" ]; then
-    echo "GLASS_CODESIGN_IDENTITY must be $SYSTEM_SIGN_IDENTITY for local development signing." >&2
-    exit 65
-fi
+# Remembers the chosen identity in .signing-identity so later builds do not ask
+# again. The file is machine-local and gitignored.
+remember_sign_identity() {
+    if [ -w "$ROOT_DIR" ]; then
+        printf '%s\n' "$SIGN_IDENTITY" > "$SIGN_IDENTITY_FILE"
+    fi
+}
+
+# Asks which Apple Development identity to use the first time, then reuses the
+# remembered one. Re-asks only when that identity is no longer usable.
+choose_sign_identity() {
+    local available="$1"
+    local candidates=()
+    local line sha name choice index
+
+    while IFS= read -r line; do
+        if [[ "$line" == *"Apple Development"* ]]; then
+            sha="$(grep -Eo '[0-9A-F]{40}' <<< "$line" || true)"
+            if [ -n "$sha" ]; then candidates+=("$sha"); fi
+        fi
+    done <<< "$available"
+
+    if [ "${#candidates[@]}" -eq 0 ]; then
+        echo "No Apple Development signing identity was found in the signing keychain." >&2
+        echo "Open Xcode > Settings > Accounts to add one, then run this again." >&2
+        exit 65
+    fi
+
+    if [ "${#candidates[@]}" -eq 1 ]; then
+        SIGN_IDENTITY="${candidates[0]}"
+        remember_sign_identity
+        return 0
+    fi
+
+    printf 'Choose the Apple Development identity to sign with:\n' >&2
+    index=1
+    for sha in "${candidates[@]}"; do
+        name="$(grep -F "$sha" <<< "$available" | sed -E 's/^[0-9]+\) [0-9A-F]{40} "(.*)"$/\1/')"
+        printf '  %d) %s  %s\n' "$index" "$sha" "$name" >&2
+        index=$((index + 1))
+    done
+    printf 'Selection [1]: ' >&2
+
+    choice=""
+    if [ -r /dev/tty ]; then
+        read -r choice </dev/tty || choice=""
+    fi
+    if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#candidates[@]}" ]; then
+        choice=1
+    fi
+
+    SIGN_IDENTITY="${candidates[$((choice - 1))]}"
+    remember_sign_identity
+}
+
+resolve_sign_identity() {
+    local available="$1"
+    local remembered
+
+    if [ -n "$SIGN_IDENTITY" ]; then
+        return 0
+    fi
+
+    if [ -f "$SIGN_IDENTITY_FILE" ]; then
+        remembered="$(tr -d '[:space:]' < "$SIGN_IDENTITY_FILE")"
+        if [ -n "$remembered" ] && grep -Fq "$remembered " <<< "$available"; then
+            SIGN_IDENTITY="$remembered"
+            return 0
+        fi
+        echo "Remembered signing identity $remembered is no longer available." >&2
+        rm -f -- "$SIGN_IDENTITY_FILE"
+    fi
+
+    choose_sign_identity "$available"
+}
 
 restore_install() {
     if [[ "$INSTALL_STARTED" -eq 1 ]]; then
@@ -68,10 +139,13 @@ on_exit() {
 trap on_exit EXIT
 
 AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
+resolve_sign_identity "$AVAILABLE_IDENTITIES"
 if ! grep -Fq "$SIGN_IDENTITY " <<< "$AVAILABLE_IDENTITIES"; then
-    echo "Required Apple Development signing identity is unavailable: $SIGN_IDENTITY" >&2
+    printf 'Signing identity is unavailable: %s\n' "$SIGN_IDENTITY" >&2
+    printf 'Available codesigning identities:\n%s\n' "$AVAILABLE_IDENTITIES" >&2
     exit 65
 fi
+echo "Signing identity: $SIGN_IDENTITY"
 
 cd "$ROOT_DIR"
 XCODE_CONFIGURATION="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIGURATION:0:1}")${CONFIGURATION:1}"
