@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: glass-release
@@ -21,7 +21,6 @@ jobs:
       PROJECT: Apps/Glass/Glass.xcodeproj
       SCHEME: Glass
       DERIVED_DATA: .build/release-derived
-      UPDATE_REPO: metalnakls/glass-updates
 
     steps:
       - uses: actions/checkout@v4
@@ -121,17 +120,12 @@ jobs:
 
       - name: Publish release and appcast
         env:
-          GH_TOKEN: ${{ secrets.UPDATES_REPO_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="v${VERSION}"
           ASSET_NAME="$(basename "$ZIP")"
-          DOWNLOAD_URL="https://github.com/$UPDATE_REPO/releases/download/$TAG/$ASSET_NAME"
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$ASSET_NAME"
           PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S %z')"
-
-          gh release create "$TAG" "$ZIP" \
-            --repo "$UPDATE_REPO" \
-            --title "Glass ${VERSION}" \
-            --generate-notes
 
           cat > "$RUNNER_TEMP/appcast.xml" <<EOF
           <?xml version="1.0" encoding="utf-8"?>
@@ -155,11 +149,7 @@ jobs:
           </rss>
           EOF
 
-          git clone "https://x-access-token:$GH_TOKEN@github.com/$UPDATE_REPO.git" "$RUNNER_TEMP/updates"
-          cp "$RUNNER_TEMP/appcast.xml" "$RUNNER_TEMP/updates/appcast.xml"
-          cd "$RUNNER_TEMP/updates"
-          git config user.name "glass-release-bot"
-          git config user.email "actions@users.noreply.github.com"
-          git add appcast.xml
-          git commit -m "Publish Glass ${VERSION}" || true
-          git push origin HEAD:main
+          gh release create "$TAG" "$ZIP" "$RUNNER_TEMP/appcast.xml" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Glass ${VERSION}" \
+            --generate-notes
