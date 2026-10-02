@@ -2,6 +2,7 @@ import AppKit
 import GlassRemoteCore
 import GlassRemoteServices
 import GlassRemoteUI
+import Sparkle
 import SwiftUI
 import UserNotifications
 
@@ -9,9 +10,21 @@ import UserNotifications
 struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
     private let platformIntegration: GlassMacPlatformIntegration
+    private let updaterController: SPUStandardUpdaterController?
     @State private var model: RemoteAppModel
 
     init() {
+        let sparklePublicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
+        if let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
+            updaterController = SPUStandardUpdaterController(
+                startingUpdater: true,
+                updaterDelegate: nil,
+                userDriverDelegate: nil
+            )
+        } else {
+            updaterController = nil
+        }
+
         platformIntegration = GlassMacPlatformIntegration()
         _model = State(initialValue: Self.makeModel())
     }
