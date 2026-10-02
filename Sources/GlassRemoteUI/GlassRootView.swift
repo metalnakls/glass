@@ -77,7 +77,7 @@ public struct GlassRootView: View {
                 selectedID: selectedTorrentID,
                 presentation: presentation
             )
-            .inspectorColumnWidth(min: 240, ideal: 300, max: 360)
+            .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
             .toolbar {
                 // Reserve the native inspector toolbar region so main actions stay over the list.
                 ToolbarSpacer(.flexible, placement: .primaryAction)
