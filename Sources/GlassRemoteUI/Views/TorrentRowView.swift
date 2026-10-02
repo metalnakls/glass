@@ -14,7 +14,6 @@ struct TorrentRowView: View, Equatable {
 
     var body: some View {
         row
-        .padding(.vertical)
         .contentShape(Rectangle())
     }
 
