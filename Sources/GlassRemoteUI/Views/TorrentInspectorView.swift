@@ -4,6 +4,7 @@ import SwiftUI
 
 struct TorrentInspectorView: View {
     let model: RemoteAppModel
+    let sourceID: UUID
     let selectedTorrentHash: String?
     let selectedTorrentGroup: TorrentNameSequenceGroup?
     @AppStorage("GlassInspector.infoExpanded") private var isInfoExpanded = false
@@ -57,11 +58,11 @@ struct TorrentInspectorView: View {
             guard selectedTorrentGroup == nil else { return }
             guard let selectedTorrentHash else { return }
             let sections = Set(detailLoadInput.sections)
-            model.setVisibleTorrentDetailSections(sections, forHashString: selectedTorrentHash)
+            model.setVisibleTorrentDetailSections(sections, forHashString: selectedTorrentHash, sourceID: sourceID)
             await withTaskGroup(of: Void.self) { group in
                 for section in sections {
                     group.addTask {
-                        await model.loadDetailSection(section, forHashString: selectedTorrentHash)
+                        await model.loadDetailSection(section, forHashString: selectedTorrentHash, sourceID: sourceID)
                     }
                 }
             }
@@ -79,7 +80,8 @@ struct TorrentInspectorView: View {
                 let sections: Set<TorrentDetailSection> = isFilesExpanded ? [.files] : []
                 let details = try await model.fetchDetails(
                     for: selectedTorrentGroup.torrents,
-                    including: sections
+                    including: sections,
+                    sourceID: sourceID
                 )
                 guard !Task.isCancelled else { return }
                 groupDetails = Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) })
@@ -102,6 +104,7 @@ struct TorrentInspectorView: View {
 
     private var detailLoadInput: TorrentInspectorDetailLoadInput {
         TorrentInspectorDetailLoadInput(
+            sourceID: sourceID,
             hashString: selectedTorrentHash,
             detailsID: model.selectedTorrentDetails?.id,
             sections: [
@@ -115,6 +118,7 @@ struct TorrentInspectorView: View {
 
     private var groupDetailLoadInput: TorrentGroupInspectorLoadInput {
         TorrentGroupInspectorLoadInput(
+            sourceID: sourceID,
             groupID: selectedTorrentGroup?.id,
             torrents: selectedTorrentGroup?.torrents ?? [],
             loadsFiles: isFilesExpanded
@@ -355,7 +359,7 @@ struct TorrentInspectorView: View {
             let indices = Array(details.files.indices)
             guard !indices.isEmpty else { continue }
             Task {
-                await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted)
+                await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
             }
         }
     }
@@ -394,7 +398,7 @@ struct TorrentInspectorView: View {
         let indices = Array(details.files.indices)
         guard !indices.isEmpty else { return }
         Task {
-            await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted)
+            await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
         }
     }
 
@@ -403,7 +407,8 @@ struct TorrentInspectorView: View {
             await model.setFileWanted(
                 details.summaryFallback,
                 fileIndices: [index],
-                wanted: wanted
+                wanted: wanted,
+                sourceID: sourceID
             )
         }
     }
@@ -413,7 +418,8 @@ struct TorrentInspectorView: View {
             await model.setFilePriority(
                 details.summaryFallback,
                 fileIndices: [index],
-                priority: priority
+                priority: priority,
+                sourceID: sourceID
             )
         }
     }
@@ -434,12 +440,14 @@ struct TorrentInspectorView: View {
 }
 
 private struct TorrentInspectorDetailLoadInput: Equatable {
+    let sourceID: UUID
     let hashString: String?
     let detailsID: Int?
     let sections: [TorrentDetailSection]
 }
 
 private struct TorrentGroupInspectorLoadInput: Equatable {
+    let sourceID: UUID
     let groupID: String?
     let torrents: [TorrentSummary]
     let loadsFiles: Bool

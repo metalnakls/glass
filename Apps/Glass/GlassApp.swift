@@ -19,14 +19,16 @@ struct GlassApp: App {
     var body: some Scene {
         Window("Glass", id: "main") {
             GlassRootView(model: model, platformIntegration: platformIntegration)
-                .frame(minWidth: 820, minHeight: 260)
+                .frame(minWidth: 600, minHeight: 260)
         }
         .windowStyle(.titleBar)
         .windowToolbarStyle(.unified(showsTitle: true))
-        .defaultSize(width: 1020, height: 460)
+        .defaultSize(width: 720, height: 460)
+        .windowResizability(.contentMinSize)
         .commands {
             GlassCommands()
             ToolbarCommands()
+            InspectorCommands()
         }
 
         Settings {

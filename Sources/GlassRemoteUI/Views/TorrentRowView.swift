@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
+    var sourceName: String?
     var density: TorrentRowDensity = .regular
     var groupIsExpanded: Bool?
     var groupCount = 0
@@ -32,6 +33,7 @@ struct TorrentRowView: View, Equatable {
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
         lhs.torrent == rhs.torrent
+            && lhs.sourceName == rhs.sourceName
             && lhs.density == rhs.density
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
@@ -138,6 +140,9 @@ struct TorrentRowView: View, Equatable {
 
     private var metadataLine: some View {
         HStack(spacing: 9) {
+            if let sourceName {
+                Text(sourceName).lineLimit(1)
+            }
             Text(formatStatus(torrent.status))
                 .lineLimit(1)
                 .truncationMode(.tail)

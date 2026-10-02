@@ -86,11 +86,7 @@ public final class RemoteAppModel {
     }
 
     public private(set) var profiles: [RemoteProfile] = []
-    public var selectedProfileID: UUID? {
-        didSet {
-            if oldValue != selectedProfileID { clearTorrentDetails() }
-        }
-    }
+    public var selectedProfileID: UUID?
     public private(set) var sources: [TorrentSourceState] = []
     public var allTorrentRecords: [TorrentRecord] { sources.flatMap(\.records) }
     public var libraryStructureRevision: Int { sources.reduce(0) { $0 &+ $1.structureRevision } }
@@ -295,9 +291,9 @@ public final class RemoteAppModel {
         try? credentialStore.deletePassword(for: profile.id)
         if selectedProfileID == profile.id {
             selectedProfileID = Self.defaultSelectedProfileID(from: profiles)
-            clearTorrentDetails()
             loadingProfileID = nil
         }
+        if selectedDetailsSourceID == profile.id { clearTorrentDetails() }
         sources.removeAll { $0.id == profile.id }
         torrentCache[profile.id] = nil
         downloadDirectoryHistory[profile.id] = nil
@@ -362,7 +358,11 @@ public final class RemoteAppModel {
             }
         }
         refreshTasksBySourceID[sourceID] = task
-        await task.value
+        await withTaskCancellationHandler {
+            await task.value
+        } onCancel: {
+            task.cancel()
+        }
         refreshTasksBySourceID[sourceID] = nil
     }
 
@@ -401,10 +401,27 @@ public final class RemoteAppModel {
     }
 
     public func runAutoRefresh() async {
+        await withTaskGroup(of: Void.self) { group in
+            for sourceID in sources.map(\.id) {
+                group.addTask { await self.runAutoRefresh(sourceID: sourceID) }
+            }
+        }
+    }
+
+    private func runAutoRefresh(sourceID: UUID) async {
         while !Task.isCancelled {
-            if isApplicationActive { await refreshAllSources() }
+            if isApplicationActive { await refresh(sourceID: sourceID) }
+            guard !Task.isCancelled, sources.contains(where: { $0.id == sourceID }) else { return }
             do {
-                try await Task.sleep(for: isApplicationActive ? currentAutoRefreshInterval : .milliseconds(500))
+                let interval: Duration
+                if isApplicationActive {
+                    let state = sourceState(for: sourceID)
+                    interval = state.records.contains { $0.summary.isActive }
+                        ? Self.activeAutoRefreshInterval : Self.quietAutoRefreshInterval
+                } else {
+                    interval = .milliseconds(500)
+                }
+                try await Task.sleep(for: interval)
             } catch { break }
         }
     }
@@ -445,8 +462,8 @@ public final class RemoteAppModel {
     }
 
     @discardableResult
-    public func addMagnet(_ magnet: String, downloadDirectory: String?) async -> Bool {
-        let sourceID = selectedSourceID
+    public func addMagnet(_ magnet: String, downloadDirectory: String?, sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        let sourceID = requestedSourceID ?? selectedSourceID
         var addedTorrent: TorrentAddResult?
         let didAdd = await performProviderAction(sourceID: sourceID) { provider in
             addedTorrent = try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
@@ -669,8 +686,10 @@ public final class RemoteAppModel {
 
     public func setVisibleTorrentDetailSections(
         _ sections: Set<TorrentDetailSection>,
-        forHashString hashString: String
+        forHashString hashString: String,
+        sourceID requestedSourceID: UUID? = nil
     ) {
+        guard requestedSourceID == nil || requestedSourceID == selectedDetailsSourceID else { return }
         guard selectedDetailsTorrentHash == hashString else { return }
         visibleTorrentDetailSections = sections
         let hiddenSections = detailSectionTasks.keys.filter { !sections.contains($0) }
@@ -684,9 +703,11 @@ public final class RemoteAppModel {
     public func loadDetailSection(
         _ section: TorrentDetailSection,
         forHashString hashString: String,
+        sourceID requestedSourceID: UUID? = nil,
         force: Bool = false,
         showsLoadingIndicator: Bool = true
     ) async {
+        guard requestedSourceID == nil || requestedSourceID == selectedDetailsSourceID else { return }
         guard
             selectedDetailsTorrentHash == hashString,
             selectedTorrentDetails != nil,
