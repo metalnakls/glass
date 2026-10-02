@@ -1,12 +1,12 @@
 # Automatic updates
 
-Glass uses Sparkle 2. Source code stays private in `metalnakls/glass`; update artifacts are published from the public `metalnakls/glass-updates` repository.
+Glass uses Sparkle 2 and publishes update artifacts from this repository's GitHub Releases.
 
 ## One-time setup
 
-Create a **public** GitHub repository named `glass-updates` with a `main` branch.
+Make `metalnakls/glass` public before shipping the first update.
 
-Add these GitHub Actions secrets to the private `glass` repository:
+Add these GitHub Actions secrets:
 
 - `MACOS_CERTIFICATE_P12`: base64 of your exported Developer ID Application .p12
 - `MACOS_CERTIFICATE_PASSWORD`: password used when exporting the .p12
@@ -16,7 +16,8 @@ Add these GitHub Actions secrets to the private `glass` repository:
 - `APPLE_TEAM_ID`: Apple Developer Team ID
 - `SPARKLE_PUBLIC_ED_KEY`: output of Sparkle's `generate_keys`
 - `SPARKLE_PRIVATE_ED_KEY`: Sparkle private EdDSA key
-- `UPDATES_REPO_TOKEN`: fine-grained GitHub PAT with Contents: Read/Write for `metalnakls/glass-updates`
+
+No extra update repository or GitHub PAT is required. The workflow uses the repository's built-in `GITHUB_TOKEN`.
 
 ## Sparkle key
 
@@ -34,4 +35,12 @@ Paste that value into `MACOS_CERTIFICATE_P12`.
 
 ## Shipping
 
-After this branch is merged, every push to `main` runs the release workflow. A successful run signs + notarizes Glass, creates a public release in `glass-updates`, and replaces `appcast.xml`. Installed copies check the feed hourly and Sparkle handles the update/relaunch flow.
+Every push to `main` runs the release workflow. A successful run signs + notarizes Glass and creates a GitHub Release containing both the update ZIP and `appcast.xml`.
+
+Installed copies read the stable feed URL:
+
+```
+https://github.com/metalnakls/glass/releases/latest/download/appcast.xml
+```
+
+Sparkle checks hourly and handles update installation/relaunch.
