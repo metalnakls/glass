@@ -4,13 +4,15 @@ import SwiftUI
 
 public struct PreferencesView: View {
     private let model: RemoteAppModel
+    private let platformIntegration: any GlassPlatformIntegrating
     @State private var isTorrentCachingEnabled: Bool
     @State private var cachedServerLimit: Int
     @State private var profileEditor: ProfileEditorRequest?
     @State private var pendingDeletion: RemoteProfile?
 
-    public init(model: RemoteAppModel) {
+    public init(model: RemoteAppModel, platformIntegration: any GlassPlatformIntegrating = UnavailableGlassPlatformIntegration.shared) {
         self.model = model
+        self.platformIntegration = platformIntegration
         _isTorrentCachingEnabled = State(initialValue: model.preferences.isTorrentCachingEnabled)
         _cachedServerLimit = State(initialValue: model.preferences.cachedServerLimit)
     }
@@ -36,7 +38,7 @@ public struct PreferencesView: View {
         .onChange(of: isTorrentCachingEnabled) { _, _ in save() }
         .onChange(of: cachedServerLimit) { _, _ in save() }
         .sheet(item: $profileEditor) { request in
-            NavigationStack { ProfileEditorView(model: model, profile: request.profile) }
+            NavigationStack { ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: request.profile) }
                 .presentationSizing(.form)
         }
         .alert("Remove Server?", isPresented: Binding(

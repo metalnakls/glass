@@ -9,6 +9,7 @@ struct TorrentFilesBrowser: View {
     let onSetPriority: (Int, Int) -> Void
     let onSetAllWanted: (Bool) -> Void
     var showsControls = true
+    var thumbnailInput: ((TorrentFileBrowserEntry) -> TorrentThumbnailInput?)?
 
     @State private var sortOrder: [KeyPathComparator<TorrentFileBrowserEntry>] = [
         KeyPathComparator(\.displayName, order: .forward)
@@ -39,7 +40,7 @@ struct TorrentFilesBrowser: View {
 
                 TableColumn("Name", value: \.displayName) { entry in
                     HStack(spacing: 6) {
-                        TorrentFileIcon(fileName: entry.displayName, isFolder: false, size: 18)
+                        TorrentFileIcon(fileName: entry.displayName, isFolder: false, size: 18, thumbnailInput: thumbnailInput?(entry))
                         Text(entry.displayName)
                             .lineLimit(1)
                             .truncationMode(.middle)

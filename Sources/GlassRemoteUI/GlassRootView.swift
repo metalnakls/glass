@@ -89,9 +89,9 @@ public struct GlassRootView: View {
             NavigationStack {
                 switch sheet {
                 case .newProfile:
-                    ProfileEditorView(model: model, profile: nil)
+                    ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil)
                 case let .editProfile(profile):
-                    ProfileEditorView(model: model, profile: profile)
+                    ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: profile)
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
                 case let .addTorrentFiles(drafts):
