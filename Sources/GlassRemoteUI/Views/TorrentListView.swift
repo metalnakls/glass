@@ -33,6 +33,7 @@ struct TorrentListView: View {
                 }
             }
             .listStyle(.inset)
+            .contentMargins(.horizontal, nil, for: .scrollContent)
             .environment(\.defaultMinListRowHeight, 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
