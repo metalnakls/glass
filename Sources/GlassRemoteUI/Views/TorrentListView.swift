@@ -4,6 +4,13 @@ import GlassRemoteServices
 import Observation
 import SwiftUI
 
+private struct TorrentListColumnWidthKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct TorrentListView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
@@ -19,6 +26,11 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @State private var columnWidth: CGFloat = 0
+
+    private var density: TorrentRowDensity {
+        columnWidth > 0 ? TorrentRowDensity(width: columnWidth) : .regular
+    }
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -34,6 +46,12 @@ struct TorrentListView: View {
             }
             .listStyle(.inset)
             .contentMargins(.horizontal, nil, for: .scrollContent)
+            .background(GeometryReader { proxy in
+                Color.clear.preference(
+                    key: TorrentListColumnWidthKey.self,
+                    value: proxy.size.width
+                )
+            })
             .environment(\.defaultMinListRowHeight, 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
@@ -45,6 +63,9 @@ struct TorrentListView: View {
         }
         .onAppear {
             synchronizePresentation(animated: false)
+        }
+        .onPreferenceChange(TorrentListColumnWidthKey.self) { width in
+            columnWidth = width
         }
         .onChange(of: structureInput) { oldInput, newInput in
             let hasRowIdentityChanges = oldInput.recordIDs != newInput.recordIDs
@@ -92,6 +113,7 @@ struct TorrentListView: View {
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {
         TorrentListLiveRow(
             row: row,
+            density: density,
             model: model,
             platformIntegration: platformIntegration,
             pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
@@ -223,6 +245,7 @@ struct TorrentListView: View {
 private struct TorrentListLiveRow: View {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
+    let density: TorrentRowDensity
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     let pendingOldName: String?
@@ -236,7 +259,9 @@ private struct TorrentListLiveRow: View {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
+            density: density,
             groupIsExpanded: row.groupIsExpanded,
+            groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },

@@ -6,7 +6,9 @@ import UniformTypeIdentifiers
 struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
     var showsExtensions = false
+    var density: TorrentRowDensity = .regular
     var groupIsExpanded: Bool?
+    var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
     var thumbnailInput: TorrentThumbnailInput?
@@ -18,8 +20,10 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var row: some View {
-        HStack(alignment: .center) {
-            leadingIcon
+        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
+            if density.showsIcon {
+                leadingIcon
+            }
 
             torrentContent
             transferButton
@@ -29,7 +33,9 @@ struct TorrentRowView: View, Equatable {
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
         lhs.torrent == rhs.torrent
             && lhs.showsExtensions == rhs.showsExtensions
+            && lhs.density == rhs.density
             && lhs.groupIsExpanded == rhs.groupIsExpanded
+            && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
             && lhs.thumbnailInput == rhs.thumbnailInput
     }
@@ -43,11 +49,11 @@ struct TorrentRowView: View, Equatable {
                 if groupIsExpanded {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36)
+                        .frame(width: 36, height: 42)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    TorrentFileIcon(fileName: "", isFolder: true)
-                        .frame(width: 36)
+                    GroupFolderFanIcon(count: groupCount)
+                        .frame(width: 36, height: 42)
                 }
             }
             .buttonStyle(.plain)
@@ -57,6 +63,7 @@ struct TorrentRowView: View, Equatable {
             activityProgress
         } else {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
+                .frame(width: 36, height: 42, alignment: .center)
         }
     }
 
@@ -66,7 +73,7 @@ struct TorrentRowView: View, Equatable {
         )
         .font(.system(size: 19, weight: .medium))
         .foregroundStyle(.secondary)
-        .frame(width: 36)
+        .frame(width: 36, height: 42, alignment: .center)
     }
 
     private var showsActivityIcon: Bool {
@@ -151,6 +158,54 @@ struct TorrentRowView: View, Equatable {
             return name
         }
         return fileName.deletingPathExtension
+    }
+}
+
+enum TorrentRowDensity: Equatable {
+    case compact
+    case standard
+    case regular
+
+    init(width: CGFloat) {
+        if width >= 540 {
+            self = .regular
+        } else if width >= 430 {
+            self = .standard
+        } else {
+            self = .compact
+        }
+    }
+
+    var showsIcon: Bool {
+        self != .compact
+    }
+}
+
+private struct GroupFolderFanIcon: View {
+    let count: Int
+
+    var body: some View {
+        ZStack {
+            ForEach(0..<count, id: \.self) { index in
+                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                    .rotationEffect(rotation(for: index), anchor: .bottom)
+                    .offset(offset(for: index))
+                    .zIndex(Double(index))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+
+    private func rotation(for index: Int) -> Angle {
+        guard count > 1 else { return .zero }
+        let progress = Double(index) / Double(count - 1)
+        return .degrees(-9 + (18 * progress))
+    }
+
+    private func offset(for index: Int) -> CGSize {
+        guard count > 1 else { return .zero }
+        let progress = CGFloat(index) / CGFloat(count - 1)
+        return CGSize(width: -5 + (10 * progress), height: abs(progress - 0.5) * 2)
     }
 }
 
