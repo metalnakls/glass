@@ -64,18 +64,22 @@ choose_sign_identity() {
     printf 'Choose the Apple Development identity to sign with:\n' >&2
     index=1
     for sha in "${candidates[@]}"; do
-        name="$(grep -F "$sha" <<< "$available" | sed -E 's/^[0-9]+\) [0-9A-F]{40} "(.*)"$/\1/')"
+        name="$(grep -F "$sha" <<< "$available" | sed -E 's/^[[:space:]]*[0-9]+\)[[:space:]]+[0-9A-F]{40}[[:space:]]+"(.*)"[[:space:]]*$/\1/')"
         printf '  %d) %s  %s\n' "$index" "$sha" "$name" >&2
         index=$((index + 1))
     done
     printf 'Selection [1]: ' >&2
 
-    choice=""
-    if [ -r /dev/tty ]; then
-        read -r choice </dev/tty || choice=""
+    if [ ! -r /dev/tty ]; then
+        printf '\nCannot ask which identity to use without an interactive terminal.\n' >&2
+        printf 'Re-run this from a terminal, or set GLASS_CODESIGN_IDENTITY to the SHA-1 you want.\n' >&2
+        exit 65
     fi
+
+    read -r choice </dev/tty || choice=""
     if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#candidates[@]}" ]; then
-        choice=1
+        printf '\nInvalid selection. Set GLASS_CODESIGN_IDENTITY to the SHA-1 you want.\n' >&2
+        exit 65
     fi
 
     SIGN_IDENTITY="${candidates[$((choice - 1))]}"
