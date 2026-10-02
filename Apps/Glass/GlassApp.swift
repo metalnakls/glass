@@ -68,10 +68,15 @@ struct GlassApp: App {
 }
 
 private struct GlassCommands: Commands {
+    @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Toggle("Show Extensions", isOn: $showExtensions)
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("Add Server...") {
                 actions?.addServer()

@@ -213,6 +213,7 @@ struct TorrentListView: View {
 }
 
 private struct TorrentListLiveRow: View {
+    @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
@@ -227,6 +228,7 @@ private struct TorrentListLiveRow: View {
     var body: some View {
         TorrentRowView(
             torrent: summary,
+            showsExtensions: showExtensions,
             sourceName: model.profiles.isEmpty ? nil : model.sourceName(for: row.sourceID),
             density: density,
             groupIsExpanded: row.groupIsExpanded,
