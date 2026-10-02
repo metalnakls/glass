@@ -49,7 +49,7 @@ The fresh app keeps the feature stack but rebuilds placement through native Swif
 
 ## Product Requirements
 
-Glass is a quiet macOS desktop client for local torrents and remote Transmission RPC servers. It should feel native in the same family as Finder, Mail, and Notes: system-owned chrome, predictable selection, toolbar customization, source-list sidebar, detail list, and attached inspector.
+Glass is a quiet macOS desktop client for local torrents and remote Transmission RPC servers. It should feel native in the same family as Finder, Mail, and Notes: system-owned chrome, predictable selection, toolbar customization, detail list, and attached inspector.
 
 Primary workflows:
 
@@ -66,11 +66,11 @@ Native UI requirements:
 
 - One native title only.
 - No fake chrome, custom window frame mutation, fake toolbar rows, or layout-owned AppKit views.
-- Root scene uses `WindowGroup`.
-- Main window uses `NavigationSplitView` for sidebar/detail.
+- Root scene uses a single `Window`.
+- Main window uses `NavigationStack`; the library merges every source into one torrent list, so there is no sidebar/detail split.
 - Inspector is attached with SwiftUI `.inspector`.
-- Torrent list uses the native macOS 27 `ScrollView` + `LazyVStack` + `swipeActionsContainer()` path, with context menus, keyboard selection, and swipe actions.
-- The detail leaf owns its standard SwiftUI toolbar and title. The inspector is attached to the complete split view.
+- Torrent list uses SwiftUI `List`, with context menus, keyboard selection, and swipe actions.
+- The detail leaf owns its standard SwiftUI toolbar and title. The inspector is attached to the navigation stack.
 - On macOS 27 and newer, the top scroll edge uses `.scrollEdgeEffectStyle(.soft, for: .top)` on the actual scrollable list.
 
 Backend requirements:
@@ -113,28 +113,27 @@ Treat the old iOS material as requirements/provenance only. Rebuild the iOS app 
 Package tests:
 
 ```sh
-swift test --package-path ~/glass
+swift test --package-path .
 ```
 
 Signed debug app:
 
 ```sh
-GLASS_CODESIGN_IDENTITY=DEVELOPMENT_SIGNING_IDENTITY \
-  ~/glass/Scripts/build-mac-app.sh debug
+./Scripts/build-mac-app.sh debug
 ```
 
 The real app bundle is:
 
 ```text
-~/glass/.build/Xcode/Build/Products/Debug/Glass.app
+.build/Xcode/Build/Products/Debug/Glass.app
 ```
 
-The old manual bundle path `~/glass/.build/Glass.app` is obsolete and should not reappear.
+The old manual bundle path `.build/Glass.app` is obsolete and should not reappear.
 
 Local libtransmission source is pinned by:
 
 ```text
-~/glass/Vendor/transmission/REVISION
+Vendor/transmission/REVISION
 ```
 
 The build script fetches `Vendor/transmission/source` inside `~/glass`. `~/trans` remains reference/provenance only and is not a build input.
@@ -188,7 +187,7 @@ Local wiring is a product requirement. Glass should handle local torrent downloa
 After switching Codex to `~/glass`, use feature branches for substantial work:
 
 ```sh
-git -C ~/glass switch -c ui-native-shell
+git -C . switch -c ui-native-shell
 ```
 
 Keep `~/trans` clean enough to fetch upstream and compare implementation details, but do not commit Glass work there.
