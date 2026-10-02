@@ -5,7 +5,6 @@ import Observation
 import SwiftUI
 
 struct TorrentListStructureInput: Equatable {
-    let sourceID: UUID
     let revision: Int
     let recordIDs: [String]
     let pendingRenameNames: [String: String]
@@ -14,59 +13,44 @@ struct TorrentListStructureInput: Equatable {
 @MainActor
 @Observable
 final class TorrentListPresentationModel {
-    static let libraryID = UUID(uuidString: "00000000-0000-0000-0000-000000000002")!
     private(set) var rows: [TorrentListRowPresentation] = []
 
-    @ObservationIgnored private var activeSourceID: UUID?
-    @ObservationIgnored private var collapsedGroupIDs: Set<String> = []
+    @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
 
     @discardableResult
     func synchronize(
-        sourceID: UUID,
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
         animated: Bool,
         reduceMotion: Bool
     ) -> [TorrentListRowPresentation] {
-        let sourceChanged = activeSourceID != sourceID
-        if sourceChanged {
-            activeSourceID = sourceID
-            collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
-        }
-
         let updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,
-            collapsedGroupIDs: collapsedGroupIDs
+            expandedGroupIDs: expandedGroupIDs
         )
-        setRows(updatedRows, animated: animated && !sourceChanged, reduceMotion: reduceMotion)
+        setRows(updatedRows, animated: animated, reduceMotion: reduceMotion)
         return updatedRows
     }
 
     @discardableResult
     func toggleGroup(
         _ groupID: String,
-        sourceID: UUID,
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
         reduceMotion: Bool
     ) -> [TorrentListRowPresentation] {
-        if activeSourceID != sourceID {
-            activeSourceID = sourceID
-            collapsedGroupIDs = TorrentGroupExpansionStore.collapsedGroupIDs(for: sourceID)
-        }
-
-        if collapsedGroupIDs.contains(groupID) {
-            collapsedGroupIDs.remove(groupID)
+        if expandedGroupIDs.contains(groupID) {
+            expandedGroupIDs.remove(groupID)
         } else {
-            collapsedGroupIDs.insert(groupID)
+            expandedGroupIDs.insert(groupID)
         }
-        TorrentGroupExpansionStore.save(collapsedGroupIDs, for: sourceID)
+        TorrentGroupExpansionStore.save(expandedGroupIDs)
 
         let updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,
-            collapsedGroupIDs: collapsedGroupIDs
+            expandedGroupIDs: expandedGroupIDs
         )
         setRows(updatedRows, animated: true, reduceMotion: reduceMotion)
         return updatedRows
@@ -75,13 +59,11 @@ final class TorrentListPresentationModel {
     @discardableResult
     func revealTorrent(
         _ torrentID: String,
-        sourceID: UUID,
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
         reduceMotion: Bool
     ) -> [TorrentListRowPresentation] {
         _ = synchronize(
-            sourceID: sourceID,
             records: records,
             pendingRenameNames: pendingRenameNames,
             animated: false,
@@ -89,15 +71,15 @@ final class TorrentListPresentationModel {
         )
         guard let groupID = rows.first(where: { row in
             row.groupMemberIDs?.contains(torrentID) == true
-        })?.id, collapsedGroupIDs.remove(groupID) != nil else {
+        })?.id, expandedGroupIDs.insert(groupID).inserted else {
             return rows
         }
 
-        TorrentGroupExpansionStore.save(collapsedGroupIDs, for: sourceID)
+        TorrentGroupExpansionStore.save(expandedGroupIDs)
         let updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,
-            collapsedGroupIDs: collapsedGroupIDs
+            expandedGroupIDs: expandedGroupIDs
         )
         setRows(updatedRows, animated: true, reduceMotion: reduceMotion)
         return updatedRows
@@ -172,7 +154,7 @@ struct TorrentListRowPresentation: Identifiable {
     static func rows(
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
-        collapsedGroupIDs: Set<String>
+        expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
         let recordsBySource = Dictionary(grouping: records, by: \.sourceID)
         var seenSources = Set<UUID>()
@@ -180,7 +162,7 @@ struct TorrentListRowPresentation: Identifiable {
             rowsForSource(
                 records: recordsBySource[sourceID] ?? [],
                 pendingRenameNames: pendingRenameNames,
-                collapsedGroupIDs: collapsedGroupIDs
+                expandedGroupIDs: expandedGroupIDs
             )
         }
     }
@@ -188,7 +170,7 @@ struct TorrentListRowPresentation: Identifiable {
     private static func rowsForSource(
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
-        collapsedGroupIDs: Set<String>
+        expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
         let summaries = records.map { record in
             pendingRenameNames[record.id].map { record.summary.renamedForPresentation(to: $0) }
@@ -214,7 +196,7 @@ struct TorrentListRowPresentation: Identifiable {
                 let memberRecords = group.torrents.compactMap { recordsByHash[$0.hashString] }
                 guard !memberRecords.isEmpty else { continue }
                 let groupID = "\(memberRecords[0].sourceID.uuidString):\(group.id)"
-                let isExpanded = !collapsedGroupIDs.contains(groupID)
+                let isExpanded = expandedGroupIDs.contains(groupID)
                 rows.append(TorrentListRowPresentation(
                     id: groupID,
                     kind: .group(records: memberRecords, displayName: group.displayName, isExpanded: isExpanded)
@@ -248,37 +230,13 @@ struct TorrentListRowPresentation: Identifiable {
 }
 
 private enum TorrentGroupExpansionStore {
-    private static let defaultsKey = "TorrentList.collapsedGroupsBySource"
+    private static let defaultsKey = "TorrentList.expandedLibraryGroups"
 
-    static func collapsedGroupIDs(for sourceID: UUID) -> Set<String> {
-        guard
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let storedGroups = try? JSONDecoder().decode([String: [String]].self, from: data)
-        else {
-            return []
-        }
-        if let groups = storedGroups[sourceID.uuidString] { return Set(groups) }
-        // Carry existing per-server expansion choices into the combined list once.
-        let migrated = Set(storedGroups.flatMap { key, groups in
-            groups.map { "\(key):\($0)" }
-        })
-        save(migrated, for: sourceID)
-        return migrated
+    static func expandedGroupIDs() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: defaultsKey) ?? [])
     }
 
-    static func save(_ collapsedGroupIDs: Set<String>, for sourceID: UUID) {
-        var storedGroups: [String: [String]] = [:]
-        if
-            let data = UserDefaults.standard.data(forKey: defaultsKey),
-            let decoded = try? JSONDecoder().decode([String: [String]].self, from: data)
-        {
-            storedGroups = decoded
-        }
-
-        storedGroups[sourceID.uuidString] = collapsedGroupIDs.sorted()
-
-        if let data = try? JSONEncoder().encode(storedGroups) {
-            UserDefaults.standard.set(data, forKey: defaultsKey)
-        }
+    static func save(_ expandedGroupIDs: Set<String>) {
+        UserDefaults.standard.set(expandedGroupIDs.sorted(), forKey: defaultsKey)
     }
 }

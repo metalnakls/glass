@@ -14,9 +14,14 @@ struct TorrentListPresentationTests {
         let records = [first, second].flatMap { sourceID in
             [record(sourceID, season: 1), record(sourceID, season: 2)]
         }
-        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], collapsedGroupIDs: [])
-        let groups = rows.filter { !$0.isTorrent }
+        let defaultRows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+        let groups = defaultRows.filter { !$0.isTorrent }
         #expect(groups.count == 2)
+        #expect(defaultRows.count == 2)
+        #expect(groups.allSatisfy { $0.groupIsExpanded == false })
+        let rows = TorrentListRowPresentation.rows(
+            records: records, pendingRenameNames: [:], expandedGroupIDs: Set(groups.map(\.id))
+        )
         #expect(Set(rows.map(\.id)).count == rows.count)
         for group in groups {
             let members = try #require(group.groupMemberIDs)
@@ -26,7 +31,7 @@ struct TorrentListPresentationTests {
         }
 
         let collapsed = TorrentListRowPresentation.rows(
-            records: records, pendingRenameNames: [:], collapsedGroupIDs: [groups[0].id]
+            records: records, pendingRenameNames: [:], expandedGroupIDs: [groups[1].id]
         )
         #expect(collapsed.filter { $0.isTorrent && $0.sourceID == first }.isEmpty)
         #expect(collapsed.filter { $0.isTorrent && $0.sourceID == second }.count == 2)
@@ -37,7 +42,7 @@ struct TorrentListPresentationTests {
         let first = record(UUID(), season: 1)
         let second = record(UUID(), season: 1)
         let rows = TorrentListRowPresentation.rows(
-            records: [first, second], pendingRenameNames: [first.id: "Renamed"], collapsedGroupIDs: []
+            records: [first, second], pendingRenameNames: [first.id: "Renamed"], expandedGroupIDs: []
         )
         guard case let .torrent(_, firstName) = try #require(rows.first { $0.id == first.id }).kind,
               case let .torrent(_, secondName) = try #require(rows.first { $0.id == second.id }).kind else {

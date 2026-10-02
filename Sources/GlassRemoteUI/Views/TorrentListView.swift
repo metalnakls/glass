@@ -49,15 +49,13 @@ struct TorrentListView: View {
         }
         .scrollEdgeEffectStyle(.soft, for: .top)
         .onAppear {
-            synchronizePresentation(sourceChanged: false, animated: false)
+            synchronizePresentation(animated: false)
         }
         .onChange(of: structureInput) { oldInput, newInput in
-            let sourceChanged = oldInput.sourceID != newInput.sourceID
             let hasRowIdentityChanges = oldInput.recordIDs != newInput.recordIDs
                 || oldInput.pendingRenameNames != newInput.pendingRenameNames
             synchronizePresentation(
-                sourceChanged: sourceChanged,
-                animated: !sourceChanged && hasRowIdentityChanges
+                animated: hasRowIdentityChanges
             )
         }
         .onGeometryChange(for: TorrentRowDensity.self, of: { geometry in
@@ -107,7 +105,6 @@ struct TorrentListView: View {
 
     private var structureInput: TorrentListStructureInput {
         TorrentListStructureInput(
-            sourceID: TorrentListPresentationModel.libraryID,
             revision: structureRevision,
             recordIDs: records.map(\.id),
             pendingRenameNames: pendingRenameNames
@@ -126,7 +123,6 @@ struct TorrentListView: View {
         }
         let updatedRows = presentation.toggleGroup(
             row.id,
-            sourceID: TorrentListPresentationModel.libraryID,
             records: records,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
@@ -134,12 +130,8 @@ struct TorrentListView: View {
         reconcileSelection(with: updatedRows)
     }
 
-    private func synchronizePresentation(sourceChanged: Bool, animated: Bool) {
-        if sourceChanged {
-            selection = nil
-        }
+    private func synchronizePresentation(animated: Bool) {
         let updatedRows = presentation.synchronize(
-            sourceID: TorrentListPresentationModel.libraryID,
             records: records,
             pendingRenameNames: pendingRenameNames,
             animated: animated,
@@ -159,7 +151,6 @@ struct TorrentListView: View {
         guard let selectedID else { return }
         let rows = presentation.revealTorrent(
             selectedID,
-            sourceID: TorrentListPresentationModel.libraryID,
             records: records,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
