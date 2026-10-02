@@ -42,12 +42,12 @@ struct TorrentListView: View {
                 }
             }
             .listStyle(.inset)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
             }
         }
-        .scrollEdgeEffectStyle(.soft, for: .top)
         .onAppear {
             synchronizePresentation(animated: false)
         }
