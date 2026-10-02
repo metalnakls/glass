@@ -19,7 +19,6 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @State private var rowDensity: TorrentRowDensity = .regular
 
     var body: some View {
         ScrollViewReader { scrollProxy in
@@ -29,7 +28,6 @@ struct TorrentListView: View {
                         row: row,
                         model: model,
                         platformIntegration: platformIntegration,
-                        density: rowDensity,
                         pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
                         select: { selection = row.id },
                         toggleGroupExpansion: { toggleAutoGroup(row) },
@@ -37,11 +35,16 @@ struct TorrentListView: View {
                         remove: remove,
                         toggleTransfers: { Task { await toggleTransfers(for: row) } }
                     )
+                    .background(TorrentListSelectionStyle().frame(width: 0, height: 0))
+                    .listRowBackground(selectionBackground(for: row.id))
+                    .listRowSeparator(.hidden)
+                    .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
                 }
             }
             .listStyle(.inset)
+            .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
@@ -58,17 +61,8 @@ struct TorrentListView: View {
                 animated: hasRowIdentityChanges
             )
         }
-        .onGeometryChange(for: TorrentRowDensity.self, of: { geometry in
-            TorrentRowDensity(width: geometry.size.width)
-        }) { density in
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) {
-                rowDensity = density
-            }
-        }
         .onKeyPress(.delete, phases: [.down]) { keyPress in
-            guard selectedTorrent != nil else { return .ignored }
+            guard selection != nil, presentation.rows.contains(where: { $0.id == selection }) else { return .ignored }
             removeSelected(keyPress.modifiers.contains(.command))
             return .handled
         }
@@ -100,6 +94,14 @@ struct TorrentListView: View {
             if records.isEmpty {
                 emptyState
             }
+        }
+    }
+
+    @ViewBuilder
+    private func selectionBackground(for id: String) -> some View {
+        if selection == id {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
         }
     }
 
@@ -217,7 +219,6 @@ private struct TorrentListLiveRow: View {
     let row: TorrentListRowPresentation
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
-    let density: TorrentRowDensity
     let pendingOldName: String?
     let select: () -> Void
     let toggleGroupExpansion: () -> Void
@@ -229,10 +230,7 @@ private struct TorrentListLiveRow: View {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
-            sourceName: model.profiles.isEmpty ? nil : model.sourceName(for: row.sourceID),
-            density: density,
             groupIsExpanded: row.groupIsExpanded,
-            groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
@@ -246,18 +244,36 @@ private struct TorrentListLiveRow: View {
                 if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
                     Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
                 }
+            } else {
+                Button(summary.canStopTransfer ? "Pause" : "Resume", action: toggleTransfers)
+                Button("Verify") {
+                    if case let .group(records, _, _) = row.kind {
+                        Task { for record in records { await model.verify(record.summary, sourceID: record.sourceID) } }
+                    }
+                }
+                Divider()
+                Button("Delete Torrent") { removeRow(deleteData: false) }
+                Button("Delete Torrent + Data", role: .destructive) { removeRow(deleteData: true) }
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            if row.isTorrent {
-                Button("Delete Torrent + Data", role: .destructive) {
-                    remove(summary, row.sourceID, true)
-                }
-                Button("Delete Torrent") {
-                    remove(summary, row.sourceID, false)
-                }
-                .tint(.orange)
+            Button("Delete Torrent + Data", systemImage: "trash.fill", role: .destructive) {
+                removeRow(deleteData: true)
             }
+            .labelStyle(.iconOnly)
+            Button("Delete Torrent", systemImage: "trash") {
+                removeRow(deleteData: false)
+            }
+            .labelStyle(.iconOnly)
+            .tint(.orange)
+        }
+    }
+
+    private func removeRow(deleteData: Bool) {
+        switch row.kind {
+        case let .torrent(record, _): remove(record.summary, record.sourceID, deleteData)
+        case let .group(records, _, _):
+            for record in records { remove(record.summary, record.sourceID, deleteData) }
         }
     }
 
