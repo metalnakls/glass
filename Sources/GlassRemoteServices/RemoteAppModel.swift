@@ -190,7 +190,7 @@ public final class RemoteAppModel {
     }
 
     public var localSourceName: String {
-        "This Mac"
+        Host.current().localizedName ?? "This Mac"
     }
 
     public var localSourceSystemImage: String {

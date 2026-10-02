@@ -582,7 +582,10 @@ private struct TorrentWorkspaceView: View {
     private var navigationTitle: Text {
         let name = Text(model.sourceName(for: contextSourceID)).fontWeight(.semibold)
         guard let bytes = model.serverFreeSpace[contextSourceID]?.availableBytes else { return name }
-        let space = Text(formatBytes(bytes) + " free").fontWeight(.regular).foregroundColor(.secondary)
+        let space = Text(formatBytes(bytes) + " free")
+            .font(.caption)
+            .fontWeight(.regular)
+            .foregroundColor(.secondary)
         return Text("\(name) · \(space)")
     }
 
