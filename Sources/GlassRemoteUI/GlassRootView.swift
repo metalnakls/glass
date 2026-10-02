@@ -522,7 +522,8 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
-        .navigationTitle(navigationTitle)
+        .navigationTitle(model.sourceName(for: contextSourceID))
+        .navigationSubtitle(freeSpaceSubtitle)
         .toolbarTitleDisplayMode(.inlineLarge)
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
@@ -579,14 +580,11 @@ private struct TorrentWorkspaceView: View {
         presentation.rows.first { $0.id == selection }?.sourceID ?? model.selectedSourceID
     }
 
-    private var navigationTitle: Text {
-        let name = Text(model.sourceName(for: contextSourceID)).fontWeight(.semibold)
-        guard let bytes = model.serverFreeSpace[contextSourceID]?.availableBytes else { return name }
-        let space = Text(formatBytes(bytes) + " free")
+    private var freeSpaceSubtitle: Text {
+        guard let bytes = model.serverFreeSpace[contextSourceID]?.availableBytes else { return Text("") }
+        return Text(formatBytes(bytes) + " free")
             .font(.caption)
-            .fontWeight(.regular)
-            .foregroundColor(.secondary)
-        return Text("\(name) · \(space)")
+            .foregroundStyle(.secondary)
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
