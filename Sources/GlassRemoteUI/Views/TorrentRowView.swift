@@ -5,6 +5,7 @@ import UniformTypeIdentifiers
 
 struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
+    var showsExtensions = false
     var sourceName: String?
     var density: TorrentRowDensity = .regular
     var groupIsExpanded: Bool?
@@ -33,6 +34,7 @@ struct TorrentRowView: View, Equatable {
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
         lhs.torrent == rhs.torrent
+            && lhs.showsExtensions == rhs.showsExtensions
             && lhs.sourceName == rhs.sourceName
             && lhs.density == rhs.density
             && lhs.groupIsExpanded == rhs.groupIsExpanded
@@ -93,7 +95,7 @@ struct TorrentRowView: View, Equatable {
 
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
-            Text(torrent.name)
+            Text(displayName(torrent.name))
                 .font(.body)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -120,7 +122,7 @@ struct TorrentRowView: View, Equatable {
     @ViewBuilder
     private var oldNameLabel: some View {
         if let pendingOldName {
-            Text(pendingOldName)
+            Text(displayName(pendingOldName))
                 .font(.callout)
                 .foregroundStyle(.tertiary)
                 .strikethrough()
@@ -233,6 +235,19 @@ struct TorrentRowView: View, Equatable {
 
     private var isFolderLike: Bool {
         URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
+    }
+
+    private func displayName(_ name: String) -> String {
+        guard !showsExtensions, groupIsExpanded == nil, torrent.fileCount.map({ $0 <= 1 }) ?? true else {
+            return name
+        }
+        let fileName = name as NSString
+        let fileExtension = fileName.pathExtension
+        guard !fileExtension.isEmpty,
+              torrent.fileCount == 1 || UTType(filenameExtension: fileExtension) != nil else {
+            return name
+        }
+        return fileName.deletingPathExtension
     }
 }
 
