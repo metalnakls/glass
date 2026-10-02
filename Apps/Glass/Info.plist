@@ -47,7 +47,7 @@
 		</dict>
 	</array>
 	<key>SUFeedURL</key>
-	<string>https://raw.githubusercontent.com/metalnakls/glass-updates/main/appcast.xml</string>
+	<string>https://github.com/metalnakls/glass/releases/latest/download/appcast.xml</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SPARKLE_PUBLIC_ED_KEY)</string>
 	<key>SUEnableAutomaticChecks</key>
