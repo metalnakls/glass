@@ -50,6 +50,7 @@ jobs:
         env:
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
           DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           VERSION="0.1.${GITHUB_RUN_NUMBER}"
           BUILD="${GITHUB_RUN_NUMBER}"
@@ -63,6 +64,8 @@ jobs:
             -derivedDataPath "$DERIVED_DATA" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" \
+            ENABLE_HARDENED_RUNTIME=YES \
             MARKETING_VERSION="$VERSION" \
             CURRENT_PROJECT_VERSION="$BUILD" \
             SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
@@ -141,6 +144,7 @@ jobs:
                 <pubDate>${PUB_DATE}</pubDate>
                 <sparkle:version>${BUILD}</sparkle:version>
                 <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <sparkle:minimumSystemVersion>27.0</sparkle:minimumSystemVersion>
                 <enclosure
                   url="${DOWNLOAD_URL}"
                   sparkle:edSignature="${ED_SIGNATURE}"
