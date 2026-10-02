@@ -111,7 +111,7 @@ private struct GlassCommands: Commands {
         }
 
         CommandMenu("Torrent") {
-            Button(actions?.isDownloadingFilterActive == true ? "Show All Torrents" : "Show Downloading Torrents") {
+            Button(actions?.isDownloadingFilterActive == true ? "Show All Torrents" : "Show Unfinished Torrents") {
                 actions?.toggleDownloadingFilter()
             }
             .keyboardShortcut("d", modifiers: [.command])

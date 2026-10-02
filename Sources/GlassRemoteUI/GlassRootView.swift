@@ -59,16 +59,14 @@ public struct GlassRootView: View {
                     ToolbarItem(placement: .primaryAction) {
                         Toggle(isOn: downloadingFilterBinding) {
                             Label(
-                                isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents",
-                                systemImage: isDownloadingFilterActive
-                                    ? "line.3.horizontal.decrease.circle.fill"
-                                    : "line.3.horizontal.decrease.circle"
+                                isDownloadingFilterActive ? "Show All Torrents" : "Show Unfinished Torrents",
+                                systemImage: "line.3.horizontal.decrease"
                             )
                         }
                         .toggleStyle(.button)
                         .buttonBorderShape(.circle)
                         .labelStyle(.iconOnly)
-                        .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Downloading Torrents")
+                        .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Unfinished Torrents")
                     }
                     .visibilityPriority(.high)
                 }
@@ -184,6 +182,10 @@ public struct GlassRootView: View {
         return model.allTorrentRecords.first { $0.id == selectedTorrentID }
     }
 
+    private var selectedGroup: TorrentNameSequenceGroup? {
+        presentation.rows.first { $0.id == selectedTorrentID }?.selectedGroup
+    }
+
     private var selectedTorrent: TorrentSummary? { selectedRecord?.summary }
 
     private var commandActions: GlassCommandActions {
@@ -194,7 +196,7 @@ public struct GlassRootView: View {
             openMagnet: { activeSheet = .addMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
-            canRemoveSelectedTorrent: selectedRecord != nil && activeSheet == nil && activeAlert == nil,
+            canRemoveSelectedTorrent: (selectedRecord != nil || selectedGroup != nil) && activeSheet == nil && activeAlert == nil,
             removeSelectedTorrent: removeSelectedTorrent
         )
     }
@@ -394,8 +396,13 @@ public struct GlassRootView: View {
     }
 
     private func removeSelectedTorrent(deleteData: Bool) {
-        guard let record = selectedRecord else { return }
-        scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData)
+        if let record = selectedRecord {
+            scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData)
+        } else if let row = presentation.rows.first(where: { $0.id == selectedTorrentID }),
+                  case let .group(records, _, _) = row.kind {
+            selectedTorrentID = nil
+            for record in records { scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData) }
+        }
     }
 
     private func scheduleRemoval(_ torrent: TorrentSummary, sourceID: UUID, deleteData: Bool) {
@@ -515,8 +522,8 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
-        .navigationTitle(model.sourceName(for: contextSourceID))
-        .navigationSubtitle(navigationSubtitle)
+        .navigationTitle(navigationTitle)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -572,15 +579,11 @@ private struct TorrentWorkspaceView: View {
         presentation.rows.first { $0.id == selection }?.sourceID ?? model.selectedSourceID
     }
 
-    private var navigationSubtitle: String {
-        if let freeSpace = model.serverFreeSpace[contextSourceID]?.availableBytes {
-            return "\(formatBytes(freeSpace)) free"
-        }
-        if contextSourceID == model.localSourceID {
-            return "Local downloads on this Mac"
-        }
-        guard let profile = model.profiles.first(where: { $0.id == contextSourceID }) else { return "" }
-        return profile.rpcURL.host(percentEncoded: false) ?? profile.rpcURL.absoluteString
+    private var navigationTitle: Text {
+        let name = Text(model.sourceName(for: contextSourceID)).fontWeight(.semibold)
+        guard let bytes = model.serverFreeSpace[contextSourceID]?.availableBytes else { return name }
+        let space = Text(formatBytes(bytes) + " free").fontWeight(.regular).foregroundColor(.secondary)
+        return Text("\(name) · \(space)")
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
@@ -640,20 +643,10 @@ private struct TorrentListContent: View {
 
     private var visibleRecords: [TorrentRecord] {
         let hiddenKeys = Set(pendingRemovals.map(\.key)).union(committingRemovalKeys)
-        return model.allTorrentRecords.filter { record in
-            let isIncluded: Bool
-            switch model.selectedTorrentGroup {
-            case .all:
-                isIncluded = true
-            case .downloading:
-                isIncluded = record.isDownloading
-            case .completed:
-                isIncluded = record.isCompleted
-            }
-            guard isIncluded else { return false }
-            let key = PendingRemovalKey(sourceID: record.sourceID, hashString: record.hashString)
-            return !hiddenKeys.contains(key)
+        let available = model.allTorrentRecords.filter { record in
+            !hiddenKeys.contains(PendingRemovalKey(sourceID: record.sourceID, hashString: record.hashString))
         }
+        return TorrentLibraryFilter.records(available, group: model.selectedTorrentGroup, pendingRenameNames: pendingRenameNames)
     }
 
     private var pendingRenameNames: [String: String] {

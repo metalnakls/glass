@@ -11,6 +11,28 @@ struct TorrentListStructureInput: Equatable {
 }
 
 @MainActor
+enum TorrentLibraryFilter {
+    static func records(_ records: [TorrentRecord], group: TorrentGroup, pendingRenameNames: [String: String] = [:]) -> [TorrentRecord] {
+        guard group != .all else { return records }
+        // Build complete logical groups before filtering, so a season never loses its siblings.
+        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: pendingRenameNames, expandedGroupIDs: [])
+        var included = Set<String>()
+        for row in rows {
+            let members: [TorrentRecord]
+            switch row.kind {
+            case let .torrent(record, _): members = [record]
+            case let .group(records, _, _): members = records
+            }
+            let matches = group == .downloading
+                ? members.contains { $0.isDownloading || !$0.isCompleted }
+                : members.allSatisfy(\.isCompleted)
+            if matches { included.formUnion(members.map(\.id)) }
+        }
+        return records.filter { included.contains($0.id) }
+    }
+}
+
+@MainActor
 @Observable
 final class TorrentListPresentationModel {
     private(set) var rows: [TorrentListRowPresentation] = []
