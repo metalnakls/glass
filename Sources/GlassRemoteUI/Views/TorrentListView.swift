@@ -44,6 +44,8 @@ struct TorrentListView: View {
                 }
             }
             .listStyle(.inset)
+            .environment(\.defaultMinListRowHeight, 60)
+            .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
@@ -100,8 +102,9 @@ struct TorrentListView: View {
     @ViewBuilder
     private func selectionBackground(for id: String) -> some View {
         if selection == id {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
+                .padding(.horizontal)
         }
     }
 
