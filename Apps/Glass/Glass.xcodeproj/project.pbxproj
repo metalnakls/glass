@@ -15,6 +15,7 @@
 		101000000000000000000009 /* GlassRemoteUI in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000003 /* GlassRemoteUI */; };
 		10100000000000000000000A /* Transmission.icon in Resources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000A /* Transmission.icon */; };
 		10100000000000000000000B /* GlassRemoteServices in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000004 /* GlassRemoteServices */; };
+		10100000000000000000000F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000005 /* Sparkle */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 				101000000000000000000008 /* GlassRemoteCore in Frameworks */,
 				10100000000000000000000B /* GlassRemoteServices in Frameworks */,
 				101000000000000000000009 /* GlassRemoteUI in Frameworks */,
+				10100000000000000000000F /* Sparkle in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -123,6 +125,7 @@
 				10B000000000000000000002 /* GlassRemoteCore */,
 				10B000000000000000000004 /* GlassRemoteServices */,
 				10B000000000000000000003 /* GlassRemoteUI */,
+				10B000000000000000000005 /* Sparkle */,
 			);
 			productName = Glass;
 			productReference = 102000000000000000000009 /* Glass.app */;
@@ -154,6 +157,7 @@
 			mainGroup = 104000000000000000000001;
 			packageReferences = (
 				10B000000000000000000001 /* XCLocalSwiftPackageReference "../.." */,
+				10C000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */,
 			);
 			productRefGroup = 104000000000000000000003 /* Products */;
 			projectDirPath = "";
@@ -470,6 +474,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		10C000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sparkle-project/Sparkle";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.10.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		10B000000000000000000002 /* GlassRemoteCore */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -485,6 +500,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 10B000000000000000000001 /* XCLocalSwiftPackageReference "../.." */;
 			productName = GlassRemoteServices;
+		};
+		10B000000000000000000005 /* Sparkle */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 10C000000000000000000001 /* XCRemoteSwiftPackageReference "Sparkle" */;
+			productName = Sparkle;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
