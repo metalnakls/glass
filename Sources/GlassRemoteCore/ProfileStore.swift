@@ -9,6 +9,8 @@ public protocol ProfileStore: Sendable {
     func saveTorrentCache(_ cache: [CachedTorrentList]) throws
     func loadDownloadDirectoryHistory() throws -> [DownloadDirectoryHistory]
     func saveDownloadDirectoryHistory(_ history: [DownloadDirectoryHistory]) throws
+    func loadTorrentDisplayNames() throws -> [String: TorrentStoredDisplayName]
+    func saveTorrentDisplayNames(_ names: [String: TorrentStoredDisplayName]) throws
 }
 
 public struct FileProfileStore: ProfileStore {
@@ -16,6 +18,7 @@ public struct FileProfileStore: ProfileStore {
     private let preferencesURL: URL
     private let torrentCacheURL: URL
     private let downloadDirectoryHistoryURL: URL
+    private let torrentDisplayNamesURL: URL
     private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
@@ -24,6 +27,7 @@ public struct FileProfileStore: ProfileStore {
         self.preferencesURL = fileURL.deletingLastPathComponent().appendingPathComponent("preferences.json")
         self.torrentCacheURL = fileURL.deletingLastPathComponent().appendingPathComponent("torrent-cache.json")
         self.downloadDirectoryHistoryURL = fileURL.deletingLastPathComponent().appendingPathComponent("download-directories.json")
+        self.torrentDisplayNamesURL = fileURL.deletingLastPathComponent().appendingPathComponent("torrent-display-names.json")
     }
 
     public static func applicationSupportStore(appName: String = "Glass") throws -> FileProfileStore {
@@ -90,5 +94,16 @@ public struct FileProfileStore: ProfileStore {
         let data = try encoder.encode(history)
         try FileManager.default.createDirectory(at: downloadDirectoryHistoryURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: downloadDirectoryHistoryURL, options: .atomic)
+    }
+
+    public func loadTorrentDisplayNames() throws -> [String: TorrentStoredDisplayName] {
+        guard FileManager.default.fileExists(atPath: torrentDisplayNamesURL.path) else { return [:] }
+        return try decoder.decode([String: TorrentStoredDisplayName].self, from: Data(contentsOf: torrentDisplayNamesURL))
+    }
+
+    public func saveTorrentDisplayNames(_ names: [String: TorrentStoredDisplayName]) throws {
+        let data = try encoder.encode(names)
+        try FileManager.default.createDirectory(at: torrentDisplayNamesURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: torrentDisplayNamesURL, options: .atomic)
     }
 }

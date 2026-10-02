@@ -191,7 +191,7 @@ struct AddTorrentBatchView: View {
     private func downloadDirectory(for item: TorrentBatchItemState, in group: TorrentBatchGroup) -> String? {
         guard let base = resolvedBaseDownloadDirectory else { return downloadDirectory }
         if group.isSeasonGroup {
-            return TorrentSeasonStoragePlan.seriesDirectory(base: base, title: resolvedGroupName(for: group))
+            return TorrentSeasonStoragePlan.baseDirectory(base: base, title: resolvedGroupName(for: group))
         }
         guard smartNamesByGroupID[group.id] ?? true,
               let plan = item.seasonStoragePlan(baseDirectory: base) else {
@@ -215,8 +215,9 @@ struct AddTorrentBatchView: View {
             ? (item.suggestion()?.pathRenames ?? [])
             : []
         return TorrentAddNamingPlan(
-            rootName: "Season \(group.seasons[offset])",
-            pathRenames: pathRenames
+            rootName: resolvedGroupName(for: group),
+            pathRenames: pathRenames,
+            displayName: submissionName(for: item, in: group, offset: offset)
         )
     }
 
@@ -258,10 +259,10 @@ struct TorrentSeasonStoragePlan {
     let downloadDirectory: String
     let namingPlan: TorrentAddNamingPlan
 
-    static func seriesDirectory(base: String, title: String) -> String {
+    static func baseDirectory(base: String, title: String) -> String {
         let baseURL = URL(fileURLWithPath: base).standardizedFileURL
-        if baseURL.lastPathComponent == title { return baseURL.path }
-        return baseURL.appendingPathComponent(title).path
+        if baseURL.lastPathComponent == title { return baseURL.deletingLastPathComponent().path }
+        return baseURL.path
     }
 }
 
@@ -450,9 +451,9 @@ final class TorrentBatchItemState {
     func seasonStoragePlan(baseDirectory: String) -> TorrentSeasonStoragePlan? {
         guard let season = smartSeason else { return nil }
         return TorrentSeasonStoragePlan(
-            downloadDirectory: TorrentSeasonStoragePlan.seriesDirectory(base: baseDirectory, title: season.title),
+            downloadDirectory: TorrentSeasonStoragePlan.baseDirectory(base: baseDirectory, title: season.title),
             namingPlan: TorrentAddNamingPlan(
-                rootName: "Season \(season.season)", pathRenames: suggestion()?.pathRenames ?? []
+                rootName: season.title, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName
             )
         )
     }
