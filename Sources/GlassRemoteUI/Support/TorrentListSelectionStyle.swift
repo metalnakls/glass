@@ -15,6 +15,7 @@ struct TorrentListSelectionStyle: NSViewRepresentable {
             while let view = ancestor {
                 if let table = view as? NSTableView {
                     table.selectionHighlightStyle = .none
+                    table.focusRingType = .none
                     return
                 }
                 ancestor = view.superview
