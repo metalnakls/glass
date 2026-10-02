@@ -7,6 +7,81 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("all sources retain separate identities and source-scoped deltas")
+    func allSourcesKeepSeparateRecords() async throws {
+        let first = makeProfile()
+        let second = RemoteProfile(id: UUID(), name: "Second", rpcURL: URL(string: "http://second.test:9091/transmission/rpc")!, username: "")
+        let firstClient = StubRPCClient()
+        let secondClient = StubRPCClient()
+        let factory = StubRPCClientFactory { config in
+            config.profile.id == first.id ? firstClient : secondClient
+        }
+        let model = makeModel(profiles: [first, second], factory: factory)
+        await model.refreshAllSources()
+        let firstRecord = try #require(model.allTorrentRecords.first { $0.sourceID == first.id })
+        let secondRecord = try #require(model.allTorrentRecords.first { $0.sourceID == second.id })
+        #expect(firstRecord.hashString == secondRecord.hashString)
+        #expect(firstRecord.id != secondRecord.id)
+        #expect(model.allTorrentRecords.count == 3)
+
+        await firstClient.setRecentlyActiveUpdate(.delta(changed: [], removedIDs: [1]))
+        await model.refresh(sourceID: first.id)
+        #expect(!model.allTorrentRecords.contains { $0.sourceID == first.id })
+        #expect(model.allTorrentRecords.first { $0.sourceID == second.id } === secondRecord)
+    }
+
+    @Test("source failure preserves its records and other sources keep refreshing")
+    func failedSourcePreservesLibrary() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let factory = StubRPCClientFactory { _ in client }
+        let local = StubLocalTransmissionSession()
+        let model = makeModel(profiles: [profile], factory: factory, localSession: local)
+        await model.refreshAllSources()
+        let record = try #require(model.allTorrentRecords.first { $0.sourceID == profile.id })
+        await client.setFetchTorrentsError(TestError.failed)
+        await model.refreshAllSources()
+        #expect(model.allTorrentRecords.first { $0.sourceID == profile.id } === record)
+        let state = try #require(model.sources.first { $0.id == profile.id })
+        #expect(state.isSessionStale)
+        #expect(state.refreshErrorMessage != nil)
+        #expect(await local.fetchSnapshotCount == 2)
+    }
+
+    @Test("torrent commands use their explicit owner and refresh nonselected sources")
+    func commandsUseExplicitSource() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let record = try #require(model.torrentRecords.first)
+        let client = try #require(factory.clients.first)
+        model.selectedProfileID = model.localSourceID
+        await model.stop(record.summary, sourceID: record.sourceID)
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(await client.stoppedIDs == [record.hashString])
+        #expect(await client.fetchTorrentsCount == 2)
+        #expect(model.selectedSourceID == model.localSourceID)
+    }
+
+    @Test("same-hash inspector selection reloads from the new source")
+    func inspectorUsesSourceIdentity() async throws {
+        let first = makeProfile()
+        let second = RemoteProfile(id: UUID(), name: "Second", rpcURL: URL(string: "http://second.test:9091/transmission/rpc")!, username: "")
+        let firstClient = StubRPCClient()
+        let secondClient = StubRPCClient()
+        let factory = StubRPCClientFactory { config in
+            config.profile.id == first.id ? firstClient : secondClient
+        }
+        let model = makeModel(profiles: [first, second], factory: factory)
+        await model.refreshAllSources()
+        let record = try #require(model.allTorrentRecords.first { $0.sourceID == first.id })
+        await model.loadDetails(for: record.summary, sourceID: first.id)
+        await model.loadDetails(for: record.summary, sourceID: second.id)
+        #expect(await firstClient.fetchTorrentDetailsCount == 1)
+        #expect(await secondClient.fetchTorrentDetailsCount == 1)
+    }
+
     @Test("reuses pooled client per profile")
     func reusesPooledClientPerProfile() async throws {
         let profile = makeProfile()
@@ -580,6 +655,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private(set) var fetchTorrentPeersCount = 0
     private(set) var cancelledTorrentDetailsCount = 0
     private(set) var renamedPaths: [TorrentPathRename] = []
+    private(set) var stoppedIDs: [String] = []
 
     init(fetchDelay: Duration? = nil, detailDelay: Duration? = nil) {
         self.fetchDelay = fetchDelay
@@ -739,7 +815,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
     }
 
     func start(ids: [String]) async throws {}
-    func stop(ids: [String]) async throws {}
+    func stop(ids: [String]) async throws { stoppedIDs.append(contentsOf: ids) }
     func remove(ids: [String], deleteLocalData: Bool) async throws {}
     func verify(ids: [String]) async throws {}
     func reannounce(ids: [String]) async throws {}
