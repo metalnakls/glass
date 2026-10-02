@@ -5,10 +5,12 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${1:-debug}"
 SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-DEVELOPMENT_SIGNING_IDENTITY}"
 INSTALL_DIR="/Applications/Glass.app"
-BACKUP_PREFIX="/Applications/Glass.app.backup-"
+BACKUP_ROOT="$HOME/Library/Application Support/Glass/Build Backups"
+BACKUP_APP="$BACKUP_ROOT/Glass.app"
 SYSTEM_SIGN_IDENTITY="DEVELOPMENT_SIGNING_IDENTITY"
 INSTALL_BACKUP=""
 INSTALL_STARTED=0
+BACKUP_STAGE_DIR=""
 
 case "$CONFIGURATION" in
     debug|release) ;;
@@ -41,13 +43,23 @@ restore_install() {
     fi
 }
 
+cleanup_backup_stage() {
+    if [[ -n "$BACKUP_STAGE_DIR" && -d "$BACKUP_STAGE_DIR" ]]; then
+        rm -rf -- "$BACKUP_STAGE_DIR"
+    fi
+}
+
 on_exit() {
     local status=$?
 
+    trap - EXIT
     if [[ "$status" -ne 0 ]]; then
         restore_install || echo "Could not fully restore $INSTALL_DIR; preserved backup: $INSTALL_BACKUP" >&2
     fi
-    trap - EXIT
+    cleanup_backup_stage || {
+        echo "Could not remove temporary backup staging directory: $BACKUP_STAGE_DIR" >&2
+        status=1
+    }
     exit "$status"
 }
 trap on_exit EXIT
@@ -85,14 +97,29 @@ if [[ -L "$INSTALL_DIR" || ( -e "$INSTALL_DIR" && ! -d "$INSTALL_DIR" ) ]]; then
 fi
 
 if [[ -d "$INSTALL_DIR" ]]; then
-    BACKUP_PATH="${BACKUP_PREFIX}$(date '+%Y%m%d-%H%M%S')"
-    BACKUP_SUFFIX=0
-    while [[ -e "$BACKUP_PATH" ]]; do
-        BACKUP_SUFFIX=$((BACKUP_SUFFIX + 1))
-        BACKUP_PATH="${BACKUP_PREFIX}$(date '+%Y%m%d-%H%M%S')-${BACKUP_SUFFIX}"
-    done
-    ditto "$INSTALL_DIR" "$BACKUP_PATH"
-    INSTALL_BACKUP="$BACKUP_PATH"
+    if [[ -L "$BACKUP_APP" || ( -e "$BACKUP_APP" && ! -d "$BACKUP_APP" ) ]]; then
+        echo "Backup destination exists but is not an app directory: $BACKUP_APP" >&2
+        exit 1
+    fi
+    mkdir -p "$BACKUP_ROOT"
+    BACKUP_STAGE_DIR="$(mktemp -d "$BACKUP_ROOT/.glass-backup.XXXXXX")"
+    ditto "$INSTALL_DIR" "$BACKUP_STAGE_DIR/Glass.app"
+
+    if [[ -d "$BACKUP_APP" ]]; then
+        mv "$BACKUP_APP" "$BACKUP_STAGE_DIR/Previous-Glass.app"
+    fi
+    if ! mv "$BACKUP_STAGE_DIR/Glass.app" "$BACKUP_APP"; then
+        if [[ -d "$BACKUP_STAGE_DIR/Previous-Glass.app" ]]; then
+            if ! mv "$BACKUP_STAGE_DIR/Previous-Glass.app" "$BACKUP_APP"; then
+                echo "Could not restore the prior retained backup; preserved it under $BACKUP_STAGE_DIR" >&2
+                BACKUP_STAGE_DIR=""
+            fi
+        fi
+        echo "Could not update the retained backup at $BACKUP_APP" >&2
+        exit 1
+    fi
+    INSTALL_BACKUP="$BACKUP_APP"
+    echo "Previous installation backed up to $BACKUP_APP"
 fi
 
 INSTALL_STARTED=1
