@@ -108,7 +108,6 @@ struct TorrentListView: View {
         if selection == id {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(nsColor: .unemphasizedSelectedContentBackgroundColor))
-                .padding(.horizontal)
         }
     }
 
