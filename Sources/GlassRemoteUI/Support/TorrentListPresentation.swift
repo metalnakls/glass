@@ -190,7 +190,7 @@ struct TorrentListRowPresentation: Identifiable {
                 guard let record = recordsByHash[torrent.hashString] else { continue }
                 rows.append(TorrentListRowPresentation(
                     id: record.id,
-                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id])
+                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? seasonDisplayName(record.summary))
                 ))
             case let .group(group):
                 let memberRecords = group.torrents.compactMap { recordsByHash[$0.hashString] }
@@ -203,20 +203,7 @@ struct TorrentListRowPresentation: Identifiable {
                 ))
                 if isExpanded {
                     rows.append(contentsOf: memberRecords.map { record in
-                        let displayName: String?
-                        if record.summary.name.range(
-                            of: #"(?i)^season[\s._-]+[1-9]\d?$"#,
-                            options: .regularExpression
-                        ) != nil {
-                            let season = record.summary.name.replacingOccurrences(
-                                of: #"(?i)^season[\s._-]+"#,
-                                with: "",
-                                options: .regularExpression
-                            )
-                            displayName = "\(group.displayName) \(season)"
-                        } else {
-                            displayName = pendingRenameNames[record.id]
-                        }
+                        let displayName = pendingRenameNames[record.id] ?? seasonDisplayName(record.summary)
                         return TorrentListRowPresentation(
                             id: record.id,
                             kind: .torrent(record: record, displayName: displayName)
@@ -226,6 +213,17 @@ struct TorrentListRowPresentation: Identifiable {
             }
         }
         return rows
+    }
+
+    private static func seasonDisplayName(_ torrent: TorrentSummary) -> String? {
+        guard let directory = torrent.downloadDir,
+              torrent.name.range(of: #"(?i)^season[\s._-]+[1-9]\d?$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+        let title = URL(fileURLWithPath: directory).lastPathComponent
+        guard title.count >= 2 else { return nil }
+        let season = torrent.name.replacingOccurrences(of: #"(?i)^season[\s._-]+"#, with: "", options: .regularExpression)
+        return "\(title) \(season)"
     }
 }
 
