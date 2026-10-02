@@ -1,0 +1,443 @@
+import AppKit
+@preconcurrency import AVFoundation
+import MediaToolbox
+import VideoToolbox
+import CryptoKit
+import Darwin
+import Foundation
+import GlassRemoteCore
+import Observation
+@preconcurrency import QuickLookThumbnailing
+
+struct TorrentThumbnailInput: Hashable, Sendable {
+    let sourceID: UUID
+    let hashString: String
+    let downloadDirectory: String
+    let filePath: String
+    let length: UInt64
+    let isComplete: Bool
+    var isLocal = false
+
+    var key: String {
+        let value = "\(sourceID)|\(hashString)|\(downloadDirectory)|\(filePath)|\(length)|72-v1"
+        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    static func movie(_ torrent: TorrentSummary, sourceID: UUID, isLocal: Bool = false) -> Self? {
+        guard torrent.fileCount.map({ $0 <= 1 }) ?? true,
+              let directory = torrent.downloadDir,
+              ["mkv", "mp4", "m4v", "mov", "avi", "webm", "ts", "m2ts", "mpeg", "mpg"].contains(
+                URL(fileURLWithPath: torrent.name).pathExtension.lowercased()
+              ) else { return nil }
+        return Self(sourceID: sourceID, hashString: torrent.hashString, downloadDirectory: directory,
+                    filePath: torrent.name, length: torrent.sizeWhenDone, isComplete: torrent.isCompleted, isLocal: isLocal)
+    }
+}
+
+struct TorrentThumbnailFolderLink: Codable, Sendable, Equatable {
+    let remoteRoot: String
+    let localPath: String
+    let bookmark: Data
+
+    static func fileURL(remoteRoot: String, localRoot: URL, directory: String, filePath: String) -> URL? {
+        guard remoteRoot.hasPrefix("/"), directory.hasPrefix("/"), !filePath.isEmpty else { return nil }
+        let remote = URL(fileURLWithPath: remoteRoot, isDirectory: true).standardizedFileURL.path
+        let folder = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL.path
+        guard folder == remote || folder.hasPrefix(remote == "/" ? "/" : remote + "/"),
+              !filePath.hasPrefix("/"), !filePath.split(separator: "/").contains("..") else { return nil }
+        let suffix = String(folder.dropFirst(remote.count)).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let root = localRoot.standardizedFileURL
+        let url = root.appendingPathComponent(suffix, isDirectory: true).appendingPathComponent(filePath).standardizedFileURL
+        guard url.path.hasPrefix(root.path == "/" ? "/" : root.path + "/") else { return nil }
+        return url
+    }
+}
+
+private struct ThumbnailStamp: Codable, Sendable, Equatable {
+    let size: Int
+    let modified: Date
+    var checked: Date
+}
+
+private struct ThumbnailDiskResult: Sendable {
+    let data: Data
+    let stamp: ThumbnailStamp
+}
+
+@MainActor
+@Observable
+final class TorrentThumbnailService {
+    static let shared = TorrentThumbnailService()
+    private(set) var revision = 0
+    private(set) var links: [String: TorrentThumbnailFolderLink] = [:]
+    @ObservationIgnored private let generationOverride: (@Sendable (URL) async -> Data?)?
+    @ObservationIgnored private let defaults: UserDefaults
+    @ObservationIgnored private let diskDirectory: URL
+    @ObservationIgnored private let images = NSCache<NSString, CachedThumbnail>()
+    @ObservationIgnored private var failures: [String: Date] = [:]
+    @ObservationIgnored private var pending: [String: Work] = [:]
+    @ObservationIgnored private var queue: [String] = []
+    @ObservationIgnored private var writes = 0
+    @ObservationIgnored private var active: String?
+    @ObservationIgnored private var notifications: [NSObjectProtocol] = []
+    @ObservationIgnored private let diskQueue = DispatchQueue(label: "Glass.thumbnail-cache", qos: .utility)
+    // A stuck SMB metadata lookup occupies this one lane instead of the main thread or an expanding task pool.
+    @ObservationIgnored private let fileQueue = DispatchQueue(label: "Glass.thumbnail-file", qos: .utility)
+    private static let defaultsKey = "Glass.ThumbnailFolderLinks"
+    private static let freshness: TimeInterval = 6 * 60 * 60
+
+    private final class CachedThumbnail {
+        let image: NSImage
+        let stamp: ThumbnailStamp
+        init(image: NSImage, stamp: ThumbnailStamp) { self.image = image; self.stamp = stamp }
+    }
+
+    @MainActor private final class Work {
+        let input: TorrentThumbnailInput
+        let fallback: ThumbnailDiskResult?
+        var subscribers: [UUID: CheckedContinuation<NSImage?, Never>] = [:]
+        var video: AVAssetImageGenerator?
+        var videoTask: Task<Void, Never>?
+        var request: QLThumbnailGenerator.Request?
+        var timeout: Task<Void, Never>?
+        init(input: TorrentThumbnailInput, fallback: ThumbnailDiskResult?) {
+            self.input = input; self.fallback = fallback
+        }
+    }
+
+    init(defaults: UserDefaults = .standard, diskDirectory: URL? = nil, generationOverride: (@Sendable (URL) async -> Data?)? = nil) {
+        self.generationOverride = generationOverride
+        self.defaults = defaults
+        self.diskDirectory = diskDirectory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Glass/Thumbnails", isDirectory: true)
+        images.totalCostLimit = 16 * 1024 * 1024
+        images.countLimit = 512
+        if let data = defaults.data(forKey: Self.defaultsKey),
+           let saved = try? JSONDecoder().decode([String: TorrentThumbnailFolderLink].self, from: data) {
+            links = saved
+        }
+        for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
+            notifications.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in
+                    self?.failures.removeAll()
+                    self?.revision &+= 1
+                }
+            })
+        }
+    }
+
+    isolated deinit {
+        for token in notifications { NSWorkspace.shared.notificationCenter.removeObserver(token) }
+    }
+
+    // Enumerating installed media extensions crosses XPC; never register on the main actor.
+    private static let mediaRegistration = Task.detached(priority: .utility) {
+        MTRegisterProfessionalVideoWorkflowFormatReaders()
+        VTRegisterProfessionalVideoWorkflowVideoDecoders()
+    }
+
+    func link(for sourceID: UUID) -> TorrentThumbnailFolderLink? { links[sourceID.uuidString] }
+
+    func updateRemoteRoot(sourceID: UUID, remoteRoot: String) throws {
+        guard remoteRoot.hasPrefix("/"), let previous = link(for: sourceID) else { throw CocoaError(.fileReadInvalidFileName) }
+        var updated = links
+        updated[sourceID.uuidString] = TorrentThumbnailFolderLink(remoteRoot: remoteRoot, localPath: previous.localPath, bookmark: previous.bookmark)
+        defaults.set(try JSONEncoder().encode(updated), forKey: Self.defaultsKey)
+        links = updated
+        images.removeAllObjects()
+        failures.removeAll()
+        cancelAll()
+        revision &+= 1
+    }
+
+    private func cacheKey(_ input: TorrentThumbnailInput) -> String {
+        let link = link(for: input.sourceID)
+        let value = input.key + "|" + (link?.remoteRoot ?? "") + "|" + (link?.localPath ?? "")
+        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    func setLink(sourceID: UUID, remoteRoot: String, localURL: URL?) async throws {
+        var updated = links
+        if let localURL {
+            let root = remoteRoot.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard root.hasPrefix("/") else { throw CocoaError(.fileReadInvalidFileName) }
+            let bookmark = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+                fileQueue.async {
+                    do {
+                        continuation.resume(returning: try localURL.bookmarkData(options: .withSecurityScope, includingResourceValuesForKeys: nil, relativeTo: nil))
+                    } catch { continuation.resume(throwing: error) }
+                }
+            }
+            updated[sourceID.uuidString] = TorrentThumbnailFolderLink(remoteRoot: root, localPath: localURL.path, bookmark: bookmark)
+        } else { updated[sourceID.uuidString] = nil }
+        defaults.set(try JSONEncoder().encode(updated), forKey: Self.defaultsKey)
+        links = updated
+        images.removeAllObjects()
+        failures.removeAll()
+        cancelAll()
+        revision &+= 1
+    }
+
+    func cachedImage(for input: TorrentThumbnailInput) -> NSImage? { images.object(forKey: cacheKey(input) as NSString)?.image }
+
+    func image(for input: TorrentThumbnailInput) async -> NSImage? {
+        let key = cacheKey(input)
+        if let cached = images.object(forKey: key as NSString), Date().timeIntervalSince(cached.stamp.checked) < Self.freshness {
+            return cached.image
+        }
+        let directory = diskDirectory
+        let disk: ThumbnailDiskResult? = await withCheckedContinuation { continuation in
+            diskQueue.async { continuation.resume(returning: Self.readDisk(directory: directory, key: key)) }
+        }
+        guard !Task.isCancelled else { return nil }
+        let fallback = disk.flatMap { cache($0, key: key) }
+        if let disk, Date().timeIntervalSince(disk.stamp.checked) < Self.freshness { return fallback }
+        guard input.isComplete, failures[key].map({ Date().timeIntervalSince($0) < 15 * 60 }) != true else { return fallback }
+        let subscriber = UUID()
+        return await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                guard !Task.isCancelled else { continuation.resume(returning: fallback); return }
+                let work = pending[key] ?? Work(input: input, fallback: disk)
+                work.subscribers[subscriber] = continuation
+                if pending[key] == nil { pending[key] = work; queue.append(key) }
+                pump()
+            }
+        } onCancel: {
+            Task { @MainActor [weak self] in self?.cancel(key: key, subscriber: subscriber) }
+        }
+    }
+
+    func refresh(_ input: TorrentThumbnailInput) async {
+        let key = cacheKey(input)
+        images.removeObject(forKey: key as NSString)
+        failures[key] = nil
+        let directory = diskDirectory
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            diskQueue.async {
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(key + ".png"))
+                try? FileManager.default.removeItem(at: directory.appendingPathComponent(key + ".json"))
+                continuation.resume()
+            }
+        }
+        revision &+= 1
+    }
+
+    private func pump() {
+        guard active == nil else { return }
+        while let key = queue.first {
+            queue.removeFirst()
+            guard let work = pending[key], !work.subscribers.isEmpty else { continue }
+            active = key
+            let link = link(for: work.input.sourceID)
+            let input = work.input
+            fileQueue.async { [weak self] in
+                let resolved = Self.resolve(input: input, link: link)
+                Task { @MainActor in self?.resolved(resolved, key: key) }
+            }
+            return
+        }
+    }
+
+    private struct ResolvedFile: Sendable {
+        let url: URL
+        let scope: URL?
+        let stamp: ThumbnailStamp
+    }
+
+    nonisolated private static func resolve(input: TorrentThumbnailInput, link: TorrentThumbnailFolderLink?) -> ResolvedFile? {
+        var scope: URL?
+        let url: URL
+        if let link {
+            var stale = false
+            guard let root = try? URL(resolvingBookmarkData: link.bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale),
+                  let mapped = TorrentThumbnailFolderLink.fileURL(remoteRoot: link.remoteRoot, localRoot: root, directory: input.downloadDirectory, filePath: input.filePath) else { return nil }
+            if root.startAccessingSecurityScopedResource() { scope = root }
+            url = mapped
+        } else {
+            guard input.isLocal, let mapped = TorrentThumbnailFolderLink.fileURL(remoteRoot: input.downloadDirectory, localRoot: URL(fileURLWithPath: input.downloadDirectory), directory: input.downloadDirectory, filePath: input.filePath) else { return nil }
+            url = mapped
+        }
+        guard isMounted(url) else { scope?.stopAccessingSecurityScopedResource(); return nil }
+        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]),
+              values.isRegularFile == true, let size = values.fileSize, let modified = values.contentModificationDate else {
+            scope?.stopAccessingSecurityScopedResource()
+            return nil
+        }
+        return ResolvedFile(url: url, scope: scope, stamp: ThumbnailStamp(size: size, modified: modified, checked: Date()))
+    }
+
+    nonisolated private static func isMounted(_ url: URL) -> Bool {
+        guard url.path.hasPrefix("/Volumes/") else { return true }
+        var mounts: UnsafeMutablePointer<statfs>?
+        let count = getmntinfo(&mounts, MNT_NOWAIT)
+        guard let mounts else { return false }
+        for index in 0..<Int(count) {
+            var name = mounts[index].f_mntonname
+            let capacity = MemoryLayout.size(ofValue: name)
+            let path = withUnsafePointer(to: &name) { pointer in
+                pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { String(cString: $0) }
+            }
+            if path != "/", url.path == path || url.path.hasPrefix(path + "/") { return true }
+        }
+        return false
+    }
+
+    private func resolved(_ file: ResolvedFile?, key: String) {
+        guard let work = pending[key], active == key else { file?.scope?.stopAccessingSecurityScopedResource(); return }
+        guard !work.subscribers.isEmpty, let file else { file?.scope?.stopAccessingSecurityScopedResource(); finish(key: key, result: work.fallback); return }
+        if let existing = work.fallback, existing.stamp.size == file.stamp.size, existing.stamp.modified == file.stamp.modified {
+            file.scope?.stopAccessingSecurityScopedResource()
+            let refreshed = ThumbnailDiskResult(data: existing.data, stamp: file.stamp)
+            save(refreshed, key: key)
+            finish(key: key, result: refreshed)
+            return
+        }
+        if let generationOverride {
+            work.videoTask = Task { [weak self] in
+                let data = await generationOverride(file.url)
+                file.scope?.stopAccessingSecurityScopedResource()
+                guard let self, self.pending[key] === work else { return }
+                let result = !Task.isCancelled ? data.map { ThumbnailDiskResult(data: $0, stamp: file.stamp) } : nil
+                if let result { self.save(result, key: key) }
+                self.finish(key: key, result: result ?? work.fallback)
+            }
+            return
+        }
+        let request = QLThumbnailGenerator.Request(fileAt: file.url, size: CGSize(width: 36, height: 36), scale: 2, representationTypes: .thumbnail)
+        work.request = request
+        work.timeout = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled, let self, self.pending[key] === work else { return }
+            QLThumbnailGenerator.shared.cancel(request)
+            work.video?.cancelAllCGImageGeneration()
+            work.videoTask?.cancel()
+            // Scope is released by the completion callback, after Quick Look has stopped using it.
+            let fallback = work.fallback.flatMap { self.cache($0, key: key) }
+            for continuation in work.subscribers.values { continuation.resume(returning: fallback) }
+            work.subscribers.removeAll()
+            self.failures[key] = Date()
+            // Retain the lane until the provider acknowledges cancellation.
+        }
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { [weak self] representation, _ in
+            let data = representation.flatMap { NSBitmapImageRep(cgImage: $0.cgImage).representation(using: .png, properties: [:]) }
+            Task { @MainActor in
+                guard let self, self.pending[key] === work else { file.scope?.stopAccessingSecurityScopedResource(); return }
+                if data == nil, !work.subscribers.isEmpty {
+                    self.generateVideo(file: file, work: work, key: key)
+                    return
+                }
+                file.scope?.stopAccessingSecurityScopedResource()
+                if let data {
+                    let result = ThumbnailDiskResult(data: data, stamp: file.stamp)
+                    self.save(result, key: key)
+                    self.finish(key: key, result: result)
+                } else { self.finish(key: key, result: work.fallback) }
+            }
+        }
+    }
+
+    private func generateVideo(file: ResolvedFile, work: Work, key: String) {
+        work.videoTask = Task { [weak self] in
+            defer { file.scope?.stopAccessingSecurityScopedResource() }
+            await Self.mediaRegistration.value
+            do {
+                try Task.checkCancellation()
+                let asset = AVURLAsset(url: file.url)
+                let generator = AVAssetImageGenerator(asset: asset)
+                work.video = generator
+                generator.maximumSize = CGSize(width: 72, height: 72)
+                generator.appliesPreferredTrackTransform = true
+                let duration = try await asset.load(.duration)
+                let seconds = duration.seconds.isFinite ? max(0, min(60, duration.seconds * 0.1)) : 0
+                let frame = try await generator.image(at: CMTime(seconds: seconds, preferredTimescale: 600))
+                try Task.checkCancellation()
+                guard let self, self.pending[key] === work else { return }
+                guard let data = NSBitmapImageRep(cgImage: frame.image).representation(using: .png, properties: [:]) else {
+                    self.finish(key: key, result: work.fallback)
+                    return
+                }
+                let result = ThumbnailDiskResult(data: data, stamp: file.stamp)
+                self.save(result, key: key)
+                self.finish(key: key, result: result)
+            } catch {
+                guard let self, self.pending[key] === work else { return }
+                self.finish(key: key, result: work.fallback)
+            }
+        }
+    }
+
+    private func cache(_ result: ThumbnailDiskResult, key: String) -> NSImage? {
+        guard let image = NSImage(data: result.data) else { return nil }
+        images.setObject(CachedThumbnail(image: image, stamp: result.stamp), forKey: key as NSString, cost: 72 * 72 * 4)
+        return image
+    }
+
+    private func finish(key: String, result: ThumbnailDiskResult?) {
+        guard let work = pending.removeValue(forKey: key) else { return }
+        work.timeout?.cancel()
+        let image = result.flatMap { cache($0, key: key) }
+        if result == nil || result?.stamp == work.fallback?.stamp { failures[key] = Date() }
+        if failures.count > 1024 { failures = Dictionary(uniqueKeysWithValues: failures.sorted { $0.value > $1.value }.prefix(1024).map { ($0.key, $0.value) }) }
+        for continuation in work.subscribers.values { continuation.resume(returning: image) }
+        if active == key { active = nil }
+        pump()
+    }
+
+    private func cancel(key: String, subscriber: UUID) {
+        guard let work = pending[key] else { return }
+        work.subscribers.removeValue(forKey: subscriber)?.resume(returning: nil)
+        guard work.subscribers.isEmpty else { return }
+        work.video?.cancelAllCGImageGeneration()
+        work.videoTask?.cancel()
+        if let request = work.request {
+            QLThumbnailGenerator.shared.cancel(request)
+            work.video?.cancelAllCGImageGeneration()
+            work.videoTask?.cancel()
+            // Keep the active lane until cancellation completes; late callbacks cannot overwrite a replacement request.
+        } else if active != key {
+            pending[key] = nil
+            queue.removeAll { $0 == key }
+        }
+    }
+
+    private func cancelAll() {
+        for (key, work) in pending {
+            for subscriber in Array(work.subscribers.keys) { cancel(key: key, subscriber: subscriber) }
+        }
+    }
+
+    nonisolated private static func readDisk(directory: URL, key: String) -> ThumbnailDiskResult? {
+        guard let stampData = try? Data(contentsOf: directory.appendingPathComponent(key + ".json")),
+              let stamp = try? JSONDecoder().decode(ThumbnailStamp.self, from: stampData),
+              let data = try? Data(contentsOf: directory.appendingPathComponent(key + ".png")) else { return nil }
+        return ThumbnailDiskResult(data: data, stamp: stamp)
+    }
+
+    private func save(_ result: ThumbnailDiskResult, key: String) {
+        let directory = diskDirectory
+        writes += 1
+        let prune = writes == 1 || writes % 16 == 0
+        diskQueue.async {
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try result.data.write(to: directory.appendingPathComponent(key + ".png"), options: .atomic)
+                try JSONEncoder().encode(result.stamp).write(to: directory.appendingPathComponent(key + ".json"), options: .atomic)
+                guard prune else { return }
+                let files = try FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey])
+                    .filter { $0.pathExtension == "png" }
+                    .compactMap { url -> (URL, Int, Date)? in
+                        guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey]) else { return nil }
+                        return (url, values.fileSize ?? 0, values.contentModificationDate ?? .distantPast)
+                    }.sorted { $0.2 > $1.2 }
+                var bytes = 0
+                for (index, file) in files.enumerated() {
+                    bytes += file.1
+                    if index >= 2048 || bytes > 100 * 1024 * 1024 {
+                        try? FileManager.default.removeItem(at: file.0)
+                        try? FileManager.default.removeItem(at: file.0.deletingPathExtension().appendingPathExtension("json"))
+                    }
+                }
+            } catch { /* A cache miss is recoverable; the row retains its generic icon. */ }
+        }
+    }
+}

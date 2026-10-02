@@ -12,6 +12,7 @@ struct TorrentRowView: View, Equatable {
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
+    var thumbnailInput: TorrentThumbnailInput?
     let toggleTransfer: () -> Void
 
     var body: some View {
@@ -40,6 +41,7 @@ struct TorrentRowView: View, Equatable {
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
+            && lhs.thumbnailInput == rhs.thumbnailInput
     }
 
     @ViewBuilder
@@ -64,7 +66,7 @@ struct TorrentRowView: View, Equatable {
         } else if showsActivityIcon {
             activityProgress
         } else {
-            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike)
+            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
                 .frame(width: 36, height: 42, alignment: .center)
         }
     }
@@ -326,17 +328,36 @@ struct TorrentFileIcon: View {
     let fileName: String
     let isFolder: Bool
     var size: CGFloat = 36
+    var thumbnailInput: TorrentThumbnailInput?
+    @State private var thumbnail: NSImage?
+    @State private var isVisible = false
 
     var body: some View {
-        Image(nsImage: nativeIcon)
+        Image(nsImage: thumbnail ?? nativeIcon)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)
+            .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
+            .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
+                guard let input = thumbnailInput, !isFolder else { thumbnail = nil; return }
+                guard isVisible else { return }
+                thumbnail = TorrentThumbnailService.shared.cachedImage(for: input)
+                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
+                let image = await TorrentThumbnailService.shared.image(for: input)
+                guard !Task.isCancelled else { return }
+                thumbnail = image
+            }
     }
 
     private var nativeIcon: NSImage {
         TorrentFileIconCache.icon(fileName: fileName, isFolder: isFolder)
     }
+}
+
+private struct ThumbnailTaskID: Equatable {
+    let input: TorrentThumbnailInput?
+    let visible: Bool
+    let revision: Int
 }
 
 @MainActor

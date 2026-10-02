@@ -18,10 +18,18 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
     }
 
     func chooseLocalDownloadDirectory(startingAt path: String?) async throws -> String? {
+        try await chooseDirectory(startingAt: path, forThumbnails: false)?.path
+    }
+
+    func chooseThumbnailDirectory() async throws -> URL? {
+        try await chooseDirectory(startingAt: nil, forThumbnails: true)
+    }
+
+    private func chooseDirectory(startingAt path: String?, forThumbnails: Bool) async throws -> URL? {
         let panel = NSOpenPanel()
-        panel.title = "Choose Download Folder"
+        panel.title = forThumbnails ? "Link Mounted Download Folder" : "Choose Download Folder"
         panel.prompt = "Choose"
-        panel.message = "Glass will keep access to this folder for local downloads."
+        panel.message = forThumbnails ? "Choose this server’s download folder on a share already mounted on your Mac." : "Glass will keep access to this folder for local downloads."
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
@@ -46,8 +54,8 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
         }
 
         guard response == .OK, let url = panel.url else { return nil }
-        try retainSecurityScopedAccess(to: url)
-        return url.path
+        if !forThumbnails { try retainSecurityScopedAccess(to: url) }
+        return url
     }
 
     func canRevealDownloadedItem(for torrent: TorrentSummary) -> Bool {

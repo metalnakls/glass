@@ -32,7 +32,7 @@ struct GlassApp: App {
         }
 
         Settings {
-            PreferencesView(model: model)
+            PreferencesView(model: model, platformIntegration: platformIntegration)
         }
     }
 

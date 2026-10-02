@@ -19,6 +19,14 @@ struct TorrentInspectorView: View {
     @State private var isLoadingGroupDetails = false
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
+    private func thumbnailInput(for entry: TorrentFileBrowserEntry, details: TorrentDetails) -> TorrentThumbnailInput? {
+        guard let directory = details.downloadDir,
+              ["mkv", "mp4", "m4v", "mov", "avi", "webm", "ts", "m2ts", "mpeg", "mpg"].contains(URL(fileURLWithPath: entry.originalPath).pathExtension.lowercased()) else { return nil }
+        return TorrentThumbnailInput(sourceID: sourceID, hashString: details.hashString,
+            downloadDirectory: directory, filePath: entry.originalPath, length: entry.size,
+            isComplete: entry.completedBytes >= entry.size, isLocal: sourceID == model.localSourceID)
+    }
+
     var body: some View {
         Group {
             if selectedTorrentHash == nil {
@@ -171,7 +179,8 @@ struct TorrentInspectorView: View {
                                 },
                                 onSetAllWanted: { wanted in
                                     setAllFiles(in: details, wanted: wanted)
-                                }
+                                },
+                                thumbnailInput: { thumbnailInput(for: $0, details: details) }
                             )
                         }
                     }
@@ -327,7 +336,8 @@ struct TorrentInspectorView: View {
                                         onSetAllWanted: { wanted in
                                             setAllFiles(in: details, wanted: wanted)
                                         },
-                                        showsControls: false
+                                        showsControls: false,
+                                        thumbnailInput: { thumbnailInput(for: $0, details: details) }
                                     )
                                 }
                             }

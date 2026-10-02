@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ProfileEditorView: View {
     let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
     @Environment(\.dismiss) private var dismiss
 
     @State private var profile: RemoteProfile
@@ -11,9 +12,15 @@ struct ProfileEditorView: View {
     @State private var password: String
     @State private var isTesting = false
     @State private var testResult: Bool?
+    @State private var mountedPath: String?
+    @State private var mountedURL: URL?
+    @State private var serverDownloadFolder: String
+    @State private var linkError: String?
+    @State private var isSaving = false
 
-    init(model: RemoteAppModel, profile: RemoteProfile?) {
+    init(model: RemoteAppModel, platformIntegration: any GlassPlatformIntegrating, profile: RemoteProfile?) {
         self.model = model
+        self.platformIntegration = platformIntegration
         let profile = profile ?? RemoteProfile(
             name: "",
             rpcURL: URL(string: "http://localhost:9091/transmission/rpc")!,
@@ -22,6 +29,9 @@ struct ProfileEditorView: View {
         _profile = State(initialValue: profile)
         _urlText = State(initialValue: profile.rpcURL.absoluteString)
         _password = State(initialValue: model.password(for: profile))
+        let link = TorrentThumbnailService.shared.link(for: profile.id)
+        _mountedPath = State(initialValue: link?.localPath)
+        _serverDownloadFolder = State(initialValue: link?.remoteRoot ?? "")
     }
 
     var body: some View {
@@ -30,6 +40,21 @@ struct ProfileEditorView: View {
             TextField("RPC URL", text: $urlText)
             TextField("User", text: $profile.username)
             SecureField("Password", text: $password)
+
+            Section("File Previews") {
+                if let mountedPath {
+                    LabeledContent("Mounted Folder") {
+                        Text(mountedPath).lineLimit(1).truncationMode(.middle)
+                        Button("Remove") { self.mountedPath = nil; mountedURL = nil }
+                    }
+                    TextField("Server Folder", text: $serverDownloadFolder)
+                        .help("The server path that matches the mounted folder, such as /downloads.")
+                }
+                Button(mountedPath == nil ? "Link Mounted Folder…" : "Choose Another Folder…") {
+                    Task { await chooseMountedFolder() }
+                }
+                if let linkError { Text(linkError).foregroundStyle(.red) }
+            }
 
             if let testResult {
                 Label(
@@ -40,6 +65,7 @@ struct ProfileEditorView: View {
             }
         }
         .formStyle(.grouped)
+        .disabled(isSaving)
         .navigationTitle(profile.name.isEmpty ? "New Server" : profile.name)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
@@ -55,16 +81,16 @@ struct ProfileEditorView: View {
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
-                    save()
-                    dismiss()
+                    Task { await save() }
                 }
-                .disabled(!canSave)
+                .disabled(!canSave || isSaving)
             }
         }
     }
 
     private var canSave: Bool {
         !profile.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && URL(string: urlText) != nil
+            && (mountedPath == nil || serverDownloadFolder.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("/"))
     }
 
     private func updatedProfile() -> RemoteProfile? {
@@ -77,9 +103,35 @@ struct ProfileEditorView: View {
         )
     }
 
-    private func save() {
+    private func chooseMountedFolder() async {
+        do {
+            guard let url = try await platformIntegration.chooseThumbnailDirectory() else { return }
+            mountedURL = url
+            mountedPath = url.path
+            if serverDownloadFolder.isEmpty, model.profiles.contains(where: { $0.id == profile.id }) {
+                serverDownloadFolder = await model.defaultDownloadDirectory(for: profile.id) ?? ""
+            }
+            linkError = nil
+        } catch { linkError = error.localizedDescription }
+    }
+
+    private func save() async {
         guard let profile = updatedProfile() else { return }
+        isSaving = true
+        defer { isSaving = false }
+        do {
+            let service = TorrentThumbnailService.shared
+            let root = serverDownloadFolder.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let mountedURL {
+                try await service.setLink(sourceID: profile.id, remoteRoot: root, localURL: mountedURL)
+            } else if mountedPath == nil, service.link(for: profile.id) != nil {
+                try await service.setLink(sourceID: profile.id, remoteRoot: root, localURL: nil)
+            } else if let previous = service.link(for: profile.id), previous.remoteRoot != root {
+                try service.updateRemoteRoot(sourceID: profile.id, remoteRoot: root)
+            }
+        } catch { linkError = error.localizedDescription; return }
         model.saveProfile(profile, password: password)
+        dismiss()
     }
 
     private func testConnection() async {

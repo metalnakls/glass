@@ -235,6 +235,7 @@ private struct TorrentListLiveRow: View {
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
+            thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             toggleTransfer: toggleTransfers
         )
         .equatable()
@@ -242,6 +243,9 @@ private struct TorrentListLiveRow: View {
         .contextMenu {
             if let record = row.torrentRecord {
                 torrentContextMenu(for: record.summary)
+                if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
+                    Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
+                }
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
