@@ -1,0 +1,161 @@
+name: Release Glass
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: glass-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-26
+
+    env:
+      APP_NAME: Glass
+      PROJECT: Apps/Glass/Glass.xcodeproj
+      SCHEME: Glass
+      DERIVED_DATA: .build/release-derived
+      UPDATE_REPO: metalnakls/glass-updates
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Import Developer ID certificate
+        env:
+          P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          security create-keychain -p "ci" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "ci" "$KEYCHAIN"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "ci" "$KEYCHAIN"
+
+      - name: Build signed app
+        env:
+          SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
+          DEVELOPER_ID_APPLICATION: ${{ secrets.DEVELOPER_ID_APPLICATION }}
+        run: |
+          VERSION="0.1.${GITHUB_RUN_NUMBER}"
+          BUILD="${GITHUB_RUN_NUMBER}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "BUILD=$BUILD" >> "$GITHUB_ENV"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$DEVELOPER_ID_APPLICATION" \
+            MARKETING_VERSION="$VERSION" \
+            CURRENT_PROJECT_VERSION="$BUILD" \
+            SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
+            build
+
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          test -d "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Notarize and staple
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          NOTARY_ZIP="$RUNNER_TEMP/Glass-notary.zip"
+          ditto -c -k --keepParent "$APP" "$NOTARY_ZIP"
+
+          xcrun notarytool submit "$NOTARY_ZIP" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          xcrun stapler staple "$APP"
+          xcrun stapler validate "$APP"
+          spctl --assess --type execute --verbose=2 "$APP"
+
+      - name: Package update
+        run: |
+          mkdir -p dist
+          ZIP="dist/Glass-${VERSION}.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
+          echo "ZIP=$ZIP" >> "$GITHUB_ENV"
+
+      - name: Sign Sparkle update
+        env:
+          SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
+        run: |
+          SIGN_UPDATE="$(find "$DERIVED_DATA/SourcePackages" -type f -name sign_update -perm +111 | head -1)"
+          test -x "$SIGN_UPDATE"
+
+          SIGNATURE_LINE="$(printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$SIGN_UPDATE" "$ZIP" --ed-key-file -)"
+          echo "$SIGNATURE_LINE"
+
+          ED_SIGNATURE="$(printf '%s' "$SIGNATURE_LINE" | sed -n 's/.*sparkle:edSignature="\([^"]*\)".*/\1/p')"
+          LENGTH="$(stat -f%z "$ZIP")"
+          test -n "$ED_SIGNATURE"
+
+          echo "ED_SIGNATURE=$ED_SIGNATURE" >> "$GITHUB_ENV"
+          echo "LENGTH=$LENGTH" >> "$GITHUB_ENV"
+
+      - name: Publish release and appcast
+        env:
+          GH_TOKEN: ${{ secrets.UPDATES_REPO_TOKEN }}
+        run: |
+          TAG="v${VERSION}"
+          ASSET_NAME="$(basename "$ZIP")"
+          DOWNLOAD_URL="https://github.com/$UPDATE_REPO/releases/download/$TAG/$ASSET_NAME"
+          PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S %z')"
+
+          gh release create "$TAG" "$ZIP" \
+            --repo "$UPDATE_REPO" \
+            --title "Glass ${VERSION}" \
+            --generate-notes
+
+          cat > "$RUNNER_TEMP/appcast.xml" <<EOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <rss version="2.0"
+               xmlns:sparkle="http://www.andymatuschak.org/xml-namespaces/sparkle">
+            <channel>
+              <title>Glass Updates</title>
+              <item>
+                <title>Glass ${VERSION}</title>
+                <pubDate>${PUB_DATE}</pubDate>
+                <sparkle:version>${BUILD}</sparkle:version>
+                <sparkle:shortVersionString>${VERSION}</sparkle:shortVersionString>
+                <enclosure
+                  url="${DOWNLOAD_URL}"
+                  sparkle:edSignature="${ED_SIGNATURE}"
+                  length="${LENGTH}"
+                  type="application/octet-stream" />
+              </item>
+            </channel>
+          </rss>
+          EOF
+
+          git clone "https://x-access-token:$GH_TOKEN@github.com/$UPDATE_REPO.git" "$RUNNER_TEMP/updates"
+          cp "$RUNNER_TEMP/appcast.xml" "$RUNNER_TEMP/updates/appcast.xml"
+          cd "$RUNNER_TEMP/updates"
+          git config user.name "glass-release-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add appcast.xml
+          git commit -m "Publish Glass ${VERSION}" || true
+          git push origin HEAD:main
