@@ -240,8 +240,8 @@ private struct TorrentListLiveRow: View {
         .equatable()
         .glassSelectOnSecondaryClick(select)
         .contextMenu {
-            if row.isTorrent {
-                torrentContextMenu(for: summary)
+            if let record = row.torrentRecord {
+                torrentContextMenu(for: record.summary)
             }
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -307,7 +307,7 @@ private struct TorrentListLiveRow: View {
             }
         }
         Button("Rename…") {
-            rename(torrent, row.sourceID)
+            rename(summary, row.sourceID)
         }
 
         if row.sourceID == model.localSourceID {

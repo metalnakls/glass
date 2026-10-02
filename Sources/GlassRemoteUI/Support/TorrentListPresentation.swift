@@ -173,7 +173,7 @@ struct TorrentListRowPresentation: Identifiable {
         expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
         let summaries = records.map { record in
-            pendingRenameNames[record.id].map { record.summary.renamedForPresentation(to: $0) }
+            (pendingRenameNames[record.id] ?? record.displayName).map { record.summary.renamedForPresentation(to: $0) }
                 ?? record.summary
         }
         let topology = TorrentNameSequenceGrouper.items(for: summaries)
@@ -190,7 +190,7 @@ struct TorrentListRowPresentation: Identifiable {
                 guard let record = recordsByHash[torrent.hashString] else { continue }
                 rows.append(TorrentListRowPresentation(
                     id: record.id,
-                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? seasonDisplayName(record.summary))
+                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? record.displayName ?? seasonDisplayName(record.summary))
                 ))
             case let .group(group):
                 let memberRecords = group.torrents.compactMap { recordsByHash[$0.hashString] }
@@ -203,7 +203,7 @@ struct TorrentListRowPresentation: Identifiable {
                 ))
                 if isExpanded {
                     rows.append(contentsOf: memberRecords.map { record in
-                        let displayName = pendingRenameNames[record.id] ?? seasonDisplayName(record.summary)
+                        let displayName = pendingRenameNames[record.id] ?? record.displayName ?? seasonDisplayName(record.summary)
                         return TorrentListRowPresentation(
                             id: record.id,
                             kind: .torrent(record: record, displayName: displayName)

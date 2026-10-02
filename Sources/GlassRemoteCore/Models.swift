@@ -526,10 +526,22 @@ public struct TorrentPathRename: Sendable, Hashable, Identifiable {
 public struct TorrentAddNamingPlan: Sendable, Hashable {
     public let rootName: String
     public let pathRenames: [TorrentPathRename]
+    public let displayName: String?
 
-    public init(rootName: String, pathRenames: [TorrentPathRename]) {
+    public init(rootName: String, pathRenames: [TorrentPathRename], displayName: String? = nil) {
         self.rootName = rootName
         self.pathRenames = pathRenames
+        self.displayName = displayName
+    }
+}
+
+public struct TorrentStoredDisplayName: Sendable, Hashable, Codable {
+    public let rootName: String
+    public let displayName: String
+
+    public init(rootName: String, displayName: String) {
+        self.rootName = rootName
+        self.displayName = displayName
     }
 }
 

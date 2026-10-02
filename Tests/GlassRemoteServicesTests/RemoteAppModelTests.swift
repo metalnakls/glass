@@ -543,6 +543,50 @@ struct RemoteAppModelTests {
             TorrentPathRename(path: "Spider-Noir", name: "Spider Noir")
         ])
     }
+
+    @Test("a flat season root keeps its source-scoped display name across restart without caching")
+    func flatSeasonNameSurvivesRestart() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let profile = makeProfile()
+        let otherProfile = RemoteProfile(name: "Other", rpcURL: URL(string: "http://other.test:9091/transmission/rpc")!, username: "")
+        let store = FileProfileStore(fileURL: directory.appendingPathComponent("profiles.json"))
+        try store.saveProfiles([profile, otherProfile])
+        try store.savePreferences(GlassRemotePreferences(isTorrentCachingEnabled: false))
+        let client = StubRPCClient()
+        let factory = StubRPCClientFactory { _ in client }
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: factory.make(config:))
+        #expect(await model.addTorrentFile(
+            Data([0x05]), torrentName: "Fargo 4", downloadDirectory: "/Volumes/and",
+            namingPlan: TorrentAddNamingPlan(rootName: "Fargo", pathRenames: [], displayName: "Fargo 4")
+        ))
+        await model.refresh()
+        let record = try #require(model.torrentRecords.first)
+        #expect(record.summary.name == "Fargo")
+        #expect(record.displayName == "Fargo 4")
+        #expect(await client.renamedPaths == [TorrentPathRename(path: "Spider-Noir", name: "Fargo")])
+
+        let restored = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: factory.make(config:))
+        await restored.refresh()
+        let restoredRecord = try #require(restored.torrentRecords.first)
+        #expect(restoredRecord.summary.name == "Fargo")
+        #expect(restoredRecord.displayName == "Fargo 4")
+        restored.selectedProfileID = otherProfile.id
+        await restored.refresh()
+        #expect(try #require(restored.torrentRecords.first).displayName == nil)
+        restored.selectedProfileID = profile.id
+        #expect(await restored.rename(restoredRecord.summary, to: "Fargo Four"))
+        #expect(restoredRecord.summary.name == "Fargo")
+        #expect(restoredRecord.displayName == "Fargo Four")
+        #expect(await client.renamedPaths.count == 1)
+        #expect(try store.loadTorrentDisplayNames()[restoredRecord.id]?.displayName == "Fargo Four")
+        try await client.renamePath(id: restoredRecord.hashString, path: "Fargo", name: "External name")
+        await restored.refresh()
+        #expect(restoredRecord.summary.name == "External name")
+        #expect(restoredRecord.displayName == nil)
+        #expect(await restored.remove(restoredRecord.summary, deleteData: false))
+        #expect(try store.loadTorrentDisplayNames().isEmpty)
+    }
 }
 
 @MainActor
@@ -930,6 +974,7 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
     private var torrentCache: [CachedTorrentList] = []
     private var torrentCacheSaveCounter = 0
     private var history: [DownloadDirectoryHistory] = []
+    private var displayNames: [String: TorrentStoredDisplayName] = [:]
 
     init(profiles: [RemoteProfile]) {
         self.profiles = profiles
@@ -978,6 +1023,14 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
         lock.withLock {
             self.history = history
         }
+    }
+
+    func loadTorrentDisplayNames() throws -> [String: TorrentStoredDisplayName] {
+        lock.withLock { displayNames }
+    }
+
+    func saveTorrentDisplayNames(_ names: [String: TorrentStoredDisplayName]) throws {
+        lock.withLock { displayNames = names }
     }
 }
 

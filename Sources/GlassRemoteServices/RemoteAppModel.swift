@@ -31,16 +31,18 @@ public final class TorrentRecord: Identifiable {
     public private(set) var summary: TorrentSummary
     public private(set) var status: Int
     public private(set) var name: String
+    public private(set) var displayName: String?
     public private(set) var isDownloading: Bool
     public private(set) var isCompleted: Bool
 
-    init(_ summary: TorrentSummary, sourceID: UUID) {
+    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil) {
         self.sourceID = sourceID
         id = Self.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
         hashString = summary.hashString
         self.summary = summary
         status = summary.status
         name = summary.name
+        self.displayName = displayName
         isDownloading = summary.isDownloading
         isCompleted = summary.isCompleted
     }
@@ -51,9 +53,10 @@ public final class TorrentRecord: Identifiable {
     }
 
     @discardableResult
-    func apply(_ updatedSummary: TorrentSummary) -> Bool {
-        guard summary != updatedSummary else { return false }
-        let structureChanged = name != updatedSummary.name
+    func apply(_ updatedSummary: TorrentSummary, displayName: String? = nil) -> Bool {
+        guard summary != updatedSummary || self.displayName != displayName else { return false }
+        let structureChanged = name != updatedSummary.name || self.displayName != displayName
+        self.displayName = displayName
         if status != updatedSummary.status {
             status = updatedSummary.status
         }
@@ -139,6 +142,7 @@ public final class RemoteAppModel {
     private let completionNotifier: (any TorrentCompletionNotifying)?
     private let completionPollingInterval: Duration
     @ObservationIgnored private var torrentCache: [UUID: CachedTorrentList] = [:]
+    @ObservationIgnored private var torrentDisplayNames: [String: TorrentStoredDisplayName] = [:]
     @ObservationIgnored private var providersBySourceID: [UUID: any TorrentProvider] = [:]
     @ObservationIgnored private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
     @ObservationIgnored private var refreshRequestedWhileInProgress: Set<UUID> = []
@@ -299,6 +303,7 @@ public final class RemoteAppModel {
         downloadDirectoryHistory[profile.id] = nil
         favoriteDownloadDirectories[profile.id] = nil
         serverFreeSpace[profile.id] = nil
+        pruneTorrentDisplayNames(sourceID: profile.id, keeping: [])
         persistProfiles()
         persistTorrentCache()
         persistDownloadDirectoryHistory()
@@ -378,6 +383,7 @@ public final class RemoteAppModel {
             let mergedTorrents: [TorrentSummary]
             switch snapshot.torrentUpdate {
             case let .full(incoming):
+                pruneTorrentDisplayNames(sourceID: sourceID, keeping: Set(incoming.map { Self.recordIdentity(for: $0, sourceID: sourceID) }))
                 mergedTorrents = TorrentListMerger.merge(existing: state.records.map(\.summary), incoming: incoming)
                 replaceTorrentRecords(with: mergedTorrents, sourceID: sourceID)
             case let .delta(changed, removedIDs):
@@ -510,15 +516,26 @@ public final class RemoteAppModel {
                 }
             }
 
-            guard namingPlan.rootName != result.name else { return }
-            do {
-                try await provider.renamePath(
-                    id: result.hashString,
-                    path: result.name,
-                    name: namingPlan.rootName
-                )
-            } catch {
-                renameWarnings.append("\(result.name): \(error.localizedDescription)")
+            if namingPlan.rootName != result.name {
+                do {
+                    try await provider.renamePath(
+                        id: result.hashString,
+                        path: result.name,
+                        name: namingPlan.rootName
+                    )
+                } catch {
+                    renameWarnings.append("\(result.name): \(error.localizedDescription)")
+                    return
+                }
+            }
+            if let displayName = namingPlan.displayName {
+                let key = TorrentRecord.identity(sourceID: sourceID, hashString: result.hashString)
+                torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: namingPlan.rootName, displayName: displayName)
+                do {
+                    try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
+                } catch {
+                    renameWarnings.append("\(displayName): \(error.localizedDescription)")
+                }
             }
         }
         if didAdd {
@@ -836,6 +853,8 @@ public final class RemoteAppModel {
         }
         if didRemove {
             stopWatching(sourceID: sourceID, hashStrings: Set(ids))
+            let remaining = Set(sourceState(for: sourceID).records.filter { !ids.contains($0.hashString) }.map(\.id))
+            pruneTorrentDisplayNames(sourceID: sourceID, keeping: remaining)
         }
         return didRemove
     }
@@ -963,6 +982,24 @@ public final class RemoteAppModel {
         guard !trimmedName.isEmpty else { return false }
         guard trimmedName != torrent.name else { return true }
 
+        if let record = sourceState(for: sourceID).records.first(where: { $0.hashString == torrent.hashString }),
+           record.displayName != nil {
+            let previous = torrentDisplayNames[record.id]
+            let storedName = TorrentStoredDisplayName(rootName: record.summary.name, displayName: trimmedName)
+            torrentDisplayNames[record.id] = storedName
+            do {
+                try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
+                _ = record.apply(record.summary, displayName: trimmedName)
+                sourceState(for: sourceID).structureRevision &+= 1
+                errorMessage = nil
+                return true
+            } catch {
+                torrentDisplayNames[record.id] = previous
+                errorMessage = error.localizedDescription
+                return false
+            }
+        }
+
         let state = sourceState(for: sourceID)
         state.isLoading = true
         loadingProfileID = sourceID
@@ -1032,6 +1069,12 @@ public final class RemoteAppModel {
             preferences = try profileStore.loadPreferences()
         } catch {
             preferences = GlassRemotePreferences()
+        }
+
+        do {
+            torrentDisplayNames = try profileStore.loadTorrentDisplayNames()
+        } catch {
+            errorMessage = "Glass couldn’t restore saved torrent names: \(error.localizedDescription)"
         }
 
         do {
@@ -1356,11 +1399,11 @@ public final class RemoteAppModel {
         let updatedRecords = summaries.map { summary in
             let identity = Self.recordIdentity(for: summary, sourceID: sourceID)
             if let record = existingByIdentity[identity] {
-                structureChanged = record.apply(summary) || structureChanged
+                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID)) || structureChanged
                 return record
             }
             structureChanged = true
-            return TorrentRecord(summary, sourceID: sourceID)
+            return TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID))
         }
 
         if state.records.map(\.id) != updatedRecords.map(\.id) {
@@ -1380,13 +1423,14 @@ public final class RemoteAppModel {
             uniquingKeysWith: { first, _ in first }
         )
         var structureChanged = records.count != state.records.count
+        if structureChanged { pruneTorrentDisplayNames(sourceID: sourceID, keeping: Set(records.map(\.id))) }
 
         for summary in changed {
             let identity = Self.recordIdentity(for: summary, sourceID: sourceID)
             if let record = recordsByIdentity[identity] {
-                structureChanged = record.apply(summary) || structureChanged
+                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID)) || structureChanged
             } else {
-                let record = TorrentRecord(summary, sourceID: sourceID)
+                let record = TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID))
                 records.append(record)
                 recordsByIdentity[identity] = record
                 structureChanged = true
@@ -1404,6 +1448,24 @@ public final class RemoteAppModel {
 
     private static func recordIdentity(for summary: TorrentSummary, sourceID: UUID) -> String {
         TorrentRecord.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
+    }
+
+    private func storedDisplayName(for summary: TorrentSummary, sourceID: UUID) -> String? {
+        let key = Self.recordIdentity(for: summary, sourceID: sourceID)
+        guard let stored = torrentDisplayNames[key], stored.rootName == summary.name else { return nil }
+        return stored.displayName
+    }
+
+    private func pruneTorrentDisplayNames(sourceID: UUID, keeping identities: Set<String>) {
+        let prefix = "\(sourceID.uuidString):"
+        let removedKeys = torrentDisplayNames.keys.filter { $0.hasPrefix(prefix) && !identities.contains($0) }
+        guard !removedKeys.isEmpty else { return }
+        for key in removedKeys { torrentDisplayNames[key] = nil }
+        do {
+            try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
+        } catch {
+            errorMessage = "Glass couldn’t save torrent names: \(error.localizedDescription)"
+        }
     }
 
     private func scheduleTorrentCachePersistence() {
