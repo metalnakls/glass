@@ -41,7 +41,22 @@ public enum TorrentNameCleaner {
             return descriptor
         }
 
-        let descriptors = input.files.prefix(32).compactMap { seasonDescriptor(in: $0.name) }
+        let rootTitle = cleanRootName(input.rootName)
+        let descriptors = input.files.filter { isMediaFile($0.name) }.compactMap { file in
+            if let descriptor = seasonDescriptor(in: file.name) { return descriptor }
+            let name = URL(fileURLWithPath: file.name).lastPathComponent
+            let range = NSRange(name.startIndex..<name.endIndex, in: name)
+            guard let match = episodeRegex.firstMatch(in: name, range: range),
+                  let seasonText = capture(1, in: match, text: name) ?? capture(3, in: match, text: name),
+                  let season = Int(seasonText), (1...99).contains(season), rootTitle.count >= 2 else {
+                return nil
+            }
+            // A draft already called “Fargo 5” must not become “Fargo 5 5”.
+            let title = rootTitle.replacingOccurrences(
+                of: #"[\s._-]+0?"# + String(season) + "$", with: "", options: .regularExpression
+            )
+            return TorrentSeasonDescriptor(title: title, season: season)
+        }
         guard let first = descriptors.first else { return nil }
         let key = normalizedSeriesKey(first.title)
         guard descriptors.allSatisfy({ $0.season == first.season && normalizedSeriesKey($0.title) == key }) else {
@@ -87,7 +102,7 @@ public enum TorrentNameCleaner {
                 result.append(group)
             } else {
                 result.append(TorrentBatchGroup(
-                    displayName: cleanRootName(inputs[index].rootName),
+                    displayName: smartRootName(inputs[index].rootName, files: inputs[index].files),
                     itemIndices: [index]
                 ))
             }
@@ -101,7 +116,7 @@ public enum TorrentNameCleaner {
         selectedFileIndices: Set<Int>,
         removingTokens: [String] = []
     ) -> TorrentAddNamingPlan? {
-        let cleanedRoot = cleanRootName(rootName, removingTokens: removingTokens)
+        let cleanedRoot = smartRootName(rootName, files: files, removingTokens: removingTokens)
         var renames: [TorrentPathRename] = []
 
         if files.count > 1 {
@@ -160,6 +175,19 @@ public enum TorrentNameCleaner {
 
         let cleaned = releaseTitle(from: url.lastPathComponent, removingTokens: removingTokens)
         return cleaned.isEmpty ? rootName : cleaned
+    }
+
+    private static func smartRootName(
+        _ rootName: String,
+        files: [TorrentFile],
+        removingTokens: [String] = []
+    ) -> String {
+        guard !isMediaFile(rootName),
+              let descriptor = seasonDescriptor(for: TorrentBatchNamingInput(rootName: rootName, files: files)) else {
+            return cleanRootName(rootName, removingTokens: removingTokens)
+        }
+        let title = cleanRootName(descriptor.title, removingTokens: removingTokens)
+        return "\(title) \(descriptor.season)"
     }
 
     private static func seasonDescriptor(in value: String) -> TorrentSeasonDescriptor? {
