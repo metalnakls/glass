@@ -53,6 +53,35 @@ struct TorrentListPresentationTests {
         #expect(secondName == nil)
     }
 
+    @Test("season folders display their series title before and after grouping")
+    func seasonFolderNamesInLibrary() throws {
+        let sourceID = UUID()
+        let seasons = [4, 5].map { season in
+            TorrentRecord(TorrentSummary(
+                id: season, hashString: "fargo-\(season)", name: "Season \(season)",
+                status: TransmissionTorrentStatus.stopped.rawValue, percentDone: 0,
+                rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 100,
+                eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: "/Volumes/and/Fargo"
+            ), sourceID: sourceID)
+        }
+        let loneRows = TorrentListRowPresentation.rows(records: [seasons[0]], pendingRenameNames: [:], expandedGroupIDs: [])
+        guard case let .torrent(_, loneName) = try #require(loneRows.first).kind else {
+            Issue.record("Expected a lone season torrent")
+            return
+        }
+        #expect(loneName == "Fargo 4")
+        let collapsed = TorrentListRowPresentation.rows(records: seasons, pendingRenameNames: [:], expandedGroupIDs: [])
+        let group = try #require(collapsed.first)
+        #expect(collapsed.count == 1)
+        #expect(group.selectedGroup?.displayName == "Fargo")
+        let expanded = TorrentListRowPresentation.rows(records: seasons, pendingRenameNames: [:], expandedGroupIDs: [group.id])
+        let names = expanded.compactMap { row -> String? in
+            guard case let .torrent(_, name) = row.kind else { return nil }
+            return name
+        }
+        #expect(names == ["Fargo 4", "Fargo 5"])
+    }
+
     private func record(_ sourceID: UUID, season: Int) -> TorrentRecord {
         TorrentRecord(TorrentSummary(
             id: season, hashString: "season-\(season)", name: "Example Season \(season)",

@@ -66,6 +66,27 @@ struct TorrentAddPreparationTests {
         #expect(group.selectedGroup?.displayName == "Fargo")
     }
 
+    @Test("separately added seasons share a series directory", arguments: [4, 5])
+    func seasonsShareDirectory(season: Int) throws {
+        let item = makeItem(rootName: "Fargo", files: ["S0\(season)E01.mkv", "S0\(season)E02.mkv"])
+        let plan = try #require(item.seasonStoragePlan(baseDirectory: "/Volumes/and"))
+        #expect(item.name == "Fargo \(season)")
+        #expect(plan.downloadDirectory == "/Volumes/and/Fargo")
+        #expect(plan.namingPlan.rootName == "Season \(season)")
+        let insideSeries = try #require(item.seasonStoragePlan(baseDirectory: "/Volumes/and/Fargo/"))
+        #expect(insideSeries.downloadDirectory == plan.downloadDirectory)
+        #expect(insideSeries.namingPlan == plan.namingPlan)
+    }
+
+    @Test("manual names and mixed seasons keep their chosen root layout")
+    func manualNamesKeepLayout() {
+        let item = makeItem(rootName: "Fargo", files: ["S05E01.mkv", "S05E02.mkv"])
+        item.name = "Custom folder"
+        #expect(item.seasonStoragePlan(baseDirectory: "/Volumes/and") == nil)
+        let mixed = makeItem(rootName: "Fargo", files: ["S04E01.mkv", "S05E01.mkv"])
+        #expect(mixed.seasonStoragePlan(baseDirectory: "/Volumes/and") == nil)
+    }
+
     private func makeItem(
         rootName: String = "Show.Name.S01.1080p",
         files: [String] = ["Show.Name.S01E01.Pilot.1080p.mkv", "Show.Name.S01E02.1080p.mkv"]
