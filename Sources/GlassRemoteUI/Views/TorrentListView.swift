@@ -24,17 +24,7 @@ struct TorrentListView: View {
         ScrollViewReader { scrollProxy in
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
-                    TorrentListLiveRow(
-                        row: row,
-                        model: model,
-                        platformIntegration: platformIntegration,
-                        pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
-                        select: { selection = row.id },
-                        toggleGroupExpansion: { toggleAutoGroup(row) },
-                        rename: rename,
-                        remove: remove,
-                        toggleTransfers: { Task { await toggleTransfers(for: row) } }
-                    )
+                    liveRow(for: row)
                     .background(TorrentListSelectionStyle().frame(width: 0, height: 0))
                     .listRowBackground(selectionBackground(for: row.id))
                     .listRowSeparator(.hidden)
@@ -97,6 +87,20 @@ struct TorrentListView: View {
                 emptyState
             }
         }
+    }
+
+    private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {
+        TorrentListLiveRow(
+            row: row,
+            model: model,
+            platformIntegration: platformIntegration,
+            pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
+            select: { selection = row.id },
+            toggleGroupExpansion: { toggleAutoGroup(row) },
+            rename: rename,
+            remove: remove,
+            toggleTransfers: { Task { await toggleTransfers(for: row) } }
+        )
     }
 
     @ViewBuilder
@@ -240,25 +244,7 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
-        .glassSelectOnSecondaryClick(select)
-        .contextMenu {
-            if let record = row.torrentRecord {
-                torrentContextMenu(for: record.summary)
-                if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
-                    Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
-                }
-            } else {
-                Button(summary.canStopTransfer ? "Pause" : "Resume", action: toggleTransfers)
-                Button("Verify") {
-                    if case let .group(records, _, _) = row.kind {
-                        Task { for record in records { await model.verify(record.summary, sourceID: record.sourceID) } }
-                    }
-                }
-                Divider()
-                Button("Delete Torrent") { removeRow(deleteData: false) }
-                Button("Delete Torrent + Data", role: .destructive) { removeRow(deleteData: true) }
-            }
-        }
+        .glassContextMenu(select: select) { contextMenuContent }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("Delete Torrent + Data", systemImage: "trash.fill", role: .destructive) {
                 removeRow(deleteData: true)
@@ -269,6 +255,26 @@ private struct TorrentListLiveRow: View {
             }
             .labelStyle(.iconOnly)
             .tint(.orange)
+        }
+    }
+
+    @ViewBuilder
+    var contextMenuContent: some View {
+        if let record = row.torrentRecord {
+            torrentContextMenu(for: record.summary)
+            if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
+                Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
+            }
+        } else {
+            Button(summary.canStopTransfer ? "Pause" : "Resume", action: toggleTransfers)
+            Button("Verify") {
+                if case let .group(records, _, _) = row.kind {
+                    Task { for record in records { await model.verify(record.summary, sourceID: record.sourceID) } }
+                }
+            }
+            Divider()
+            Button("Delete Torrent") { removeRow(deleteData: false) }
+            Button("Delete Torrent + Data", role: .destructive) { removeRow(deleteData: true) }
         }
     }
 
