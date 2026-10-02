@@ -340,7 +340,7 @@
 				CODE_SIGN_ENTITLEMENTS = ../../Resources/Glass.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				GLASS_VERSION = 1.0;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -362,7 +362,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lGlassTransmission",
@@ -395,7 +395,7 @@
 				CODE_SIGN_ENTITLEMENTS = ../../Resources/Glass.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				GLASS_VERSION = 1.0;
 				ENABLE_DEBUG_DYLIB = NO;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -417,7 +417,7 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				MARKETING_VERSION = 0.1;
+
 				OTHER_LDFLAGS = (
 					"$(inherited)",
 					"-lGlassTransmission",

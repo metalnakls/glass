@@ -155,6 +155,16 @@ cd "$ROOT_DIR"
 XCODE_CONFIGURATION="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIGURATION:0:1}")${CONFIGURATION:1}"
 DERIVED_DATA="$ROOT_DIR/.build/Xcode"
 
+# Glass uses one version number for CFBundleVersion and CFBundleShortVersionString.
+# Sparkle compares CFBundleVersion, so it must rise for every release. Local builds
+# derive a date-based build so debugging never dirties the tree; releases set
+# GLASS_VERSION explicitly. See AGENTS.md for the bump rule.
+if [ -n "${GLASS_VERSION:-}" ]; then
+    BUILD_VERSION="$GLASS_VERSION"
+else
+    BUILD_VERSION="$(date -u +%Y%m%d%H%M)"
+fi
+
 xcodebuild \
     -project "$ROOT_DIR/Apps/Glass/Glass.xcodeproj" \
     -scheme Glass \
@@ -162,6 +172,7 @@ xcodebuild \
     -derivedDataPath "$DERIVED_DATA" \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
+    GLASS_VERSION="$BUILD_VERSION" \
     build
 
 APP_DIR="$DERIVED_DATA/Build/Products/$XCODE_CONFIGURATION/Glass.app"
