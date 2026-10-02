@@ -128,7 +128,7 @@ struct ModelsTests {
             selectedFileIndices: [0, 1]
         ))
 
-        #expect(plan.rootName == "Show Name")
+        #expect(plan.rootName == "Show Name 2")
         #expect(plan.pathRenames == [
             TorrentPathRename(
                 path: files[0].name,
@@ -173,6 +173,43 @@ struct ModelsTests {
             title: "Loki",
             season: 2
         ))
+    }
+
+    @Test("infers a season from episode-only names without duplicating an existing suffix", arguments: ["Fargo", "Fargo 5"])
+    func infersSeasonFromBareEpisodes(rootName: String) throws {
+        let files = [
+            TorrentFile(name: "S05E01 — The Tragedy of the Commons.mkv", length: 1, bytesCompleted: 0),
+            TorrentFile(name: "S05E22.mkv", length: 1, bytesCompleted: 0),
+            TorrentFile(name: "S04E01.nfo", length: 1, bytesCompleted: 0)
+        ]
+        let input = TorrentBatchNamingInput(rootName: rootName, files: files)
+        #expect(TorrentNameCleaner.seasonDescriptor(for: input) == TorrentSeasonDescriptor(title: "Fargo", season: 5))
+        #expect(TorrentNameCleaner.batchGroups(for: [input]).first?.displayName == "Fargo 5")
+        let plan = TorrentNameCleaner.plan(rootName: rootName, files: files, selectedFileIndices: [0, 1])
+        #expect(plan?.rootName ?? rootName == "Fargo 5")
+    }
+
+    @Test("mixed seasons keep the plain root title even when the conflicting file is late")
+    func rejectsMixedEpisodeSeasons() {
+        var files = (1...40).map {
+            TorrentFile(name: "S05E\($0).mkv", length: 1, bytesCompleted: 0)
+        }
+        files.append(TorrentFile(name: "S04E01.mkv", length: 1, bytesCompleted: 0))
+        let input = TorrentBatchNamingInput(rootName: "Fargo", files: files)
+        #expect(TorrentNameCleaner.seasonDescriptor(for: input) == nil)
+        #expect(TorrentNameCleaner.batchGroups(for: [input]).first?.displayName == "Fargo")
+        #expect(TorrentNameCleaner.plan(rootName: "Fargo", files: files, selectedFileIndices: [0])?.rootName ?? "Fargo" == "Fargo")
+    }
+
+    @Test("a single episode file keeps its episode name")
+    func keepsSingleEpisodeRoot() throws {
+        let name = "Fargo.S05E22.Episode.Title.1080p.mkv"
+        let plan = try #require(TorrentNameCleaner.plan(
+            rootName: name,
+            files: [TorrentFile(name: name, length: 1, bytesCompleted: 0)],
+            selectedFileIndices: [0]
+        ))
+        #expect(plan.rootName == "S05E22 — Episode Title.mkv")
     }
 
     @Test("does not group duplicate seasons or movies with a common prefix")
