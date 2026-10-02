@@ -15,7 +15,7 @@ GLASS_CODESIGN_IDENTITY=DEVELOPMENT_SIGNING_IDENTITY \
   ~/glass/Scripts/build-mac-app.sh debug
 ```
 
-The script builds and signs one app with the required identity, strictly verifies it, then updates the contents of `/Applications/Glass.app` in place with `ditto`. It strictly verifies the installed app and restores the previous contents if installation verification fails. Before updating an existing app, it retains a timestamped backup at `/Applications/Glass.app.backup-YYYYMMDD-HHMMSS` (a numeric suffix is added on collision). A normal build never removes backups. Cleanup is explicit only:
+The script builds and signs one app with the required identity, strictly verifies it, then updates the contents of `/Applications/Glass.app` in place with `ditto`. It strictly verifies the installed app and restores the previous contents if installation verification fails. Before updating an existing app, it retains the previous app at `.app-backups/Glass.app.backup` inside the repository (the directory is gitignored). A normal build never removes backups. Cleanup is explicit only:
 
 ```sh
 ~/glass/Scripts/build-mac-app.sh cleanup-backups

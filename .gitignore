@@ -1,6 +1,7 @@
 .DS_Store
 .codex/
 .build/
+.app-backups/
 .swiftpm/
 DerivedData/
 Apps/Glass/build/

@@ -5,7 +5,7 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIGURATION="${1:-debug}"
 SIGN_IDENTITY="${GLASS_CODESIGN_IDENTITY:-DEVELOPMENT_SIGNING_IDENTITY}"
 INSTALL_DIR="/Applications/Glass.app"
-BACKUP_ROOT="$HOME"
+BACKUP_ROOT="$ROOT_DIR/.app-backups"
 BACKUP_APP="$BACKUP_ROOT/Glass.app.backup"
 SYSTEM_SIGN_IDENTITY="DEVELOPMENT_SIGNING_IDENTITY"
 INSTALL_BACKUP=""
@@ -15,7 +15,10 @@ BACKUP_STAGE_DIR=""
 case "$CONFIGURATION" in
     debug|release) ;;
     cleanup-backups)
-        find /Applications -maxdepth 1 -type d -name 'Glass.app.backup-*' -exec rm -rf -- {} +
+        if [[ -d "$BACKUP_ROOT" ]]; then
+            find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -name 'Glass.app.backup*' -exec rm -rf -- {} +
+            find "$BACKUP_ROOT" -mindepth 1 -maxdepth 1 -name '.glass-backup.*' -exec rm -rf -- {} +
+        fi
         exit 0
         ;;
     *)
