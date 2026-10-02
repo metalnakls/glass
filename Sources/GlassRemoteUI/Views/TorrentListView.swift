@@ -27,7 +27,6 @@ struct TorrentListView: View {
                     liveRow(for: row)
                     .background(TorrentListSelectionStyle().frame(width: 0, height: 0))
                     .listRowBackground(selectionBackground(for: row.id))
-                    .listRowSeparator(.hidden)
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
