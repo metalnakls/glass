@@ -6,10 +6,7 @@ import UniformTypeIdentifiers
 struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
     var showsExtensions = false
-    var sourceName: String?
-    var density: TorrentRowDensity = .regular
     var groupIsExpanded: Bool?
-    var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
     var thumbnailInput: TorrentThumbnailInput?
@@ -17,16 +14,13 @@ struct TorrentRowView: View, Equatable {
 
     var body: some View {
         row
-        .padding(.vertical, 4)
+        .padding(.vertical)
         .contentShape(Rectangle())
     }
 
     private var row: some View {
-        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
-            if density.showsIcon {
-                leadingIcon
-                    .frame(width: 36, height: 42)
-            }
+        HStack(alignment: .center) {
+            leadingIcon
 
             torrentContent
             transferButton
@@ -36,10 +30,7 @@ struct TorrentRowView: View, Equatable {
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
         lhs.torrent == rhs.torrent
             && lhs.showsExtensions == rhs.showsExtensions
-            && lhs.sourceName == rhs.sourceName
-            && lhs.density == rhs.density
             && lhs.groupIsExpanded == rhs.groupIsExpanded
-            && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
             && lhs.thumbnailInput == rhs.thumbnailInput
     }
@@ -53,11 +44,11 @@ struct TorrentRowView: View, Equatable {
                 if groupIsExpanded {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 42)
+                        .frame(width: 36)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    GroupFolderFanIcon(count: groupCount)
-                        .frame(width: 36, height: 42)
+                    TorrentFileIcon(fileName: "", isFolder: true)
+                        .frame(width: 36)
                 }
             }
             .buttonStyle(.plain)
@@ -67,7 +58,6 @@ struct TorrentRowView: View, Equatable {
             activityProgress
         } else {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
-                .frame(width: 36, height: 42, alignment: .center)
         }
     }
 
@@ -77,7 +67,7 @@ struct TorrentRowView: View, Equatable {
         )
         .font(.system(size: 19, weight: .medium))
         .foregroundStyle(.secondary)
-        .frame(width: 36, height: 42, alignment: .center)
+        .frame(width: 36)
     }
 
     private var showsActivityIcon: Bool {
@@ -85,38 +75,30 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var torrentContent: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading) {
             titleLine
-            metadataLine
             ProgressView(value: torrent.percentDone, total: 1)
                 .controlSize(.small)
+                .tint(Color(nsColor: .secondaryLabelColor))
+                .accessibilityLabel("Download progress")
         }
         .foregroundStyle(Color.primary)
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var titleLine: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline) {
             Text(displayName(torrent.name))
                 .font(.body)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(3)
 
-            if density.showsSize {
-                sizeLabel
-            }
-
             oldNameLabel
 
-            Spacer(minLength: 4)
+            Spacer()
 
-            Text(formatPercent(torrent.percentDone))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
+            sizeLabel
         }
         .animation(.easeInOut(duration: 0.2), value: pendingOldName)
     }
@@ -142,97 +124,17 @@ struct TorrentRowView: View, Equatable {
             .fixedSize(horizontal: true, vertical: false)
     }
 
-    private var metadataLine: some View {
-        HStack(spacing: 9) {
-            if let sourceName {
-                Text(sourceName).lineLimit(1)
-            }
-            Text(formatStatus(torrent.status))
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(2)
-
-            if density.showsAllRelevantRates {
-                completeRateLabels
-            } else if density.showsPrimaryRate {
-                primaryRateLabel
-            }
-
-            if density.showsQueuePosition, let queuePosition = torrent.queuePosition {
-                Text("#\(queuePosition + 1)")
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .labelStyle(.titleAndIcon)
-        .monospacedDigit()
-    }
-
-    @ViewBuilder
-    private var completeRateLabels: some View {
-        switch ratePresentation {
-        case .none:
-            EmptyView()
-        case .download:
-            downloadRateLabel
-        case .upload:
-            uploadRateLabel
-        case .downloadAndUpload:
-            HStack(spacing: 9) {
-                downloadRateLabel
-                uploadRateLabel
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var primaryRateLabel: some View {
-        switch ratePresentation {
-        case .none:
-            EmptyView()
-        case .download, .downloadAndUpload:
-            downloadRateLabel
-        case .upload:
-            uploadRateLabel
-        }
-    }
-
-    private var downloadRateLabel: some View {
-        Label(formatRate(torrent.rateDownload), systemImage: "arrow.down")
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-    }
-
-    private var uploadRateLabel: some View {
-        Label(formatRate(torrent.rateUpload), systemImage: "arrow.up")
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
-    }
-
     private var transferButton: some View {
         Button(action: toggleTransfer) {
             Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
-                .font(.system(size: 15, weight: .semibold))
-                .frame(width: 18, height: 18)
+                .imageScale(.medium)
         }
         .buttonStyle(.bordered)
         .buttonBorderShape(.circle)
-        .controlSize(.large)
+        .controlSize(.regular)
         .foregroundStyle(Color.primary)
-        .frame(width: 40, height: 42, alignment: .center)
         .help(torrent.canStopTransfer ? "Pause" : "Resume")
-    }
-
-    private var ratePresentation: RatePresentation {
-        if torrent.canStopTransfer {
-            if torrent.status == TransmissionTorrentStatus.seeding.rawValue || torrent.rateUpload > 0 && torrent.rateDownload == 0 {
-                return .upload
-            }
-            return .downloadAndUpload
-        }
-        return .none
+        .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
     }
 
     private var isFolderLike: Bool {
@@ -250,77 +152,6 @@ struct TorrentRowView: View, Equatable {
             return name
         }
         return fileName.deletingPathExtension
-    }
-}
-
-enum TorrentRowDensity: Equatable {
-    case compact
-    case standard
-    case regular
-
-    init(width: CGFloat) {
-        if width >= 540 {
-            self = .regular
-        } else if width >= 430 {
-            self = .standard
-        } else {
-            self = .compact
-        }
-    }
-
-    var showsIcon: Bool {
-        self != .compact
-    }
-
-    var showsSize: Bool {
-        self != .compact
-    }
-
-    var showsAllRelevantRates: Bool {
-        self == .regular
-    }
-
-    var showsPrimaryRate: Bool {
-        self != .compact
-    }
-
-    var showsQueuePosition: Bool {
-        self == .regular
-    }
-}
-
-private enum RatePresentation {
-    case none
-    case download
-    case upload
-    case downloadAndUpload
-}
-
-private struct GroupFolderFanIcon: View {
-    let count: Int
-
-    var body: some View {
-        ZStack {
-            ForEach(0..<count, id: \.self) { index in
-                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
-                    .rotationEffect(rotation(for: index), anchor: .bottom)
-                    .offset(offset(for: index))
-                    .zIndex(Double(index))
-            }
-        }
-        .accessibilityHidden(true)
-    }
-
-    private func rotation(for index: Int) -> Angle {
-        guard count > 1 else { return .zero }
-        let progress = Double(index) / Double(count - 1)
-        return .degrees(-9 + (18 * progress))
-    }
-
-    private func offset(for index: Int) -> CGSize {
-        guard count > 1 else { return .zero }
-        let progress = CGFloat(index) / CGFloat(count - 1)
-        return CGSize(width: -5 + (10 * progress), height: abs(progress - 0.5) * 2)
     }
 }
 
