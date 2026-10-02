@@ -106,6 +106,54 @@ struct TorrentListPresentationTests {
         #expect(seasons.allSatisfy { $0.summary.name == "Fargo" && $0.summary.downloadDir == "/Volumes/and" })
     }
 
+    @Test("unfinished filter keeps the complete group, including finished siblings")
+    func unfinishedFilterKeepsGroups() throws {
+        let source = UUID()
+        let complete = filterRecord(source, season: 3, complete: true)
+        let stopped = filterRecord(source, season: 4, complete: false)
+        let filtered = TorrentLibraryFilter.records([complete, stopped], group: .downloading)
+        #expect(filtered.map(\.id) == [complete.id, stopped.id])
+        let rows = TorrentListRowPresentation.rows(records: filtered, pendingRenameNames: [:], expandedGroupIDs: [])
+        let group = try #require(rows.first)
+        #expect(rows.count == 1)
+        #expect(group.selectedGroup?.displayName == "Fargo")
+        #expect(group.selectedGroup?.torrents.count == 2)
+        #expect(TorrentLibraryFilter.records([complete, stopped], group: .completed).isEmpty)
+    }
+
+    @Test("finished series disappear without affecting another source's unfinished series")
+    func filterKeepsSourceBoundaries() {
+        let first = UUID()
+        let second = UUID()
+        let done = [3, 4].map { filterRecord(first, season: $0, complete: true) }
+        let unfinished = [filterRecord(second, season: 3, complete: true), filterRecord(second, season: 4, complete: false)]
+        let all = done + unfinished
+        #expect(TorrentLibraryFilter.records(all, group: .downloading).map(\.id) == unfinished.map(\.id))
+        #expect(TorrentLibraryFilter.records(all, group: .completed).map(\.id) == done.map(\.id))
+        #expect(TorrentLibraryFilter.records(all, group: .all).map(\.id) == all.map(\.id))
+    }
+
+    @Test("filter preserves flat-root display aliases and active finished torrents")
+    func filterUsesAliasesAndActiveState() throws {
+        let source = UUID()
+        let first = filterRecord(source, season: 4, complete: true, rawName: "Fargo", displayName: "Fargo 4")
+        let second = filterRecord(source, season: 5, complete: false, rawName: "Fargo", displayName: "Fargo 5")
+        #expect(TorrentLibraryFilter.records([first, second], group: .downloading).count == 2)
+        let active = filterRecord(source, season: 1, complete: true, downloading: true)
+        #expect(TorrentLibraryFilter.records([active], group: .downloading).count == 1)
+        let lone = filterRecord(source, season: 2, complete: false, rawName: "Movie.mkv")
+        #expect(TorrentLibraryFilter.records([lone], group: .downloading).count == 1)
+    }
+
+    private func filterRecord(_ source: UUID, season: Int, complete: Bool, downloading: Bool = false,
+                              rawName: String? = nil, displayName: String? = nil) -> TorrentRecord {
+        TorrentRecord(TorrentSummary(id: season, hashString: "fargo-\(season)", name: rawName ?? "Fargo \(season)",
+            status: downloading ? TransmissionTorrentStatus.downloading.rawValue : TransmissionTorrentStatus.stopped.rawValue,
+            percentDone: complete ? 1 : 0.5, rateDownload: 0, rateUpload: 0,
+            sizeWhenDone: 100, leftUntilDone: complete ? 0 : 50, eta: -1, uploadRatio: 0,
+            peersConnected: nil, downloadDir: "/downloads"), sourceID: source, displayName: displayName)
+    }
+
     private func record(_ sourceID: UUID, season: Int) -> TorrentRecord {
         TorrentRecord(TorrentSummary(
             id: season, hashString: "season-\(season)", name: "Example Season \(season)",
