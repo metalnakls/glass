@@ -41,9 +41,12 @@ struct TorrentDownloadLocationPicker: View {
                     }
                 }
             } label: {
-                Label("\(model.sourceName(for: sourceID)) — \(locationName)", systemImage: "folder")
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    NativeLocationIcon(path: nativeLocationPath, size: 22)
+                    Text("\(model.sourceName(for: sourceID)) — \(locationName)")
+                        .lineLimit(1).truncationMode(.middle)
+                    Image(systemName: "chevron.down").font(.caption)
+                }
             }
             .menuStyle(.borderedButton)
             .disabled(isDisabled || isChoosingFolder)
@@ -133,6 +136,14 @@ struct TorrentDownloadLocationPicker: View {
         Button(path, systemImage: sourceID == id && currentDirectory == path ? "checkmark" : "folder") {
             select(id, directory: path)
         }
+    }
+
+    private var nativeLocationPath: String? {
+        guard let currentDirectory else { return nil }
+        if sourceID == model.localSourceID { return currentDirectory }
+        guard let link = TorrentThumbnailService.shared.link(for: sourceID) else { return nil }
+        return TorrentThumbnailFolderLink.directoryURL(remoteRoot: link.remoteRoot,
+            localRoot: URL(fileURLWithPath: link.localPath, isDirectory: true), directory: currentDirectory)?.path
     }
 
     private var currentDirectory: String? { directory ?? defaultDirectory }

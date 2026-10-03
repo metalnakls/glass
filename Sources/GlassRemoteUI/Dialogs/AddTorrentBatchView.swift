@@ -1,3 +1,4 @@
+import AppKit
 import GlassRemoteCore
 import GlassRemoteServices
 import Observation
@@ -27,6 +28,8 @@ struct AddTorrentBatchView: View {
     @State private var sourceID: UUID
     @State private var downloadDirectory: String?
     @State private var defaultDownloadDirectory: String?
+    @State private var optionHeld = false
+    @State private var disableSmartNamesForAdd = false
     @State private var isAdding = false
     @State private var addErrorMessage: String?
     @State private var lastAddedTorrentHash: String?
@@ -102,7 +105,7 @@ struct AddTorrentBatchView: View {
                     group: group,
                     items: items,
                     groupName: groupNameBinding(for: group),
-                    smartNamesEnabled: smartNamesBinding(for: group),
+                    smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) }, set: { smartNamesByGroupID[group.id] = $0 }),
                     isAdding: isAdding
                 )
                 .id(group.id)
@@ -116,20 +119,19 @@ struct AddTorrentBatchView: View {
             }
         }
         .padding(20)
-        .navigationTitle(drafts.count == 1 ? "Add Torrent" : "Add \(drafts.count) Torrents")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                    .disabled(isAdding)
-            }
-            ToolbarItem(placement: .confirmationAction) {
+        .background(ModifierKeyObserver { optionHeld = $0 })
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
+                Spacer()
                 Button(drafts.count == 1 ? "Add" : "Add All") {
+                    disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
                     Task { await addAll() }
                 }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!canAdd)
+                .keyboardShortcut(.defaultAction).disabled(!canAdd)
             }
+            .controlSize(.large).padding(12)
+            .background(.ultraThinMaterial)
         }
         .frame(width: 540, height: 460)
     }
@@ -189,7 +191,7 @@ struct AddTorrentBatchView: View {
     }
 
     private func downloadDirectory(for item: TorrentBatchItemState, in group: TorrentBatchGroup) -> String? {
-        guard let base = resolvedBaseDownloadDirectory else { return downloadDirectory }
+        guard !disableSmartNamesForAdd, let base = resolvedBaseDownloadDirectory else { return downloadDirectory }
         if group.isSeasonGroup {
             return TorrentSeasonStoragePlan.baseDirectory(base: base, title: resolvedGroupName(for: group))
         }
@@ -205,7 +207,8 @@ struct AddTorrentBatchView: View {
         in group: TorrentBatchGroup,
         offset: Int
     ) -> TorrentAddNamingPlan? {
-        let smartNamesEnabled = smartNamesByGroupID[group.id] ?? true
+        let smartNamesEnabled = !disableSmartNamesForAdd && (smartNamesByGroupID[group.id] ?? true)
+        if disableSmartNamesForAdd { return nil }
         guard group.isSeasonGroup else {
             guard smartNamesEnabled else { return nil }
             return resolvedBaseDownloadDirectory.flatMap { item.seasonStoragePlan(baseDirectory: $0)?.namingPlan }
@@ -226,6 +229,7 @@ struct AddTorrentBatchView: View {
         in group: TorrentBatchGroup,
         offset: Int
     ) -> String {
+        if disableSmartNamesForAdd { return item.draft.preview.name }
         guard group.isSeasonGroup else { return item.normalizedName }
         return "\(resolvedGroupName(for: group)) \(group.seasons[offset])"
     }
@@ -276,18 +280,16 @@ private struct TorrentBatchGroupEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Form {
-                if group.isSeasonGroup {
-                    TextField("Name", text: $groupName)
-                } else if let index = group.itemIndices.first {
-                    TorrentBatchNameField(item: items[index])
-                }
-                Toggle("Smart Rename", isOn: $smartNamesEnabled)
-                    .toggleStyle(.checkbox)
+            if group.isSeasonGroup {
+                TextField("Torrent name", text: $groupName)
+                    .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
+            } else if let index = group.itemIndices.first {
+                TextField("Torrent name", text: Binding(
+                    get: { smartNamesEnabled ? items[index].name : items[index].draft.preview.name },
+                    set: { items[index].name = $0 }
+                ))
+                .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
             }
-            .formStyle(.columns)
-            .fixedSize(horizontal: false, vertical: true)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
@@ -308,16 +310,7 @@ private struct TorrentBatchGroupEditor: View {
             }
         }
         .disabled(isAdding)
-        .onChange(of: smartNamesEnabled) { _, enabled in
-            guard !group.isSeasonGroup else { return }
-            for index in group.itemIndices {
-                if enabled {
-                    items[index].applySmartName()
-                } else {
-                    items[index].restoreOriginalName()
-                }
-            }
-        }
+
     }
 
     private var fileCount: Int {
