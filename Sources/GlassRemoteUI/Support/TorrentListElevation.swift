@@ -81,10 +81,17 @@ final class TorrentListElevationController: NSObject {
         update(animated: false)
     }
 
+    private var tableAttached: ((NSTableView) -> Void)?
+    func observeTable(_ callback: @escaping (NSTableView) -> Void) {
+        tableAttached = callback
+        if let table { callback(table) }
+    }
+
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
         detach()
         self.table = table
+        tableAttached?(table)
         table.floatsGroupRows = false
         table.addSubview(separators, positioned: .below, relativeTo: nil)
         table.addSubview(surface, positioned: .above, relativeTo: separators)

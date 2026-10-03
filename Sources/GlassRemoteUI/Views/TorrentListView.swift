@@ -133,7 +133,10 @@ struct TorrentListView: View {
             }
             }
         }
-        .onAppear { stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16) }
+        .onAppear {
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
+            elevationController.observeTable { stickyHeaders.attach($0) }
+        }
         .onChange(of: presentation.rows.map(\.id)) { _, _ in
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
         }
