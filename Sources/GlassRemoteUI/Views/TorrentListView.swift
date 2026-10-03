@@ -375,13 +375,6 @@ private struct TorrentListLiveRow: View {
                 Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
             }
         } else {
-            Button(summary.canStopTransfer ? "Pause" : "Resume", action: toggleTransfers)
-            Button("Verify") {
-                if case let .group(records, _, _) = row.kind {
-                    Task { for record in records { await model.verify(record.summary, sourceID: record.sourceID) } }
-                }
-            }
-            Divider()
             Button("Delete Torrent") { removeRow(deleteData: false) }
             Button("Delete Torrent + Data", role: .destructive) { removeRow(deleteData: true) }
         }
@@ -428,40 +421,6 @@ private struct TorrentListLiveRow: View {
 
     @ViewBuilder
     private func torrentContextMenu(for torrent: TorrentSummary) -> some View {
-        Button(torrent.canStopTransfer ? "Pause" : "Resume") {
-            Task {
-                if torrent.canStopTransfer {
-                    await model.stop(torrent, sourceID: row.sourceID)
-                } else {
-                    await model.start(torrent, sourceID: row.sourceID)
-                }
-            }
-        }
-        Button("Verify") {
-            Task { await model.verify(torrent, sourceID: row.sourceID) }
-        }
-        Button("Announce") {
-            Task { await model.reannounce(torrent, sourceID: row.sourceID) }
-        }
-        Menu("Priority") {
-            Toggle("High", isOn: priorityBinding(1, for: torrent))
-            Toggle("Normal", isOn: priorityBinding(0, for: torrent))
-            Toggle("Low", isOn: priorityBinding(-1, for: torrent))
-        }
-        Menu("Queue") {
-            Button("Move to Top") {
-                Task { await model.moveInQueue([torrent], direction: .top, sourceID: row.sourceID) }
-            }
-            Button("Move Up") {
-                Task { await model.moveInQueue([torrent], direction: .up, sourceID: row.sourceID) }
-            }
-            Button("Move Down") {
-                Task { await model.moveInQueue([torrent], direction: .down, sourceID: row.sourceID) }
-            }
-            Button("Move to Bottom") {
-                Task { await model.moveInQueue([torrent], direction: .bottom, sourceID: row.sourceID) }
-            }
-        }
         Button("Rename…") {
             rename(summary, row.sourceID)
         }
@@ -504,15 +463,7 @@ private struct TorrentListLiveRow: View {
         }
     }
 
-    private func priorityBinding(_ priority: Int, for torrent: TorrentSummary) -> Binding<Bool> {
-        Binding(
-            get: { torrent.bandwidthPriority == priority },
-            set: { isSelected in
-                guard isSelected else { return }
-                Task { await model.setTorrentPriority(torrent, priority: priority, sourceID: row.sourceID) }
-            }
-        )
-    }
+
 }
 
 extension TorrentSummary {

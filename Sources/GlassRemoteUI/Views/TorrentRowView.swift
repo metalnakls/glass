@@ -98,6 +98,12 @@ struct TorrentRowView: View, Equatable {
                 .truncationMode(.tail)
                 .layoutPriority(3)
 
+            if let priority = torrent.bandwidthPriority, priority != 0 {
+                Image(systemName: priority > 0 ? "star.fill" : "arrow.down.circle.fill")
+                    .font(.caption)
+                    .foregroundStyle(priority > 0 ? Color.primary : Color.secondary)
+                    .help(priority > 0 ? "High priority" : "Low priority")
+            }
             oldNameLabel
 
             Spacer()
