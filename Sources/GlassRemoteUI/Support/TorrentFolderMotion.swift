@@ -47,7 +47,7 @@ final class TorrentFolderMotion {
         overlay.frame = scroll.contentView.frame
         self.groupID = groupID; self.members = Array(members.prefix(3))
         self.expanding = expanding; self.inset = inset
-        poses = Dictionary(uniqueKeysWithValues: ([groupID] + self.members).map { ($0, TorrentIconPose.forIdentity($0)) })
+        poses = Dictionary(uniqueKeysWithValues: ([groupID] + self.members).map { ($0, TorrentIconPose.forRole($0 == groupID ? .fan : .folder)) })
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (slot, id) in self.members.enumerated() {
             let sourceID = expanding ? groupID : id
@@ -58,9 +58,9 @@ final class TorrentFolderMotion {
             layer.contentsGravity = .resizeAspect
             let scale = poses[sourceID]?.scale ?? 1
             if scale > 1 {
-                layer.shadowOpacity = 0.2
-                layer.shadowRadius = 4 * scale
-                layer.shadowOffset = CGSize(width: 0, height: 4 * scale)
+                layer.shadowOpacity = 0.10
+                layer.shadowRadius = 3 * scale
+                layer.shadowOffset = CGSize(width: 0, height: 2 * scale)
             }
             layer.contentsScale = table.window?.backingScaleFactor ?? 2
             layer.position = interrupted[id]?.0 ?? source.center

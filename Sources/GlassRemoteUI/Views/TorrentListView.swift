@@ -247,6 +247,7 @@ struct TorrentListView: View {
     private func liveRow(for row: TorrentListRowPresentation) -> some View {
         TorrentListLiveRow(
             row: row,
+            iconPosition: presentation.rows.firstIndex(where: { $0.id == row.id }) ?? 0,
             isSelected: selection == row.id,
             leftPadding: grid ? 0 : leftPadding,
             rightPadding: grid ? 0 : rightPadding,
@@ -433,6 +434,7 @@ struct TorrentListView: View {
 private struct TorrentListLiveRow: View {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
+    let iconPosition: Int
     let isSelected: Bool
     let leftPadding: CGFloat
     let rightPadding: CGFloat
@@ -463,7 +465,7 @@ private struct TorrentListLiveRow: View {
             folderMotion: folderMotion,
             folderIDs: folderIDs,
             folderID: folderID,
-            iconIdentity: row.id,
+            iconPosition: iconPosition,
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,

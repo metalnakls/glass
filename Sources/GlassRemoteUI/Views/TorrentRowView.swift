@@ -11,10 +11,11 @@ struct TorrentRowView: View, Equatable {
     var folderMotion: TorrentFolderMotion?
     var folderIDs: [String] = []
     var folderID: String?
-    var iconIdentity: String?
+    var iconPosition = 0
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
+    @AppearanceStorage("GlassList.funMode") private var funMode = false
     @AppearanceStorage("GlassList.stateGap") private var stateGap = 8.0
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
     @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
@@ -35,12 +36,13 @@ struct TorrentRowView: View, Equatable {
         Group {
             if grid {
                 VStack(spacing: 10) {
-                    leadingIcon.modifier(TorrentIconPersonality(id: iconIdentity ?? torrent.hashString, enabled: groupIsExpanded != true, grid: true)).scaleEffect(1.7).frame(height: 76)
+                    leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true, grid: true)).scaleEffect(1.7).frame(height: 76)
                     Text(displayName(torrent.name)).font(.body).lineLimit(2).multilineTextAlignment(.center)
                     HStack { sizeLabel; Spacer(); transferButton }
                 }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
             } else { row }
         }
+        .background(TorrentArtworkOverflow(enabled: funMode && !grid, order: iconPosition))
         .contentShape(Rectangle())
         .onChange(of: torrent.canStopTransfer) { _, running in
             if pendingRunning == running { pendingRunning = nil; commandTask?.cancel() }
@@ -51,10 +53,17 @@ struct TorrentRowView: View, Equatable {
         .onDisappear { commandTask?.cancel(); pendingRunning = nil }
     }
 
+    private var iconRole: TorrentIconRole {
+        if groupIsExpanded != nil { return .fan }
+        if isFolderLike { return .folder }
+        return thumbnailInput == nil ? .document : .artwork
+    }
+
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                leadingIcon.modifier(TorrentIconPersonality(id: iconIdentity ?? torrent.hashString, enabled: groupIsExpanded != true)).padding(.trailing, 12)
+                leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true))
+                    .padding(.trailing, 12)
             }
 
             torrentContent
@@ -69,8 +78,8 @@ struct TorrentRowView: View, Equatable {
             && lhs.density == rhs.density
             && lhs.grid == rhs.grid
             && lhs.folderIDs == rhs.folderIDs
+            && lhs.iconPosition == rhs.iconPosition
             && lhs.folderID == rhs.folderID
-            && lhs.iconIdentity == rhs.iconIdentity
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
@@ -373,13 +382,13 @@ struct TorrentFileIcon: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
-                .shadow(color: .black.opacity(funMode ? 0.2 : 0), radius: 4, y: 4)
+                .shadow(color: .black.opacity(funMode ? 0.10 : 0), radius: 3, y: 2)
         } else {
         Image(nsImage: thumbnail ?? nativeIcon)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)
-            .shadow(color: (coloredShadows && thumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.22 : 0), radius: 6, y: 5)
+            .shadow(color: (coloredShadows && thumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
             .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
             .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
                 if sampleArtwork {
