@@ -7,9 +7,13 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var inheritedColorScheme
+    @State private var nativeColorScheme: ColorScheme?
+    private var colorScheme: ColorScheme { nativeColorScheme ?? inheritedColorScheme }
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
+    @AppStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
+    @AppStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
     @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
@@ -27,7 +31,8 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
     @AppStorage("GlassList.progressFilled") private var progressFilled = false
-    @AppStorage("GlassList.headerFadeStrength") private var headerFadeStrength = 0.75
+    @AppStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
+    @AppStorage("GlassList.headerFadeStrengthDark") private var headerFadeStrengthDark = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
     @AppStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
     @AppStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
@@ -36,6 +41,12 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
+    private func highlightColor(dark: Bool) -> Binding<Color> {
+        Binding(get: { Color(nsColor: HeaderFadeColor.decode(dark ? highlightColorDark : highlightColorLight)) }, set: {
+            let hex = HeaderFadeColor.encode(NSColor($0))
+            if dark { highlightColorDark = hex } else { highlightColorLight = hex }
+        })
+    }
     private var headerColor: Binding<Color> {
         Binding(get: { Color(nsColor: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight)) }, set: {
             let hex = HeaderFadeColor.encode(NSColor($0))
@@ -53,6 +64,8 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
+                ColorPicker("Highlight · light", selection: highlightColor(dark: false), supportsOpacity: false)
+                ColorPicker("Highlight · dark", selection: highlightColor(dark: true), supportsOpacity: false)
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
@@ -69,7 +82,8 @@ public struct SelectionAppearanceView: View {
                 Divider()
                 Text("Sticky Headers").font(.subheadline.weight(.semibold))
                 ColorPicker("Fade colour", selection: headerColor, supportsOpacity: false)
-                shadowSlider("Fade strength", value: $headerFadeStrength, range: 0...1, percent: true)
+                shadowSlider("Fade strength · light", value: $headerFadeStrengthLight, range: 0...1, percent: true)
+                shadowSlider("Fade strength · dark", value: $headerFadeStrengthDark, range: 0...1, percent: true)
                 shadowSlider("Fade reach below title", value: $headerFadeReach, range: 0...240)
                 durationSlider("Background fade in", value: $headerBackgroundIn)
                 durationSlider("Background fade out", value: $headerBackgroundOut)
@@ -98,7 +112,8 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
                 Button("Reset") {
-                    headerFadeStrength = 0.75; headerFadeReach = 48
+                    highlightColorLight = "FFFFFF"; highlightColorDark = "1F1F1F"
+                    headerFadeStrengthLight = 0.75; headerFadeStrengthDark = 0.75; headerFadeReach = 48
                     headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
                     headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 0
                     headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
@@ -118,6 +133,7 @@ public struct SelectionAppearanceView: View {
             }
             .padding(16)
         }
+        .background(LiveAppearance(colorScheme: $nativeColorScheme))
         .frame(width: 320, height: 640)
     }
 

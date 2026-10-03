@@ -34,7 +34,8 @@ struct TorrentListView: View {
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var stickyHeaders = TorrentStickyHeaders()
-    @AppStorage("GlassList.headerFadeStrength") private var headerFadeStrength = 0.75
+    @AppStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
+    @AppStorage("GlassList.headerFadeStrengthDark") private var headerFadeStrengthDark = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
     @AppStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
     @AppStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
@@ -44,7 +45,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerAppearance: TorrentHeaderAppearance {
-        TorrentHeaderAppearance(strength: headerFadeStrength, reach: headerFadeReach,
+        TorrentHeaderAppearance(strength: colorScheme == .dark ? headerFadeStrengthDark : headerFadeStrengthLight, reach: headerFadeReach,
             backgroundIn: headerBackgroundIn, backgroundOut: headerBackgroundOut,
             titleIn: headerTitleIn, titleOut: headerTitleOut, pushLead: headerPushLead,
             color: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight))
@@ -54,6 +55,8 @@ struct TorrentListView: View {
     @State private var swipingRowID: String?
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
+    @AppStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
+    @AppStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
     @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
@@ -67,9 +70,11 @@ struct TorrentListView: View {
     @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     private var shadowSettings: TorrentShadowSettings {
-        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: selectedHDRWhite, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, increasedContrast: colorContrast == .increased)
+        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: selectedHDRWhite, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, highlightColor: HeaderFadeColor.decode(colorScheme == .dark ? highlightColorDark : highlightColorLight), increasedContrast: colorContrast == .increased)
     }
-    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorScheme) private var inheritedColorScheme
+    @State private var nativeColorScheme: ColorScheme?
+    private var colorScheme: ColorScheme { nativeColorScheme ?? inheritedColorScheme }
     @Environment(\.colorSchemeContrast) private var colorContrast
 
     private var listSurface: Color {
@@ -153,6 +158,7 @@ struct TorrentListView: View {
             }
             }
         }
+        .background(LiveAppearance(colorScheme: $nativeColorScheme))
         .onAppear {
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16)
             elevationController.observeTable { stickyHeaders.attach($0) }
