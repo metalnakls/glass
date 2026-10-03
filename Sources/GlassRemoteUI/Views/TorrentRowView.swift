@@ -101,6 +101,7 @@ struct TorrentRowView: View, Equatable {
         } else if let folderID, let folderMotion {
             TorrentFileIcon(fileName: "", isFolder: true)
                 .matchedGeometryEffect(id: folderID, in: folderMotion)
+                .transition(.identity)
                 .frame(width: 36, height: 42)
         } else {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
@@ -312,9 +313,7 @@ private struct GroupFolderFanIcon: View {
     var body: some View {
         ZStack {
             ForEach(0..<count, id: \.self) { index in
-                fanIcon(index)
-                    .rotationEffect(rotation(for: index), anchor: .bottom)
-                    .offset(offset(for: index))
+                matchedFanIcon(index)
                     .zIndex(Double(index))
             }
         }
@@ -322,11 +321,18 @@ private struct GroupFolderFanIcon: View {
     }
 
     @ViewBuilder
-    private func fanIcon(_ index: Int) -> some View {
+    private func matchedFanIcon(_ index: Int) -> some View {
         if let namespace, ids.indices.contains(index) {
-            TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+            fanIcon(index)
                 .matchedGeometryEffect(id: ids[index], in: namespace)
-        } else { TorrentFileIcon(fileName: "", isFolder: true, size: 27) }
+                .transition(.identity)
+        } else { fanIcon(index) }
+    }
+
+    private func fanIcon(_ index: Int) -> some View {
+        TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+            .rotationEffect(rotation(for: index), anchor: .bottom)
+            .offset(offset(for: index))
     }
 
     private func rotation(for index: Int) -> Angle {

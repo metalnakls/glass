@@ -142,7 +142,7 @@ final class TorrentListPresentationModel {
         reduceMotion: Bool
     ) {
         if animated, !reduceMotion {
-            withAnimation(.spring(duration: 0.32, bounce: 0.12)) {
+            withAnimation(.smooth(duration: 0.26, extraBounce: 0)) {
                 rows = updatedRows
             }
         } else {
