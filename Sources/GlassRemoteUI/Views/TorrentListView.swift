@@ -384,6 +384,9 @@ private struct TorrentListLiveRow: View {
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
+            shareUnavailable: TorrentThumbnailService.shared.isShareUnavailable(
+                sourceID: row.sourceID, directory: summary.downloadDir, isLocal: row.sourceID == model.localSourceID
+            ),
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             toggleTransfer: toggleTransfers
         )

@@ -74,6 +74,7 @@ final class TorrentThumbnailService {
     static let shared = TorrentThumbnailService()
     private(set) var revision = 0
     private(set) var links: [String: TorrentThumbnailFolderLink] = [:]
+    private var mountedPaths = TorrentThumbnailService.mountedVolumePaths()
     @ObservationIgnored private let generationOverride: (@Sendable (URL) async -> Data?)?
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let diskDirectory: URL
@@ -123,6 +124,7 @@ final class TorrentThumbnailService {
         for name in [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification] {
             notifications.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 Task { @MainActor in
+                    self?.mountedPaths = Self.mountedVolumePaths()
                     self?.failures.removeAll()
                     self?.revision &+= 1
                 }
@@ -141,6 +143,19 @@ final class TorrentThumbnailService {
     }
 
     func link(for sourceID: UUID) -> TorrentThumbnailFolderLink? { links[sourceID.uuidString] }
+
+    func isShareUnavailable(sourceID: UUID, directory: String?, isLocal: Bool) -> Bool {
+        let path: String
+        if isLocal {
+            guard let directory else { return false }
+            path = directory
+        } else {
+            guard let link = link(for: sourceID) else { return false }
+            path = link.localPath
+        }
+        guard path.hasPrefix("/Volumes/") else { return false }
+        return !mountedPaths.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
 
     /// Resolve bookmarks and check mounted files on the existing background file lane.
     func openDownloadLocation(sourceID: UUID, directory: String, itemPath: String, isLocal: Bool) async throws {
@@ -315,18 +330,21 @@ final class TorrentThumbnailService {
 
     nonisolated private static func isMounted(_ url: URL) -> Bool {
         guard url.path.hasPrefix("/Volumes/") else { return true }
+        return mountedVolumePaths().contains { url.path == $0 || url.path.hasPrefix($0 + "/") }
+    }
+
+    nonisolated private static func mountedVolumePaths() -> [String] {
         var mounts: UnsafeMutablePointer<statfs>?
         let count = getmntinfo(&mounts, MNT_NOWAIT)
-        guard let mounts else { return false }
-        for index in 0..<Int(count) {
+        guard let mounts else { return [] }
+        return (0..<Int(count)).compactMap { index in
             var name = mounts[index].f_mntonname
             let capacity = MemoryLayout.size(ofValue: name)
             let path = withUnsafePointer(to: &name) { pointer in
                 pointer.withMemoryRebound(to: CChar.self, capacity: capacity) { String(cString: $0) }
             }
-            if path != "/", url.path == path || url.path.hasPrefix(path + "/") { return true }
+            return path == "/" ? nil : path
         }
-        return false
     }
 
     private func resolved(_ file: ResolvedFile?, key: String) {

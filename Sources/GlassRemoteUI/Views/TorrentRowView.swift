@@ -11,6 +11,7 @@ struct TorrentRowView: View, Equatable {
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
+    var shareUnavailable = false
     var thumbnailInput: TorrentThumbnailInput?
     let toggleTransfer: () -> Void
 
@@ -39,6 +40,7 @@ struct TorrentRowView: View, Equatable {
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
+            && lhs.shareUnavailable == rhs.shareUnavailable
             && lhs.thumbnailInput == rhs.thumbnailInput
     }
 
@@ -141,7 +143,7 @@ struct TorrentRowView: View, Equatable {
                 .allowsHitTesting(false)
 
             Button(action: toggleTransfer) {
-                Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
+                Image(systemName: stateSymbol)
                     .font(.system(size: 13, weight: .semibold))
                     .frame(width: 18, height: 18)
             }
@@ -149,8 +151,9 @@ struct TorrentRowView: View, Equatable {
             .buttonBorderShape(.circle)
             .controlSize(.regular)
             .foregroundStyle(Color.primary)
-            .help(torrent.canStopTransfer ? "Pause" : "Resume")
-            .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
+            .disabled(shareUnavailable || torrent.isCompleted)
+            .help(stateLabel)
+            .accessibilityLabel(stateLabel)
             .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
         .frame(width: 36, height: 36)
@@ -159,6 +162,18 @@ struct TorrentRowView: View, Equatable {
 
     private var progress: Double {
         torrent.percentDone.isFinite ? min(max(torrent.percentDone, 0), 1) : 0
+    }
+
+    private var stateSymbol: String {
+        if shareUnavailable { return "questionmark" }
+        if torrent.isCompleted { return "checkmark" }
+        return torrent.canStopTransfer ? "pause.fill" : "play.fill"
+    }
+
+    private var stateLabel: String {
+        if shareUnavailable { return "Download share unavailable" }
+        if torrent.isCompleted { return "Finished" }
+        return torrent.canStopTransfer ? "Pause" : "Resume"
     }
 
     private var isFolderLike: Bool {
