@@ -7,14 +7,13 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
-    @Environment(\.colorScheme) private var inheritedColorScheme
-    @State private var nativeColorScheme: ColorScheme?
-    private var colorScheme: ColorScheme { nativeColorScheme ?? inheritedColorScheme }
+    @Environment(\.colorScheme) private var colorScheme
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
     @AppearanceStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
     @AppearanceStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
-    @AppearanceStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
+    @AppearanceStorage("GlassList.selectedHDRWhiteLight") private var selectedHDRWhiteLight = UserDefaults.standard.object(forKey: "GlassList.selectedHDRWhite") as? Double ?? 0.0
+    @AppearanceStorage("GlassList.selectedHDRWhiteDark") private var selectedHDRWhiteDark = 0.0
     @AppearanceStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
     @AppearanceStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
     @AppearanceStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
@@ -47,16 +46,10 @@ public struct SelectionAppearanceView: View {
             if dark { highlightColorDark = hex } else { highlightColorLight = hex }
         })
     }
-    private var headerColor: Binding<Color> {
-        Binding(get: { Color(nsColor: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight)) }, set: {
+    private func headerColor(dark: Bool) -> Binding<Color> {
+        Binding(get: { Color(nsColor: HeaderFadeColor.decode(dark ? headerFadeColorDark : headerFadeColorLight)) }, set: {
             let hex = HeaderFadeColor.encode(NSColor($0))
-            if colorScheme == .dark { headerFadeColorDark = hex } else { headerFadeColorLight = hex }
-        })
-    }
-
-    private var columnBrightness: Binding<Double> {
-        Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
-            if colorScheme == .dark { columnDarkBrightness = $0 } else { columnLightBrightness = $0 }
+            if dark { headerFadeColorDark = hex } else { headerFadeColorLight = hex }
         })
     }
 
@@ -69,19 +62,16 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
-                HStack {
-                    Text("HDR white")
-                    Spacer()
-                    Text(selectedHDRWhite, format: .number.precision(.fractionLength(2)))
-                        .monospacedDigit().foregroundStyle(.secondary)
-                }.font(.caption)
-                Slider(value: $selectedHDRWhite, in: 0...3).accessibilityLabel("HDR white")
+                hdrSlider("HDR intensity · light", value: $selectedHDRWhiteLight)
+                hdrSlider("HDR intensity · dark", value: $selectedHDRWhiteDark)
                 shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
                 shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
-                shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
+                shadowSlider("Column brightness · light", value: $columnLightBrightness, range: 0...1, percent: true)
+                shadowSlider("Column brightness · dark", value: $columnDarkBrightness, range: 0...1, percent: true)
                 Divider()
                 Text("Sticky Headers").font(.subheadline.weight(.semibold))
-                ColorPicker("Fade colour", selection: headerColor, supportsOpacity: false)
+                ColorPicker("Fade colour · light", selection: headerColor(dark: false), supportsOpacity: false)
+                ColorPicker("Fade colour · dark", selection: headerColor(dark: true), supportsOpacity: false)
                 shadowSlider("Fade strength · light", value: $headerFadeStrengthLight, range: 0...1, percent: true)
                 shadowSlider("Fade strength · dark", value: $headerFadeStrengthDark, range: 0...1, percent: true)
                 shadowSlider("Fade reach below title", value: $headerFadeReach, range: 0...240)
@@ -122,7 +112,7 @@ public struct SelectionAppearanceView: View {
                     itemVerticalPadding = 0
                     selectionEaseIn = 0.25
                     selectionEaseOut = 0.30
-                    selectedHDRWhite = 0
+                    selectedHDRWhiteLight = 0; selectedHDRWhiteDark = 0
                     selectedHDRSoftness = 0
                     selectedHDRSpread = 0
                     if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
@@ -133,8 +123,18 @@ public struct SelectionAppearanceView: View {
             }
             .padding(16)
         }
-        .background(LiveAppearance(colorScheme: $nativeColorScheme))
         .frame(width: 320, height: 640)
+    }
+
+    private func hdrSlider(_ title: String, value: Binding<Double>) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(value.wrappedValue, format: .number.precision(.fractionLength(2))).monospacedDigit().foregroundStyle(.secondary)
+            }.font(.caption)
+            Slider(value: value, in: 0...3).accessibilityLabel(title)
+        }
     }
 
     private func durationSlider(_ title: String, value: Binding<Double>) -> some View {

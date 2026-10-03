@@ -14,7 +14,8 @@ struct TorrentShadowSettings: Equatable {
     var hdrSoftness = 0.0
     var hdrSpread = 0.0
     var isDark = false
-    var highlightColor = NSColor.white
+    var highlightColorLight = "FFFFFF"
+    var highlightColorDark = "1F1F1F"
     var increasedContrast = false
 }
 
@@ -294,8 +295,10 @@ private struct SelectionSurfaceContent: View {
     let settings: TorrentShadowSettings
     let motion: Int
     @State private var entranceBlur = 12.0
+    @Environment(\.colorScheme) private var colorScheme
+    private var highlightColor: NSColor { HeaderFadeColor.decode(colorScheme == .dark ? settings.highlightColorDark : settings.highlightColorLight) }
     private var white: Color {
-        let rgb = settings.highlightColor.usingColorSpace(.sRGB) ?? .white
+        let rgb = highlightColor.usingColorSpace(.sRGB) ?? .white
         func linear(_ value: CGFloat) -> Double {
             let value = Double(value)
             return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
@@ -309,7 +312,7 @@ private struct SelectionSurfaceContent: View {
     }
     var body: some View {
         RoundedRectangle(cornerRadius: 12, style: .circular)
-            .fill(Color(nsColor: settings.highlightColor))
+            .fill(Color(nsColor: highlightColor))
             .overlay {
                 if settings.hdrWhite > 0 {
                     RoundedRectangle(cornerRadius: 12, style: .circular)
@@ -323,7 +326,7 @@ private struct SelectionSurfaceContent: View {
             .overlay {
                 if settings.increasedContrast {
                     RoundedRectangle(cornerRadius: 12, style: .circular)
-                        .strokeBorder(settings.isDark ? .white.opacity(0.45) : .black.opacity(0.35), lineWidth: 1)
+                        .strokeBorder(colorScheme == .dark ? .white.opacity(0.45) : .black.opacity(0.35), lineWidth: 1)
                 }
             }
             .blur(radius: entranceBlur)
