@@ -15,6 +15,7 @@ struct TorrentFilesBrowser: View {
     var stagesChanges = false
     var onApplyWanted: (([Int: Bool]) -> Void)?
     var onSmartRename: (() -> Void)?
+    @AppStorage("GlassList.showExtensions") private var showsExtensions = false
     @State private var collapsed = Set<String>()
     var editSession: TorrentFileEditSession?
     var editID = ""
@@ -33,6 +34,9 @@ struct TorrentFilesBrowser: View {
 
     private var rows: [TorrentFileTreeRow] {
         TorrentFileTreeRow.rows(entries: entries, collapsed: collapsed, query: searchText)
+    }
+    private var hiddenExtension: String? {
+        showsExtensions ? nil : TorrentExtensionPolicy.hiddenExtension(paths: entries.map(\.originalPath))
     }
     private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { pendingWanted[entry.index] ?? entry.isWanted }
 
@@ -81,23 +85,23 @@ struct TorrentFilesBrowser: View {
                                 }
                                 .buttonStyle(.plain)
                             }
-                            Text(row.name)
-                                .font(.system(size: 12, weight: row.isFolder ? .medium : .regular))
-                                .lineLimit(1).truncationMode(.middle)
-                                .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-                            VStack(alignment: .trailing, spacing: 1) {
-                                Text(formatBytes(row.size)).font(.system(size: 10)).monospacedDigit()
-                                HStack(spacing: 3) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension))
+                                    .font(.system(size: 12, weight: row.isFolder ? .medium : .regular))
+                                    .lineLimit(1).truncationMode(.middle)
+                                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+                                HStack(spacing: 4) {
+                                    Spacer(minLength: 0)
                                     if let priority = row.entry?.priority, priority != 0 {
                                         Image(systemName: priority > 0 ? "star.fill" : "arrow.down")
                                     }
                                     Image(systemName: statusSymbol(row, byIndex: byIndex))
+                                    Text(formatBytes(row.size)).monospacedDigit()
                                 }
-                                .font(.system(size: 9)).foregroundStyle(.secondary)
+                                .font(.system(size: 10)).foregroundStyle(.secondary)
                             }
-                            .foregroundStyle(.secondary)
                         }
-                        .frame(minHeight: 29)
+                        .frame(minHeight: 38)
                         .padding(.horizontal, 3)
                         .background(selection.isDisjoint(with: row.indices) ? Color.clear : Color.primary.opacity(0.07), in: RoundedRectangle(cornerRadius: 4))
                         .contentShape(Rectangle())

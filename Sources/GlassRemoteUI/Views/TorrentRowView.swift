@@ -228,16 +228,8 @@ struct TorrentRowView: View, Equatable {
     }
 
     private func displayName(_ name: String) -> String {
-        guard !showsExtensions, groupIsExpanded == nil, torrent.fileCount.map({ $0 <= 1 }) ?? true else {
-            return name
-        }
-        let fileName = name as NSString
-        let fileExtension = fileName.pathExtension
-        guard !fileExtension.isEmpty,
-              torrent.fileCount == 1 || UTType(filenameExtension: fileExtension) != nil else {
-            return name
-        }
-        return fileName.deletingPathExtension
+        guard !showsExtensions, groupIsExpanded == nil, torrent.fileCount.map({ $0 <= 1 }) ?? true else { return name }
+        return TorrentExtensionPolicy.name(name, hiding: TorrentExtensionPolicy.hiddenExtension(paths: [name]))
     }
 }
 

@@ -342,7 +342,6 @@ private struct TorrentBatchGroupEditor: View {
         let renamedFiles = Dictionary(
             uniqueKeysWithValues: (suggestion?.pathRenames ?? []).map { ($0.path, $0.name) }
         )
-        let query = fileSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         return item.draft.preview.files.enumerated().map { index, file in
             TorrentFileBrowserEntry(
                 index: index,
@@ -352,9 +351,6 @@ private struct TorrentBatchGroupEditor: View {
                 isWanted: item.selectedFileIndices.contains(index),
                 priority: item.filePriorities[index] ?? 0
             )
-        }.filter {
-            query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query)
-                || $0.originalPath.localizedCaseInsensitiveContains(query)
         }
     }
 
