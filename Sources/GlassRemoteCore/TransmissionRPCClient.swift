@@ -128,7 +128,7 @@ public actor TransmissionRPCClient {
         let fields = [
             "id", "hashString", "name", "status", "percentDone", "metadataPercentComplete", "rateDownload", "rateUpload",
             "sizeWhenDone", "leftUntilDone", "eta", "uploadRatio", "peersConnected", "downloadDir",
-            "bandwidthPriority", "queuePosition", "file-count", "addedDate"
+            "bandwidthPriority", "queuePosition", "file-count", "addedDate", "error", "errorString"
         ]
 
         let envelope: RPCEnvelope<TorrentGetArgs> = try await request(method: "torrent-get", arguments: [
@@ -141,7 +141,7 @@ public actor TransmissionRPCClient {
         let fields = [
             "id", "hashString", "name", "status", "percentDone", "metadataPercentComplete", "rateDownload", "rateUpload",
             "sizeWhenDone", "leftUntilDone", "eta", "uploadRatio", "peersConnected", "downloadDir",
-            "bandwidthPriority", "queuePosition", "file-count", "addedDate"
+            "bandwidthPriority", "queuePosition", "file-count", "addedDate", "error", "errorString"
         ]
 
         let envelope: RPCEnvelope<TorrentGetArgs> = try await request(method: "torrent-get", arguments: [

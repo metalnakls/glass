@@ -306,7 +306,9 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
             downloadDir: dictionary.string("downloadDir"),
             bandwidthPriority: dictionary.optionalInt("bandwidthPriority"),
             queuePosition: dictionary.optionalInt("queuePosition"),
-            fileCount: dictionary.optionalInt("fileCount")
+            fileCount: dictionary.optionalInt("fileCount"),
+            error: dictionary.optionalInt("error"),
+            errorString: dictionary.string("errorString")
         )
     }
 

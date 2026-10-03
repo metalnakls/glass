@@ -142,6 +142,25 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
 
+            stateControl
+                .help(stateLabel)
+                .accessibilityLabel(stateLabel)
+                .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
+        }
+        .frame(width: 36, height: 36)
+        .padding(2)
+    }
+
+    @ViewBuilder
+    private var stateControl: some View {
+        if shareUnavailable || torrent.isCompleted {
+            Image(systemName: stateSymbol)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Color.primary)
+                .frame(width: 30, height: 30)
+                .background(Color(nsColor: .controlBackgroundColor), in: Circle())
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
+        } else {
             Button(action: toggleTransfer) {
                 Image(systemName: stateSymbol)
                     .font(.system(size: 13, weight: .semibold))
@@ -151,13 +170,7 @@ struct TorrentRowView: View, Equatable {
             .buttonBorderShape(.circle)
             .controlSize(.regular)
             .foregroundStyle(Color.primary)
-            .disabled(shareUnavailable || torrent.isCompleted)
-            .help(stateLabel)
-            .accessibilityLabel(stateLabel)
-            .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .frame(width: 36, height: 36)
-        .padding(2)
     }
 
     private var progress: Double {
@@ -171,7 +184,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateLabel: String {
-        if shareUnavailable { return "Download share unavailable" }
+        if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
         if torrent.isCompleted { return "Finished" }
         return torrent.canStopTransfer ? "Pause" : "Resume"
     }

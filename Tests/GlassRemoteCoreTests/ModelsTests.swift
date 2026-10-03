@@ -4,6 +4,25 @@ import Testing
 
 @Suite("Core models")
 struct ModelsTests {
+    @Test("storage errors survive RPC decoding and old cached summaries remain readable")
+    func storageErrorCoding() throws {
+        let encoded = try JSONEncoder().encode(makeTorrent())
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["error"] = 3
+        object["errorString"] = "No data found!"
+        let unavailable = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(unavailable.hasStorageError)
+        #expect(unavailable.errorString == "No data found!")
+        object["error"] = 2
+        let tracker = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(!tracker.hasStorageError)
+        object.removeValue(forKey: "error")
+        object.removeValue(forKey: "errorString")
+        let legacy = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(!legacy.hasStorageError)
+        #expect(legacy.errorString == nil)
+    }
+
     @Test("date added survives summary coding and older caches remain readable")
     func dateAddedCoding() throws {
         let encoded = try JSONEncoder().encode(makeTorrent())

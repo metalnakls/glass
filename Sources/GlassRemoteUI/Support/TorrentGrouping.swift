@@ -24,7 +24,8 @@ struct TorrentNameSequenceGroup: Identifiable {
         let size = torrents.reduce(UInt64(0)) { $0 + $1.sizeWhenDone }
         let left = torrents.reduce(UInt64(0)) { $0 + $1.leftUntilDone }
         let downloaded = size >= left ? size - left : 0
-        let percentDone = size > 0
+        let allCompleted = !torrents.isEmpty && torrents.allSatisfy(\.isCompleted)
+        let percentDone = allCompleted ? 1 : size > 0
             ? min(1, max(0, Double(downloaded) / Double(size)))
             : (torrents.isEmpty ? 0 : torrents.reduce(0) { $0 + $1.percentDone } / Double(torrents.count))
         let activeTorrents = torrents.filter(\.isActive)
@@ -47,7 +48,9 @@ struct TorrentNameSequenceGroup: Identifiable {
             downloadDir: nil,
             bandwidthPriority: nil,
             queuePosition: nil,
-            fileCount: torrents.compactMap(\.fileCount).reduce(0, +)
+            fileCount: torrents.compactMap(\.fileCount).reduce(0, +),
+            error: torrents.first(where: \.hasStorageError)?.error,
+            errorString: torrents.first(where: \.hasStorageError)?.errorString
         )
     }
 }

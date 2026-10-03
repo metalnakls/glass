@@ -314,9 +314,7 @@ private struct TorrentListLiveRow: View {
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
-            shareUnavailable: TorrentThumbnailService.shared.isShareUnavailable(
-                sourceID: row.sourceID, directory: summary.downloadDir, isLocal: row.sourceID == model.localSourceID
-            ),
+            shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             toggleTransfer: toggleTransfers
         )
@@ -376,6 +374,20 @@ private struct TorrentListLiveRow: View {
                 displayName: displayName,
                 torrents: records.map(\.summary)
             ).summary
+        }
+    }
+
+    private var shareUnavailable: Bool {
+        let records: [TorrentRecord]
+        switch row.kind {
+        case let .torrent(record, _): records = [record]
+        case let .group(members, _, _): records = members
+        }
+        return records.contains { record in
+            record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
+                sourceID: record.sourceID, directory: record.summary.downloadDir,
+                isLocal: record.sourceID == model.localSourceID
+            )
         }
     }
 
@@ -488,7 +500,9 @@ extension TorrentSummary {
             bandwidthPriority: bandwidthPriority,
             queuePosition: queuePosition,
             fileCount: fileCount,
-            addedDate: addedDate
+            addedDate: addedDate,
+            error: error,
+            errorString: errorString
         )
     }
 }

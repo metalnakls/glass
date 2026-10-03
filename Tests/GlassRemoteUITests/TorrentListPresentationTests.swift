@@ -7,6 +7,23 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
+    @Test("group completion follows member completion even with rounded engine progress")
+    func groupCompletionAndStorageErrors() {
+        func torrent(_ id: Int, progress: Double, error: Int? = nil) -> TorrentSummary {
+            TorrentSummary(id: id, hashString: "member-\(id)", name: "Season \(id)", status: 0,
+                percentDone: progress, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: 1, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: "/downloads",
+                error: error, errorString: error == 3 ? "No data found!" : nil)
+        }
+        let finished = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1), torrent(2, progress: 1)])
+        #expect(finished.summary.isCompleted)
+        let mixed = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1), torrent(2, progress: 0.99)])
+        #expect(!mixed.summary.isCompleted)
+        let unavailable = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1), torrent(2, progress: 1, error: 3)])
+        #expect(unavailable.summary.hasStorageError)
+        #expect(unavailable.summary.errorString == "No data found!")
+    }
+
     @Test("same torrents on two sources form independent groups")
     func groupsKeepTheirSource() throws {
         let first = UUID()
