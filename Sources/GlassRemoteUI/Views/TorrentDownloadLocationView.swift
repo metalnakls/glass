@@ -32,6 +32,8 @@ struct TorrentDownloadLocationView: View {
     let sourceID: UUID
     let isLocal: Bool
     let localName: String
+    var serverName = ""
+    var availableBytes: UInt64?
     let platformIntegration: any GlassPlatformIntegrating
     @State private var errorMessage: String?
     @State private var isOpening = false
@@ -45,7 +47,7 @@ struct TorrentDownloadLocationView: View {
                     isOpening = true
                     defer { isOpening = false }
                     do {
-                        if !isLocal && location.directoryURL == nil {
+                        if !isLocal && (location.directoryURL == nil || NSEvent.modifierFlags.contains(.command)) {
                             guard let folder = try await platformIntegration.chooseThumbnailDirectory() else { return }
                             try await TorrentThumbnailService.shared.setLink(sourceID: sourceID, remoteRoot: directory, localURL: folder)
                         }
@@ -56,17 +58,16 @@ struct TorrentDownloadLocationView: View {
                 }
             } label: {
                 HStack(spacing: 9) {
-                    Image(systemName: isLocal ? "desktopcomputer" : "externaldrive.connected.to.line.below")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(location.sourceName).font(.callout.weight(.medium))
-                        Text(location.folderName).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    NativeLocationIcon(path: isLocal ? "/System/Library/CoreServices/CoreTypes.bundle/Contents/Resources/SidebarComputer.icns" : link?.localPath)
+                    Text(location.directoryURL == nil ? "… / \(serverName)" : isLocal ? localName : "\(location.sourceName) / \(serverName)")
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1).truncationMode(.middle)
                     Spacer(minLength: 4)
-                    Image(systemName: "arrow.up.forward").font(.caption).foregroundStyle(.tertiary)
+                    if let availableBytes {
+                        Text(formatBytes(availableBytes) + " free")
+                            .font(.caption).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: true, vertical: false)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())

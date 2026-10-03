@@ -175,6 +175,8 @@ private struct TorrentInspectorContent: View {
             sourceID: sourceID,
             isLocal: sourceID == model.localSourceID,
             localName: model.localSourceName,
+            serverName: model.sourceName(for: sourceID),
+            availableBytes: model.serverFreeSpace[sourceID]?.availableBytes,
             platformIntegration: platformIntegration
         )
     }
