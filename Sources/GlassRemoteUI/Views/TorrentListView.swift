@@ -28,6 +28,7 @@ struct TorrentListView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
+    @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
@@ -62,6 +63,24 @@ struct TorrentListView: View {
 
     var body: some View {
         ScrollViewReader { scrollProxy in
+            Group {
+            if grid {
+                ScrollView {
+                    LazyVStack(spacing: 12, pinnedViews: .sectionHeaders) {
+                        ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
+                            Section {
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
+                                    ForEach(section.rows) { row in
+                                        liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
+                                    }
+                                }
+                            } header: {
+                                Text(section.title).font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).background(listSurface)
+                            }
+                        }
+                    }.padding(.horizontal, sidePadding + 16)
+                }.background(listSurface)
+            } else {
             List(selection: $selection) {
                 ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
                     Section {
@@ -104,6 +123,8 @@ struct TorrentListView: View {
             }
             .frame(maxWidth: .infinity, alignment: .center)
             .background(listSurface)
+            }
+            }
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
@@ -180,7 +201,8 @@ struct TorrentListView: View {
         TorrentListLiveRow(
             row: row,
             isSelected: selection == row.id,
-            sidePadding: sidePadding,
+            sidePadding: grid ? 0 : sidePadding,
+            grid: grid,
             rowHeight: densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60,
             elevationController: elevationController,
             density: density,
@@ -322,6 +344,7 @@ private struct TorrentListLiveRow: View {
     let row: TorrentListRowPresentation
     let isSelected: Bool
     let sidePadding: CGFloat
+    let grid: Bool
     let rowHeight: CGFloat
     let elevationController: TorrentListElevationController
     let density: TorrentRowDensity
@@ -341,6 +364,7 @@ private struct TorrentListLiveRow: View {
             torrent: summary,
             showsExtensions: showExtensions,
             density: density,
+            grid: grid,
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
@@ -350,16 +374,17 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
-        .frame(minHeight: rowHeight)
+        .frame(minHeight: grid ? 164 : rowHeight)
         .background {
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
-            TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: density.showsIcon ? 62 : 14)
+            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: density.showsIcon ? 62 : 14)
                 .padding(.horizontal, -14)
-                .padding(.vertical, 3)
+                .padding(.vertical, 3) }
         }
         .glassContextMenu(select: select) { contextMenuContent }
-        .padding(.horizontal, sidePadding + 16)
+        .padding(.horizontal, grid ? 0 : sidePadding + 16)
+        .background { if grid && isSelected { RoundedRectangle(cornerRadius: 16).fill(Color(nsColor: .controlBackgroundColor)).shadow(color: .black.opacity(0.15), radius: 8, y: 4) } }
         }
     }
 

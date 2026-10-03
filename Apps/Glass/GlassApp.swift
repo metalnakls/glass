@@ -81,6 +81,7 @@ struct GlassApp: App {
 private struct GlassCommands: Commands {
     let updaterController: SPUStandardUpdaterController?
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
+    @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var density = 1
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
@@ -95,6 +96,9 @@ private struct GlassCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
+            Button("Icon View") { grid = true }.keyboardShortcut("1", modifiers: .command)
+            Button("List View") { grid = false }.keyboardShortcut("2", modifiers: .command)
+            Divider()
             Button("Make Smaller") { density = max(0, density - 1) }.keyboardShortcut("-", modifiers: .command)
             Button("Make Larger") { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
             Divider()

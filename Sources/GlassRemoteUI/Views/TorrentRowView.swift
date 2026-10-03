@@ -7,6 +7,8 @@ struct TorrentRowView: View, Equatable {
     let torrent: TorrentSummary
     var showsExtensions = false
     var density: TorrentRowDensity = .regular
+    var grid = false
+    @State private var clickRevision = 0
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
@@ -18,7 +20,15 @@ struct TorrentRowView: View, Equatable {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        row
+        Group {
+            if grid {
+                VStack(spacing: 10) {
+                    leadingIcon.scaleEffect(1.7).frame(height: 76)
+                    Text(displayName(torrent.name)).font(.body).lineLimit(2).multilineTextAlignment(.center)
+                    HStack { sizeLabel; Spacer(); transferButton }
+                }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
+            } else { row }
+        }
         .contentShape(Rectangle())
 
     }
@@ -39,6 +49,7 @@ struct TorrentRowView: View, Equatable {
         lhs.torrent == rhs.torrent
             && lhs.showsExtensions == rhs.showsExtensions
             && lhs.density == rhs.density
+            && lhs.grid == rhs.grid
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
