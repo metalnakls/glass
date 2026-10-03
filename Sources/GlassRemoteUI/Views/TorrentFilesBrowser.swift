@@ -16,8 +16,19 @@ struct TorrentFilesBrowser: View {
     var onApplyWanted: (([Int: Bool]) -> Void)?
     var onSmartRename: (() -> Void)?
     @State private var collapsed = Set<String>()
-    @State private var selection = Set<Int>()
-    @State private var pendingWanted: [Int: Bool] = [:]
+    var editSession: TorrentFileEditSession?
+    var editID = ""
+    var showsActionBar = true
+    @State private var localSelection = Set<Int>()
+    @State private var localWanted: [Int: Bool] = [:]
+    private var selection: Set<Int> {
+        get { editSession?.selections[editID] ?? localSelection }
+        nonmutating set { if let editSession { editSession.selections[editID] = newValue } else { localSelection = newValue } }
+    }
+    private var pendingWanted: [Int: Bool] {
+        get { editSession?.wanted[editID] ?? localWanted }
+        nonmutating set { if let editSession { editSession.wanted[editID] = newValue } else { localWanted = newValue } }
+    }
 
     private var rows: [TorrentFileTreeRow] {
         TorrentFileTreeRow.rows(entries: entries, collapsed: collapsed, query: searchText)
@@ -111,7 +122,7 @@ struct TorrentFilesBrowser: View {
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 4) {
-            if !selection.isEmpty || !pendingWanted.isEmpty {
+            if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
                 HStack(spacing: 8) {
                     if !selection.isEmpty {
                         Button("Download") { for index in selection { setWanted(index, true) } }

@@ -10,6 +10,7 @@ struct TorrentInspectorView: View {
     let selectedTorrentGroup: TorrentNameSequenceGroup?
     @State private var fileSearchText = ""
     @State private var snapshot: TorrentInspectorSnapshot?
+    @State private var editSession = TorrentFileEditSession()
     @State private var groupDetailsError: String?
 
     private var selectionKey: String? {
@@ -29,7 +30,7 @@ struct TorrentInspectorView: View {
                         if let error = selectionError {
                             Text(error).font(.callout).foregroundStyle(.secondary)
                         }
-                        TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText)
+                        TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession)
                             .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                             .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
                     }
@@ -50,6 +51,25 @@ struct TorrentInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if editSession.hasSelection || editSession.hasChanges {
+                HStack(spacing: 8) {
+                    if editSession.hasSelection {
+                        Button("Download") { editSession.stageSelection(true) }
+                        Button("Skip") { editSession.stageSelection(false) }
+                    }
+                    Spacer(minLength: 0)
+                    if editSession.hasChanges {
+                        Button("Cancel") { editSession.wanted = [:] }
+                        Button("Apply") { Task { await applyFileEdits() } }.buttonStyle(.borderedProminent)
+                    }
+                }
+                .controlSize(.small).padding(10)
+                .background(.regularMaterial)
+                .disabled(editSession.isApplying || snapshot?.selectionKey != selectionKey)
+            }
+        }
+        .onChange(of: snapshot?.selectionKey) { _, _ in editSession.reset() }
         .task(id: detailLoadInput) {
             guard selectedTorrentGroup == nil, let selectedTorrentHash,
                   !model.isLoadingTorrentDetails,
@@ -85,6 +105,28 @@ struct TorrentInspectorView: View {
         .onDisappear { fileSearchText = "" }
     }
 
+    private func applyFileEdits() async {
+        guard let snapshot, snapshot.selectionKey == selectionKey else { return }
+        let changes = editSession.wanted
+        let details = snapshot.details.map { [$0] } ?? Array(snapshot.groupDetails.values)
+        editSession.isApplying = true
+        defer { editSession.isApplying = false }
+        for detail in details {
+            guard let pending = changes[detail.hashString] else { continue }
+            for value in [true, false] {
+                let indices = pending.filter { $0.value == value }.map(\.key)
+                guard !indices.isEmpty else { continue }
+                await model.setFileWanted(detail.summaryFallback, fileIndices: indices, wanted: value, sourceID: snapshot.sourceID)
+                guard model.errorMessage == nil else { return }
+                if self.snapshot?.selectionKey == snapshot.selectionKey {
+                    for index in indices where editSession.wanted[detail.hashString]?[index] == value {
+                        editSession.wanted[detail.hashString]?[index] = nil
+                    }
+                }
+            }
+        }
+    }
+
     private var selectionError: String? {
         selectedTorrentGroup == nil ? model.torrentDetailsError : groupDetailsError
     }
@@ -117,6 +159,7 @@ private struct TorrentInspectorContent: View {
     let platformIntegration: any GlassPlatformIntegrating
     let snapshot: TorrentInspectorSnapshot
     @Binding var fileSearchText: String
+    let editSession: TorrentFileEditSession
     private var sourceID: UUID { snapshot.sourceID }
     private var groupDetails: [String: TorrentDetails] { snapshot.groupDetails }
 
@@ -150,7 +193,18 @@ private struct TorrentInspectorContent: View {
                 downloadLocation(details)
                 Divider()
             }
-            TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
+            HStack(spacing: 8) {
+                Toggle("Select all files", isOn: Binding(get: {
+                    groupDetails.values.allSatisfy { details in
+                        details.files.indices.allSatisfy { index in editSession.wanted[details.hashString]?[index] ?? (details.fileStats.indices.contains(index) ? details.fileStats[index].wanted : true) }
+                    }
+                }, set: { value in
+                    for details in groupDetails.values {
+                        for index in details.files.indices { editSession.wanted[details.hashString, default: [:]][index] = value }
+                    }
+                })).labelsHidden().toggleStyle(.checkbox)
+                TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
+            }
             ForEach(group.torrents, id: \.hashString) { torrent in
                 if let details = groupDetails[torrent.hashString] {
                     VStack(alignment: .leading, spacing: 8) {
@@ -201,7 +255,10 @@ private struct TorrentInspectorContent: View {
                     }
                 }
             },
-            onSmartRename: { Task { await model.smartRename(details, sourceID: sourceID) } }
+            onSmartRename: { Task { await model.smartRename(details, sourceID: sourceID) } },
+            editSession: editSession,
+            editID: details.hashString,
+            showsActionBar: false
         )
         .id(details.hashString)
     }
