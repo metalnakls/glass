@@ -93,6 +93,9 @@ struct TorrentListView: View {
             .background(listSurface)
         }
         .onAppear {
+            if UserDefaults.standard.object(forKey: "GlassList.sidePadding") == nil {
+                UserDefaults.standard.set(sidePadding, forKey: "GlassList.sidePadding")
+            }
             elevationController.dragSelectionChanged = { id in
                 guard presentation.rows.contains(where: { $0.id == id }) else { return }
                 if selection != id { selection = id }
