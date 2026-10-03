@@ -21,6 +21,10 @@ struct ModelsTests {
         object["doneDate"] = 1_700_000_000
         let deleted = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(!deleted.isUnfinished)
+        object["error"] = 0
+        let formerlyComplete = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(formerlyComplete.isCompleted)
+        #expect(!formerlyComplete.isUnfinished)
         object["doneDate"] = 0
         let neverFinished = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(neverFinished.isUnfinished)

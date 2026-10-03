@@ -145,7 +145,7 @@ struct TorrentFilesBrowser: View {
     private func statusSymbol(_ row: TorrentFileTreeRow) -> String {
         let members = entries.filter { row.indices.contains($0.index) }
         if members.allSatisfy({ !wanted($0) }) { return "minus.circle" }
-        if members.allSatisfy({ $0.completedBytes >= $0.size }) { return "checkmark" }
+        if members.allSatisfy(\.isComplete) { return "checkmark" }
         return "arrow.down.circle"
     }
 }
@@ -215,6 +215,9 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
     let isWanted: Bool
     let priority: Int
 
+    var isComplete: Bool { wasCompleted || completedBytes >= size }
+    let wasCompleted: Bool
+
     var id: Int { index }
     var pickedSortValue: Int { isWanted ? 0 : 1 }
 
@@ -230,7 +233,8 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
         displayName: String? = nil,
         completedBytes: UInt64? = nil,
         isWanted: Bool = true,
-        priority: Int = 0
+        priority: Int = 0,
+        wasCompleted: Bool = false
     ) {
         self.index = index
         self.originalPath = file.name
@@ -239,6 +243,7 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
         self.completedBytes = completedBytes ?? file.bytesCompleted
         self.isWanted = isWanted
         self.priority = priority
+        self.wasCompleted = wasCompleted
     }
 
     static func relativePath(_ path: String, removingRoot rootName: String) -> String {

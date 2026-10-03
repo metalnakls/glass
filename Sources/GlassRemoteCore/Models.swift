@@ -178,7 +178,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     }
 
     public var isCompleted: Bool {
-        percentDone >= 1.0 || leftUntilDone == 0 && sizeWhenDone > 0 || hasStorageError && (doneDate ?? 0) > 0
+        percentDone >= 1.0 || leftUntilDone == 0 && sizeWhenDone > 0 || (doneDate ?? 0) > 0
     }
 
     public var isUnfinished: Bool {

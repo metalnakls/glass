@@ -266,7 +266,8 @@ private struct TorrentInspectorContent: View {
                 rootName: details.name,
                 completedBytes: stats?.bytesCompleted,
                 isWanted: stats?.wanted ?? true,
-                priority: stats?.priority ?? 0
+                priority: stats?.priority ?? 0,
+                wasCompleted: (details.doneDate ?? 0) > 0
             )
         }
     }
