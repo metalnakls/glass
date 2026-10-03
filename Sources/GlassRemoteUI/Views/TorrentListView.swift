@@ -154,7 +154,23 @@ struct TorrentListView: View {
                 if selected && selectedHDRWhite > 0 {
                     Ellipse()
                         .fill(selectedSurface)
+                        .mask {
+                            GeometryReader { geometry in
+                                let height = max(geometry.size.height, 1)
+                                Circle()
+                                    .fill(RadialGradient(
+                                        stops: [.init(color: .white, location: 0),
+                                                .init(color: .white, location: 0.2),
+                                                .init(color: .clear, location: 1)],
+                                        center: .center, startRadius: 0, endRadius: height / 2
+                                    ))
+                                    .frame(width: height, height: height)
+                                    .scaleEffect(x: geometry.size.width / height, y: 1)
+                                    .frame(width: geometry.size.width, height: height)
+                            }
+                        }
                         .padding(-selectedHDRSpread)
+                        .drawingGroup(opaque: false, colorMode: .extendedLinear)
                         .blur(radius: selectedHDRSoftness)
                         .allowsHitTesting(false)
                 }
