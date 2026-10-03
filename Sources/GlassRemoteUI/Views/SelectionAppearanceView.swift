@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 
 public struct SelectionAppearanceView: View {
     public init() {}
 
+    @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -28,6 +30,7 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
+                shadowSlider("Minimum side padding", value: $sidePadding, range: 0...160)
                 HStack {
                     Text("HDR white")
                     Spacer()
@@ -53,6 +56,7 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
                 Button("Reset") {
+                    sidePadding = 18
                     selectionEaseIn = 0.25
                     selectionEaseOut = 0.30
                     selectedHDRWhite = 0
@@ -93,4 +97,24 @@ public struct SelectionAppearanceView: View {
         }
     }
 
+}
+
+@MainActor
+public enum SelectionAppearanceWindow {
+    private static var window: NSWindow?
+
+    public static func show() {
+        guard ProcessInfo.processInfo.arguments.contains("--tune-appearance") else { return }
+        if window == nil {
+            let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 640),
+                                 styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            panel.title = "Selection Appearance"
+            panel.contentView = NSHostingView(rootView: SelectionAppearanceView())
+            panel.isReleasedWhenClosed = false
+            panel.setFrameAutosaveName("GlassSelectionAppearance")
+            panel.center()
+            window = panel
+        }
+        window?.makeKeyAndOrderFront(nil)
+    }
 }

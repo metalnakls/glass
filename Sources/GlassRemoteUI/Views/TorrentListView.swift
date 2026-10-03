@@ -26,6 +26,7 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
     @State private var swipingRowID: String?
@@ -62,7 +63,7 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
-                    .listRowBackground(raisedSurface(selected: selection == row.id, isSwiping: swipingRowID == row.id))
+                    .listRowBackground(raisedSurface(rowID: row.id, selected: selection == row.id, isSwiping: swipingRowID == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
@@ -87,13 +88,13 @@ struct TorrentListView: View {
                 revealAndScrollToTorrent(selection, using: scrollProxy)
             }
             .frame(maxWidth: 480)
+            .padding(.horizontal, sidePadding)
             .frame(maxWidth: .infinity, alignment: .center)
             .background(listSurface)
         }
         .onAppear {
-            elevationController.dragSelectionChanged = { index in
-                guard presentation.rows.indices.contains(index) else { return }
-                let id = presentation.rows[index].id
+            elevationController.dragSelectionChanged = { id in
+                guard presentation.rows.contains(where: { $0.id == id }) else { return }
                 if selection != id { selection = id }
             }
             synchronizePresentation(animated: false)
@@ -102,8 +103,8 @@ struct TorrentListView: View {
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
-        .onChange(of: selection) { _, value in
-            if value == nil { elevationController.clear() }
+        .onChange(of: selection, initial: true) { _, value in
+            elevationController.setSelection(value)
         }
         .onPreferenceChange(TorrentListColumnWidthKey.self) { width in
             columnWidth = width
@@ -151,9 +152,9 @@ struct TorrentListView: View {
         }
     }
 
-    private func raisedSurface(selected: Bool, isSwiping: Bool) -> some View {
+    private func raisedSurface(rowID: String, selected: Bool, isSwiping: Bool) -> some View {
         Color.clear
-            .background(TorrentListElevationAnchor(controller: elevationController, selected: selected))
+            .background(TorrentListElevationAnchor(controller: elevationController, rowID: rowID, selected: selected))
             .padding(.horizontal, 2)
             .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)

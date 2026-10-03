@@ -21,16 +21,19 @@ struct TorrentShadowSettings: Equatable {
 /// behind its content. Native selection, virtualization and hit testing stay intact.
 struct TorrentListElevationAnchor: NSViewRepresentable {
     let controller: TorrentListElevationController
+    let rowID: String
     let selected: Bool
     func makeNSView(context: Context) -> Anchor { Anchor() }
     func updateNSView(_ view: Anchor, context: Context) {
         view.controller = controller
+        view.rowID = rowID
         view.selected = selected
         view.connect()
     }
     final class Anchor: NSView {
         weak var controller: TorrentListElevationController?
         var selected = false
+        var rowID = ""
         override func layout() { super.layout(); connect() }
         override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); connect() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
@@ -42,7 +45,7 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
                     table.selectionHighlightStyle = .none
                     table.focusRingType = .none
                     controller?.attach(table)
-                    if selected { controller?.select(self) }
+                    controller?.register(self)
                     return
                 }
                 ancestor = view.superview
@@ -60,8 +63,11 @@ final class TorrentListElevationController: NSObject {
     private var surfaceVisible = false
     private var entrance = 0
     private var motion = 0
+    private var selectedID: String?
+    private var selectedAnchorID: String?
+    private let anchors = NSMapTable<NSString, TorrentListElevationAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     private var settings = TorrentShadowSettings()
-    var dragSelectionChanged: ((Int) -> Void)?
+    var dragSelectionChanged: ((String) -> Void)?
     private var dragMonitor: Any?
     private var dragStartedInTable = false
     func configure(_ settings: TorrentShadowSettings) {
@@ -85,11 +91,25 @@ final class TorrentListElevationController: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.frameDidChangeNotification, object: scroll.contentView)
     }
     func select(_ anchor: NSView) {
-        let changed = selectedAnchor !== anchor
+        let id = (anchor as? TorrentListElevationAnchor.Anchor)?.rowID
+        let changed = selectedAnchor !== anchor || selectedAnchorID != id
         selectedAnchor = anchor
+        selectedAnchorID = id
         update(animated: changed)
     }
-    func clear() { selectedAnchor = nil; update(animated: true) }
+    func register(_ anchor: TorrentListElevationAnchor.Anchor) {
+        anchors.setObject(anchor, forKey: anchor.rowID as NSString)
+        guard anchor.rowID == selectedID else { return }
+        select(anchor)
+    }
+    func setSelection(_ id: String?) {
+        selectedID = id
+        guard let id else { clear(); return }
+        if let anchor = anchors.object(forKey: id as NSString), anchor.rowID == id, anchor.window != nil {
+            select(anchor)
+        }
+    }
+    func clear() { selectedAnchor = nil; selectedAnchorID = nil; update(animated: true) }
     func detach() {
         if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
         dragMonitor = nil
@@ -100,6 +120,8 @@ final class TorrentListElevationController: NSObject {
         surfaceVisible = false
         table = nil
         selectedAnchor = nil
+        selectedAnchorID = nil
+        anchors.removeAllObjects()
     }
     @objc private func scrolled() { update(animated: false) }
     private func trackSelectionDrag(_ event: NSEvent) {
@@ -117,13 +139,19 @@ final class TorrentListElevationController: NSObject {
         } else if event.type == .leftMouseUp {
             dragStartedInTable = false
         } else if dragStartedInTable, row >= 0, table.visibleRect.contains(point) {
-            dragSelectionChanged?(row)
+            for anchor in anchors.objectEnumerator()?.allObjects as? [TorrentListElevationAnchor.Anchor] ?? [] {
+                guard anchor.window === table.window,
+                      table.convert(anchor.bounds, from: anchor).contains(point) else { continue }
+                dragSelectionChanged?(anchor.rowID)
+                break
+            }
         }
     }
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         overlay.frame = clip.frame
-        guard let selectedAnchor, selectedAnchor.window != nil else {
+        guard let selectedAnchor = selectedAnchor as? TorrentListElevationAnchor.Anchor,
+              selectedAnchor.rowID == selectedID, selectedAnchor.window === table.window else {
             surface.layer?.opacity = 0
             surfaceVisible = false
             overlay.show(nil, settings: settings, animated: animated)
@@ -134,8 +162,10 @@ final class TorrentListElevationController: NSObject {
         let rect = overlay.convert(selectedAnchor.bounds, from: selectedAnchor)
         let surfaceRect = table.convert(selectedAnchor.bounds, from: selectedAnchor)
         let visible = rect.intersects(overlay.bounds)
-        let wasVisible = surfaceVisible && surface.frame.intersects(table.visibleRect)
         let previous = surface.layer?.presentation()?.frame ?? surface.frame
+        let previousOpacity = surface.layer?.presentation()?.opacity ?? surface.layer?.opacity ?? 0
+        let wasVisible = surfaceVisible && previous.intersects(table.visibleRect) && previousOpacity > 0.01
+        let previousPosition = surface.layer?.presentation()?.position ?? surface.layer?.position
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         surface.frame = surfaceRect
@@ -146,7 +176,7 @@ final class TorrentListElevationController: NSObject {
         CATransaction.commit()
         if visible, animated, wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             surface.layer?.removeAnimation(forKey: "appear")
-            animateFrame(surface.layer, from: previous, to: surfaceRect, duration: settings.easeIn)
+            animateFrame(surface.layer, from: previous, fromPosition: previousPosition, to: surfaceRect, duration: settings.easeIn)
         } else if visible, !wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             surface.layer?.removeAnimation(forKey: "glide")
             let fade = CABasicAnimation(keyPath: "opacity")
@@ -160,11 +190,11 @@ final class TorrentListElevationController: NSObject {
         overlay.show(rect, settings: settings, animated: animated)
     }
 
-    private func animateFrame(_ layer: CALayer?, from: CGRect, to: CGRect, duration: Double) {
+    private func animateFrame(_ layer: CALayer?, from: CGRect, fromPosition: CGPoint?, to: CGRect, duration: Double) {
         guard let layer, duration > 0 else { layer?.removeAnimation(forKey: "glide"); return }
         let position = CABasicAnimation(keyPath: "position")
         let target = layer.position
-        position.fromValue = NSValue(point: CGPoint(
+        position.fromValue = NSValue(point: fromPosition ?? CGPoint(
             x: target.x + from.minX - to.minX + (from.width - to.width) * layer.anchorPoint.x,
             y: target.y + from.minY - to.minY + (from.height - to.height) * layer.anchorPoint.y
         ))
