@@ -1,6 +1,7 @@
 {
   "GlassList.columnDarkBrightness": 0.105,
   "GlassList.columnLightBrightness": 0.955,
+  "GlassList.dropBlurRadius": 8.0,
   "GlassList.headerBackgroundIn": 0.22,
   "GlassList.headerBackgroundOut": 0.28,
   "GlassList.headerFadeColorDark": "0C0C0C",

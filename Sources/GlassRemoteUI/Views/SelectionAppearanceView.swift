@@ -30,6 +30,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
     @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppearanceStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
     @AppearanceStorage("GlassList.stateGlass") private var stateGlass = true
     @AppearanceStorage("GlassList.progressFilled") private var progressFilled = false
     @AppearanceStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
@@ -71,6 +72,7 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Column brightness · light", value: $columnLightBrightness, range: 0...1, percent: true)
                 shadowSlider("Column brightness · dark", value: $columnDarkBrightness, range: 0...1, percent: true)
                 Divider()
+                shadowSlider("Drop blur radius", value: $dropBlurRadius, range: 0...32)
                 Text("Sticky Headers").font(.subheadline.weight(.semibold))
                 ColorPicker("Fade colour · light", selection: headerColor(dark: false), supportsOpacity: false)
                 ColorPicker("Fade colour · dark", selection: headerColor(dark: true), supportsOpacity: false)

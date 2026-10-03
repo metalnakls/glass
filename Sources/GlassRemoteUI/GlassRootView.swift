@@ -467,6 +467,7 @@ private struct TorrentWorkspaceView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
     @State private var isURLDropTargeted = false
     @State private var isTextDropTargeted = false
     @Binding var selection: String?
@@ -500,6 +501,8 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
+        .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
+        .animation(.easeInOut(duration: 0.2), value: isTorrentDropTargeted)
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -518,8 +521,8 @@ private struct TorrentWorkspaceView: View {
         .overlay {
             if isTorrentDropTargeted {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.accentColor.opacity(0.75), lineWidth: 2)
+                    DropCorners()
+                        .stroke(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 3, lineCap: .round))
 
                     Label("Drop to Add Torrent", systemImage: "doc.badge.plus")
                         .font(.headline)
@@ -527,7 +530,9 @@ private struct TorrentWorkspaceView: View {
                         .padding(.vertical, 12)
                         .glassEffect(.regular, in: .capsule)
                 }
-                .padding(12)
+                .padding(.horizontal, 24)
+                .padding(.top, 88)
+                .padding(.bottom, 24)
                 .allowsHitTesting(false)
                 .transition(.opacity)
             }
