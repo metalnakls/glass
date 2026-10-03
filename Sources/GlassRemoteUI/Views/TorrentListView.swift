@@ -44,19 +44,13 @@ struct TorrentListView: View {
     @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     private var shadowSettings: TorrentShadowSettings {
-        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut)
+        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: selectedHDRWhite, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, increasedContrast: colorContrast == .increased)
     }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast
 
     private var listSurface: Color {
         Color(white: colorScheme == .dark ? columnDarkBrightness : columnLightBrightness)
-    }
-
-    private var selectedSurface: Color {
-        let base = colorScheme == .dark ? pow((0.21 + 0.055) / 1.055, 2.4) : 1.0
-        let white = base + min(max(selectedHDRWhite, 0), 3)
-        return Color(.sRGBLinear, white: white).headroom(max(1, white))
     }
 
     private var density: TorrentRowDensity {
@@ -158,45 +152,11 @@ struct TorrentListView: View {
     }
 
     private func raisedSurface(selected: Bool, isSwiping: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .circular)
-            .fill(selected ? Color(white: colorScheme == .dark ? 0.21 : 1) : .clear)
-            .overlay {
-                if selected && selectedHDRWhite > 0 {
-                    Ellipse()
-                        .fill(selectedSurface)
-                        .mask {
-                            GeometryReader { geometry in
-                                let height = max(geometry.size.height, 1)
-                                Circle()
-                                    .fill(RadialGradient(
-                                        stops: [.init(color: .white, location: 0),
-                                                .init(color: .white, location: 0.2),
-                                                .init(color: .clear, location: 1)],
-                                        center: .center, startRadius: 0, endRadius: height / 2
-                                    ))
-                                    .frame(width: height, height: height)
-                                    .scaleEffect(x: geometry.size.width / height, y: 1)
-                                    .frame(width: geometry.size.width, height: height)
-                            }
-                        }
-                        .padding(-selectedHDRSpread)
-                        .drawingGroup(opaque: false, colorMode: .extendedLinear)
-                        .blur(radius: selectedHDRSoftness)
-                        .allowsHitTesting(false)
-                }
-            }
-            .allowedDynamicRange(.high)
-            .overlay {
-                if selected && colorContrast == .increased {
-                    RoundedRectangle(cornerRadius: 12, style: .circular)
-                        .strokeBorder(colorScheme == .dark ? .white.opacity(colorContrast == .increased ? 0.45 : 0.10) : .black.opacity(colorContrast == .increased ? 0.35 : 0.045), lineWidth: 1)
-                }
-            }
+        Color.clear
             .background(TorrentListElevationAnchor(controller: elevationController, selected: selected))
             .padding(.horizontal, 2)
             .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)
-            .animation(accessibilityReduceMotion ? nil : .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: selected ? selectionEaseIn : selectionEaseOut), value: selected)
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {

@@ -10,6 +10,11 @@ struct TorrentShadowSettings: Equatable {
     var bottomLift = 7.0
     var easeIn = 0.25
     var easeOut = 0.30
+    var hdrWhite = 0.0
+    var hdrSoftness = 0.0
+    var hdrSpread = 0.0
+    var isDark = false
+    var increasedContrast = false
 }
 
 /// Draw the shadow above the table's row clipping, while SwiftUI draws the card
@@ -51,6 +56,10 @@ final class TorrentListElevationController: NSObject {
     private weak var table: NSTableView?
     private weak var selectedAnchor: NSView?
     private let overlay = ElevationOverlay()
+    private let surface = SelectionSurfaceHost(rootView: SelectionSurface(settings: TorrentShadowSettings(), entrance: 0, motion: 0))
+    private var surfaceVisible = false
+    private var entrance = 0
+    private var motion = 0
     private var settings = TorrentShadowSettings()
     var dragSelectionChanged: ((Int) -> Void)?
     private var dragMonitor: Any?
@@ -64,6 +73,7 @@ final class TorrentListElevationController: NSObject {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
         detach()
         self.table = table
+        table.addSubview(surface, positioned: .below, relativeTo: nil)
         dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
             self?.trackSelectionDrag(event)
             return event
@@ -86,6 +96,8 @@ final class TorrentListElevationController: NSObject {
         dragStartedInTable = false
         NotificationCenter.default.removeObserver(self)
         overlay.removeFromSuperview()
+        surface.removeFromSuperview()
+        surfaceVisible = false
         table = nil
         selectedAnchor = nil
     }
@@ -112,13 +124,117 @@ final class TorrentListElevationController: NSObject {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         overlay.frame = clip.frame
         guard let selectedAnchor, selectedAnchor.window != nil else {
+            surface.layer?.opacity = 0
+            surfaceVisible = false
             overlay.show(nil, settings: settings, animated: animated)
             return
         }
         // The anchor fills the actual SwiftUI card background. Its bounds are
         // the single source of truth for the card, outline, cutout and shadows.
         let rect = overlay.convert(selectedAnchor.bounds, from: selectedAnchor)
+        let surfaceRect = table.convert(selectedAnchor.bounds, from: selectedAnchor)
+        let visible = rect.intersects(overlay.bounds)
+        let wasVisible = surfaceVisible && surface.frame.intersects(table.visibleRect)
+        let previous = surface.layer?.presentation()?.frame ?? surface.frame
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        surface.frame = surfaceRect
+        surface.layer?.opacity = visible ? 1 : 0
+        if visible && !wasVisible { entrance &+= 1 }
+        if visible && animated && wasVisible && previous != surfaceRect { motion &+= 1 }
+        surface.rootView = SelectionSurface(settings: settings, entrance: entrance, motion: motion)
+        CATransaction.commit()
+        if visible, animated, wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            surface.layer?.removeAnimation(forKey: "appear")
+            animateFrame(surface.layer, from: previous, to: surfaceRect, duration: settings.easeIn)
+        } else if visible, !wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            surface.layer?.removeAnimation(forKey: "glide")
+            let fade = CABasicAnimation(keyPath: "opacity")
+            fade.fromValue = 0
+            fade.toValue = 1
+            fade.duration = settings.easeIn
+            fade.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
+            surface.layer?.add(fade, forKey: "appear")
+        }
+        surfaceVisible = visible
         overlay.show(rect, settings: settings, animated: animated)
+    }
+
+    private func animateFrame(_ layer: CALayer?, from: CGRect, to: CGRect, duration: Double) {
+        guard let layer, duration > 0 else { layer?.removeAnimation(forKey: "glide"); return }
+        let position = CABasicAnimation(keyPath: "position")
+        let target = layer.position
+        position.fromValue = NSValue(point: CGPoint(
+            x: target.x + from.minX - to.minX + (from.width - to.width) * layer.anchorPoint.x,
+            y: target.y + from.minY - to.minY + (from.height - to.height) * layer.anchorPoint.y
+        ))
+        position.toValue = NSValue(point: target)
+        let size = CABasicAnimation(keyPath: "bounds.size")
+        size.fromValue = NSValue(size: from.size)
+        size.toValue = NSValue(size: to.size)
+        let group = CAAnimationGroup()
+        group.animations = [position, size]
+        group.duration = duration
+        group.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
+        layer.add(group, forKey: "glide")
+    }
+}
+
+@MainActor
+private final class SelectionSurfaceHost: NSHostingView<SelectionSurface> {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private struct SelectionSurface: View {
+    let settings: TorrentShadowSettings
+    let entrance: Int
+    let motion: Int
+    var body: some View {
+        SelectionSurfaceContent(settings: settings, motion: motion).id(entrance)
+    }
+}
+
+private struct SelectionSurfaceContent: View {
+    let settings: TorrentShadowSettings
+    let motion: Int
+    @State private var entranceBlur = 12.0
+    private var white: Color {
+        let base = settings.isDark ? pow((0.21 + 0.055) / 1.055, 2.4) : 1.0
+        let value = base + min(max(settings.hdrWhite, 0), 3)
+        return Color(.sRGBLinear, white: value).headroom(max(1, value))
+    }
+    var body: some View {
+        RoundedRectangle(cornerRadius: 12, style: .circular)
+            .fill(Color(white: settings.isDark ? 0.21 : 1))
+            .overlay {
+                if settings.hdrWhite > 0 {
+                    RoundedRectangle(cornerRadius: 12, style: .circular)
+                        .fill(white)
+                        .padding(-settings.hdrSpread)
+                        .drawingGroup(opaque: false, colorMode: .extendedLinear)
+                        .blur(radius: max(settings.hdrSoftness, 2))
+                }
+            }
+            .allowedDynamicRange(.high)
+            .overlay {
+                if settings.increasedContrast {
+                    RoundedRectangle(cornerRadius: 12, style: .circular)
+                        .strokeBorder(settings.isDark ? .white.opacity(0.45) : .black.opacity(0.35), lineWidth: 1)
+                }
+            }
+            .blur(radius: entranceBlur)
+            .keyframeAnimator(initialValue: 0.0, trigger: motion) { content, blur in
+                content.blur(radius: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : blur)
+            } keyframes: { _ in
+                CubicKeyframe(4, duration: max(settings.easeIn / 2, 0.001))
+                CubicKeyframe(0, duration: max(settings.easeIn / 2, 0.001))
+            }
+            .onAppear {
+                withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil :
+                    .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: settings.easeIn)) {
+                    entranceBlur = 0
+                }
+            }
     }
 }
 
@@ -169,10 +285,10 @@ private final class ElevationOverlay: NSView {
             displayedRect = nil
             return
         }
-        let moving = animated && displayedRect != nil && displayedRect != rect
-        if moving && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            fadePreviousRow(in: layer, duration: settings.easeOut)
-        }
+        let moving = animated && displayedRect?.intersects(bounds) == true && displayedRect != rect && layer.opacity > 0
+        let oldFrames = [top, bottom].map { $0.presentation()?.frame ?? $0.frame }
+        let oldPaths = [top, bottom].map { $0.presentation()?.shadowPath ?? $0.shadowPath }
+        let oldMaskPath = (layer.mask?.presentation() as? CAShapeLayer)?.path ?? (layer.mask as? CAShapeLayer)?.path
         displayedRect = rect
         layer.opacity = 1
         top.shadowOpacity = Float(min(max(settings.topStrength, 0), 1))
@@ -190,12 +306,37 @@ private final class ElevationOverlay: NSView {
         let path = CGMutablePath()
         path.addRect(bounds)
         path.addRoundedRect(in: rect, cornerWidth: 12, cornerHeight: 12)
-        let mask = CAShapeLayer()
+        let mask = (layer.mask as? CAShapeLayer) ?? CAShapeLayer()
         mask.frame = bounds
         mask.path = path
         mask.fillRule = .evenOdd
         layer.mask = mask
-        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if moving && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            for (index, shadow) in [top, bottom].enumerated() {
+                shadow.removeAnimation(forKey: "shadowOpacity")
+                shadow.removeAnimation(forKey: "shadowRadius")
+                let position = CABasicAnimation(keyPath: "position")
+                position.fromValue = NSValue(point: CGPoint(x: oldFrames[index].midX, y: oldFrames[index].midY))
+                position.toValue = NSValue(point: shadow.position)
+                let size = CABasicAnimation(keyPath: "bounds.size")
+                size.fromValue = NSValue(size: oldFrames[index].size)
+                size.toValue = NSValue(size: shadow.bounds.size)
+                let shape = CABasicAnimation(keyPath: "shadowPath")
+                shape.fromValue = oldPaths[index]
+                shape.toValue = shadow.shadowPath
+                let glide = CAAnimationGroup()
+                glide.animations = [position, size, shape]
+                glide.duration = settings.easeIn
+                glide.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
+                shadow.add(glide, forKey: "glide")
+            }
+            let cutout = CABasicAnimation(keyPath: "path")
+            cutout.fromValue = oldMaskPath
+            cutout.toValue = mask.path
+            cutout.duration = settings.easeIn
+            cutout.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
+            mask.add(cutout, forKey: "glide")
+        } else if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             for shadow in [top, bottom] {
                 animate(shadow, key: "shadowOpacity", from: 0, to: Double(shadow.shadowOpacity), duration: settings.easeIn)
                 animate(shadow, key: "shadowRadius", from: shadow.shadowRadius + 12, to: shadow.shadowRadius, duration: settings.easeIn)
