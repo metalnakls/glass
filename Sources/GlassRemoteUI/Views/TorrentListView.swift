@@ -27,7 +27,8 @@ struct TorrentListView: View {
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
-    @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
+    @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
@@ -84,7 +85,7 @@ struct TorrentListView: View {
     }
 
     private var density: TorrentRowDensity {
-        densityLevel == 0 ? .compact : (columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - 2 * sidePadding)) : .regular)
+        densityLevel == 0 ? .compact : (columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
     }
 
     var body: some View {
@@ -104,12 +105,12 @@ struct TorrentListView: View {
                                 Text(section.title).font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).background(listSurface)
                             }
                         }
-                    }.padding(.horizontal, sidePadding + 16)
+                    }.padding(.leading, leftPadding + 16).padding(.trailing, rightPadding + 16)
                 }.background(listSurface)
             } else {
             List(selection: $selection) {
                 ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
-                    TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: sidePadding + 16, controller: stickyHeaders)
+                    TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
                         .selectionDisabled()
                         .listRowBackground(Color.clear)
                         .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
@@ -149,24 +150,26 @@ struct TorrentListView: View {
             }
         }
         .onAppear {
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16)
             elevationController.observeTable { stickyHeaders.attach($0) }
         }
+        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: presentation.rows.map(\.id)) { _, _ in
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
             do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             guard !Task.isCancelled else { return }
             // Preserve the gap of the former centered 480-point list exactly once.
-            sidePadding = max(sidePadding, (columnWidth - 480) / 2)
+            leftPadding = max(leftPadding, (columnWidth - 480) / 2)
+            rightPadding = max(rightPadding, (columnWidth - 480) / 2)
             paddingIsPermanent = true
         }
         .onAppear {
-            if UserDefaults.standard.object(forKey: "GlassList.sidePadding") == nil {
-                UserDefaults.standard.set(sidePadding, forKey: "GlassList.sidePadding")
+            for (key, value) in [("GlassList.leftPadding", leftPadding), ("GlassList.rightPadding", rightPadding)] where UserDefaults.standard.object(forKey: key) == nil {
+                UserDefaults.standard.set(value, forKey: key)
             }
             elevationController.dragSelectionChanged = { id in
                 guard presentation.rows.contains(where: { $0.id == id }) else { return }
@@ -232,7 +235,8 @@ struct TorrentListView: View {
         TorrentListLiveRow(
             row: row,
             isSelected: selection == row.id,
-            sidePadding: grid ? 0 : sidePadding,
+            leftPadding: grid ? 0 : leftPadding,
+            rightPadding: grid ? 0 : rightPadding,
             grid: grid,
             rowHeight: densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60,
             folderMotion: folderMotion,
@@ -394,7 +398,8 @@ private struct TorrentListLiveRow: View {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
     let isSelected: Bool
-    let sidePadding: CGFloat
+    let leftPadding: CGFloat
+    let rightPadding: CGFloat
     let grid: Bool
     let rowHeight: CGFloat
     let folderMotion: Namespace.ID
@@ -413,7 +418,7 @@ private struct TorrentListLiveRow: View {
     let toggleTransfers: () async -> Bool
 
     var body: some View {
-        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : sidePadding + 2) {
+        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : leftPadding + 2, foregroundTrailingInset: grid ? 0 : rightPadding + 2) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
@@ -440,7 +445,8 @@ private struct TorrentListLiveRow: View {
                 .padding(.vertical, 3) }
         }
         .glassContextMenu(select: select) { contextMenuContent }
-        .padding(.horizontal, grid ? 0 : sidePadding + 16)
+        .padding(.leading, grid ? 0 : leftPadding + 16)
+        .padding(.trailing, grid ? 0 : rightPadding + 16)
         .background { if grid && isSelected { RoundedRectangle(cornerRadius: 16).fill(Color(nsColor: .controlBackgroundColor)).shadow(color: .black.opacity(0.15), radius: 8, y: 4) } }
         }
     }

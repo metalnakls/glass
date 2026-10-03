@@ -16,6 +16,7 @@ struct TorrentSwipeRow<Content: View>: View {
     let selected: Bool
     var commitsOnRelease: Bool
     var foregroundInset: CGFloat
+    var foregroundTrailingInset: CGFloat
     @State private var offset: CGFloat = 0
     @State private var width: CGFloat = 300
     @State private var committed = false
@@ -23,13 +24,14 @@ struct TorrentSwipeRow<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     init(selected: Bool, remove: @escaping (Bool) -> Void, presentationChanged: @escaping (Bool) -> Void,
-         commitsOnRelease: Bool = false, foregroundInset: CGFloat = 0,
+         commitsOnRelease: Bool = false, foregroundInset: CGFloat = 0, foregroundTrailingInset: CGFloat? = nil,
          leading: Action = Action(name: "Delete Torrent", symbol: "xmark", color: .yellow),
          trailing: Action = Action(name: "Delete Torrent + Data", symbol: "trash", color: .red),
          @ViewBuilder content: () -> Content) {
         self.selected = selected; self.leading = leading; self.trailing = trailing
         self.remove = remove; self.presentationChanged = presentationChanged
         self.commitsOnRelease = commitsOnRelease; self.foregroundInset = foregroundInset
+        self.foregroundTrailingInset = foregroundTrailingInset ?? foregroundInset
         self.content = content()
     }
 
@@ -44,7 +46,7 @@ struct TorrentSwipeRow<Content: View>: View {
             .opacity(min(abs(offset) / 36, 1))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: offset > 0 ? .leading : .trailing)
             .mask {
-                SwipeRevealMask(offset: offset, inset: foregroundInset)
+                SwipeRevealMask(offset: offset, inset: foregroundInset, trailingInset: foregroundTrailingInset)
                     .fill(style: FillStyle(eoFill: true))
             }
             .allowsHitTesting(abs(offset) > 40 && !committed)
@@ -53,7 +55,7 @@ struct TorrentSwipeRow<Content: View>: View {
                     if abs(offset) > 0.5 && !(commitsOnRelease && selected) {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color(white: colorScheme == .dark ? 0.12 : 1))
-                            .padding(.horizontal, foregroundInset).padding(.vertical, 3)
+                            .padding(.leading, foregroundInset).padding(.trailing, foregroundTrailingInset).padding(.vertical, 3)
                     }
                 }
                 .offset(x: offset)
@@ -105,10 +107,13 @@ struct TorrentSwipeRow<Content: View>: View {
 private struct SwipeRevealMask: Shape {
     var offset: CGFloat
     var inset: CGFloat
+    var trailingInset: CGFloat
     var animatableData: CGFloat { get { offset } set { offset = newValue } }
     func path(in rect: CGRect) -> Path {
         var path = Path(rect)
-        path.addRoundedRect(in: rect.insetBy(dx: inset, dy: 3).offsetBy(dx: offset, dy: 0), cornerSize: CGSize(width: 12, height: 12))
+        let card = CGRect(x: rect.minX + inset + offset, y: rect.minY + 3,
+                          width: max(0, rect.width - inset - trailingInset), height: max(0, rect.height - 6))
+        path.addRoundedRect(in: card, cornerSize: CGSize(width: 12, height: 12))
         return path
     }
 }

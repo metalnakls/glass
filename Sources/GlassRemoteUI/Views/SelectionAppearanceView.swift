@@ -4,7 +4,8 @@ import SwiftUI
 public struct SelectionAppearanceView: View {
     public init() {}
 
-    @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
+    @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -51,7 +52,8 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
-                shadowSlider("Side padding", value: $sidePadding, range: 0...160)
+                shadowSlider("Left padding", value: $leftPadding, range: 0...160)
+                shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 HStack {
                     Text("HDR white")
                     Spacer()
@@ -99,7 +101,7 @@ public struct SelectionAppearanceView: View {
                     headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 24
                     headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
                     stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
-                    sidePadding = 18
+                    leftPadding = 18; rightPadding = 18
                     selectionEaseIn = 0.25
                     selectionEaseOut = 0.30
                     selectedHDRWhite = 0
