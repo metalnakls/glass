@@ -36,7 +36,8 @@ struct TorrentFilesBrowser: View {
     private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { pendingWanted[entry.index] ?? entry.isWanted }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
+        return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
                     Toggle("Select all files", isOn: Binding(
@@ -54,7 +55,7 @@ struct TorrentFilesBrowser: View {
                 ForEach(rows) { row in
                     TorrentSwipeRow(selected: !selection.isDisjoint(with: row.indices), remove: { higher in
                         for index in row.indices {
-                            let current = entries.first { $0.index == index }?.priority ?? 0
+                            let current = byIndex[index]?.priority ?? 0
                             onSetPriority(index, min(1, max(-1, current + (higher ? 1 : -1))))
                         }
                     }, presentationChanged: { _ in },
@@ -62,7 +63,7 @@ struct TorrentFilesBrowser: View {
                     trailing: .init(name: "Raise priority", symbol: "arrow.up", color: .gray)) {
                         HStack(spacing: 5) {
                             Toggle("Download \(row.name)", isOn: Binding(
-                                get: { row.indices.allSatisfy { index in entries.first { $0.index == index }.map(wanted) ?? false } },
+                                get: { row.indices.allSatisfy { index in byIndex[index].map(wanted) ?? false } },
                                 set: { value in for index in row.indices { setWanted(index, value) } }
                             ))
                             .labelsHidden().toggleStyle(.checkbox)
@@ -89,7 +90,7 @@ struct TorrentFilesBrowser: View {
                                     if let priority = row.entry?.priority, priority != 0 {
                                         Image(systemName: priority > 0 ? "star.fill" : "arrow.down")
                                     }
-                                    Image(systemName: statusSymbol(row))
+                                    Image(systemName: statusSymbol(row, byIndex: byIndex))
                                 }
                                 .font(.system(size: 9)).foregroundStyle(.secondary)
                             }
@@ -153,8 +154,8 @@ struct TorrentFilesBrowser: View {
         let indices = selection.contains(row.indices.first ?? -1) ? Array(selection) : row.indices
         for index in indices { onSetPriority(index, value) }
     }
-    private func statusSymbol(_ row: TorrentFileTreeRow) -> String {
-        let members = entries.filter { row.indices.contains($0.index) }
+    private func statusSymbol(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> String {
+        let members = row.indices.compactMap { byIndex[$0] }
         if members.allSatisfy({ !wanted($0) }) { return "minus.circle" }
         if members.allSatisfy(\.isComplete) { return "checkmark" }
         return "arrow.down.circle"
@@ -249,7 +250,10 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
     ) {
         self.index = index
         self.originalPath = file.name
-        self.displayName = displayName ?? Self.relativePath(file.name, removingRoot: rootName)
+        let relative = Self.relativePath(file.name, removingRoot: rootName)
+        if let displayName, !displayName.contains("/"), relative.contains("/") {
+            self.displayName = (relative as NSString).deletingLastPathComponent + "/" + displayName
+        } else { self.displayName = displayName ?? relative }
         self.size = file.length
         self.completedBytes = completedBytes ?? file.bytesCompleted
         self.isWanted = isWanted
