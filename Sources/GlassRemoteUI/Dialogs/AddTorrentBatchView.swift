@@ -80,7 +80,8 @@ struct AddTorrentBatchView: View {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
                 TextField("Torrent name", text: titleBinding(for: group))
                     .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
-                    .frame(maxWidth: .infinity, alignment: .leading).disabled(isAdding)
+                    .frame(maxWidth: .infinity, alignment: .leading).disabled(isAdding || optionHeld)
+                    .id("\(group.id):\(optionHeld)")
             }
             Form {
                 TorrentDownloadLocationPicker(
@@ -142,9 +143,12 @@ struct AddTorrentBatchView: View {
     }
 
     private func titleBinding(for group: TorrentBatchGroup) -> Binding<String> {
+        if optionHeld {
+            return .constant(group.itemIndices.first.map { items[$0].presentedName(holdingOption: true) } ?? group.displayName)
+        }
         if group.isSeasonGroup { return groupNameBinding(for: group) }
         guard let index = group.itemIndices.first else { return .constant("") }
-        return Binding(get: { optionHeld ? items[index].draft.preview.name : items[index].name }, set: { items[index].name = $0 })
+        return Binding(get: { items[index].presentedName(holdingOption: false) }, set: { items[index].name = $0 })
     }
 
     private var canAdd: Bool {
@@ -390,6 +394,8 @@ final class TorrentBatchItemState {
         self.name = suggestion?.rootName ?? draft.preview.name
         self.selectedFileIndices = selected
     }
+
+    func presentedName(holdingOption: Bool) -> String { holdingOption ? draft.preview.name : name }
 
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canAdd: Bool { !normalizedName.isEmpty && !selectedFileIndices.isEmpty }

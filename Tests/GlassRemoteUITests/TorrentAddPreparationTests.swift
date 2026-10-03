@@ -16,6 +16,18 @@ struct TorrentAddPreparationTests {
         #expect(plan.pathRenames.map(\.name) == ["S01E01 — Pilot.mkv", "S01E02.mkv"])
     }
 
+    @Test("Option presentation restores smart or edited title on release")
+    func optionTitleRestoration() {
+        let item = makeItem()
+        let smart = item.name
+        #expect(item.presentedName(holdingOption: true) == item.draft.preview.name)
+        #expect(item.presentedName(holdingOption: false) == smart)
+        item.name = "My title"
+        #expect(item.presentedName(holdingOption: true) == item.draft.preview.name)
+        #expect(item.presentedName(holdingOption: false) == "My title")
+        #expect(item.name == "My title")
+    }
+
     @Test("deselected files are excluded from downloading and renaming")
     func selectionReachesSubmission() throws {
         let item = makeItem()
