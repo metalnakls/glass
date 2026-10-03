@@ -152,7 +152,7 @@ struct TorrentListView: View {
             .fill(selected ? Color(white: colorScheme == .dark ? 0.21 : 1) : .clear)
             .overlay {
                 if selected && selectedHDRWhite > 0 {
-                    RoundedRectangle(cornerRadius: 12, style: .circular)
+                    Ellipse()
                         .fill(selectedSurface)
                         .padding(-selectedHDRSpread)
                         .blur(radius: selectedHDRSoftness)
