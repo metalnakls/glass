@@ -109,7 +109,35 @@ final class TorrentFolderMotion {
                 flight.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
                 layer.add(flight, forKey: "folderFlight")
             }
-            try? await Task.sleep(for: .milliseconds(300))
+            try? await Task.sleep(for: .milliseconds(270))
+            guard !Task.isCancelled, self.generation == token else { return }
+            // Native rows have now settled. Re-measure the destination and give
+            // the image a gentle tail from its current presentation position.
+            table.layoutSubtreeIfNeeded()
+            for (slot, id) in self.members.enumerated() {
+                guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
+                let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
+                let current = layer.presentation() ?? layer
+                let position = CABasicAnimation(keyPath: "position")
+                position.fromValue = current.position; position.toValue = target.center
+                let size = CABasicAnimation(keyPath: "bounds.size")
+                size.fromValue = current.bounds.size; size.toValue = target.size
+                let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+                rotation.fromValue = current.value(forKeyPath: "transform.rotation.z") ?? 0
+                rotation.toValue = target.angle
+                CATransaction.begin(); CATransaction.setDisableActions(true)
+                layer.position = target.center; layer.bounds.size = target.size
+                layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
+                CATransaction.commit()
+                let tail = CAAnimationGroup()
+                tail.animations = [position, size, rotation]; tail.duration = 0.18
+                tail.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+                layer.add(tail, forKey: "folderFlight")
+            }
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled, self.generation == token else { return }
+            self.flyingIDs = []
+            try? await Task.sleep(for: .milliseconds(16))
             guard !Task.isCancelled, self.generation == token else { return }
             self.cancel()
         }

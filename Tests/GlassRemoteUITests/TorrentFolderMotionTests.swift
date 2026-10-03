@@ -41,6 +41,19 @@ struct TorrentFolderMotionTests {
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
         #expect(animation.duration == 0.30)
         #expect(motion.flyingIDs.count == 2)
+        // Row geometry can finish changing after the initial flight starts.
+        // Keep the overlay alive for a separate, remeasured settle tail.
+        table.rowHeight = 60
+        table.reloadData()
+        var tail: CAAnimation?
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(10))
+            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.18 {
+                tail = candidate; break
+            }
+        }
+        #expect(tail != nil)
+        #expect(motion.flyingIDs.count == 2)
         motion.cancel()
         #expect(motion.flyingIDs.isEmpty)
         #expect(flights.allSatisfy { $0.superlayer == nil })
