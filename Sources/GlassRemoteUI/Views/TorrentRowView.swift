@@ -18,6 +18,7 @@ struct TorrentRowView: View, Equatable {
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
     @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppearanceStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppearanceStorage("GlassList.stateGlass") private var stateGlass = true
     @AppearanceStorage("GlassList.progressFilled") private var progressFilled = false
     var groupIsExpanded: Bool?
     var groupCount = 0
@@ -172,7 +173,7 @@ struct TorrentRowView: View, Equatable {
 
     private var transferButton: some View {
         ZStack {
-            if !progressFilled {
+            if !stateGlass && !progressFilled {
                 Circle()
                     .stroke(Color.primary.opacity(0.12), lineWidth: progressLineWidth)
                     .allowsHitTesting(false)
@@ -198,7 +199,12 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var stateControl: some View {
-        if shareUnavailable || torrent.isCompleted {
+        if stateGlass {
+            Button(action: requestStateChange) { stateGlyph.frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28) }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .allowsHitTesting(!shareUnavailable && !torrent.isCompleted && pendingRunning == nil)
+        } else if shareUnavailable || torrent.isCompleted {
             stateImage
         } else {
             Button(action: requestStateChange) { stateImage }

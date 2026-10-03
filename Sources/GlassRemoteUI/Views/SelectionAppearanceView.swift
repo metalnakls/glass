@@ -29,6 +29,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
     @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppearanceStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppearanceStorage("GlassList.stateGlass") private var stateGlass = true
     @AppearanceStorage("GlassList.progressFilled") private var progressFilled = false
     @AppearanceStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
     @AppearanceStorage("GlassList.headerFadeStrengthDark") private var headerFadeStrengthDark = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
@@ -82,6 +83,7 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Extra header push lead", value: $headerPushLead, range: 0...120)
                 Divider()
                 Text("State Button").font(.subheadline.weight(.semibold))
+                Toggle("Glass state button", isOn: $stateGlass)
                 shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
                 shadowSlider("Progress glow blur", value: $progressGlowBlur, range: 0...16)
                 shadowSlider("Progress glow strength", value: $progressGlowStrength, range: 0...2)
@@ -107,7 +109,7 @@ public struct SelectionAppearanceView: View {
                     headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
                     headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 0
                     headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
-                    stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
+                    stateGlass = true; stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
                     leftPadding = 18; rightPadding = 18
                     itemVerticalPadding = 0
                     selectionEaseIn = 0.25
