@@ -14,13 +14,15 @@ struct TorrentRowView: View, Equatable {
     var thumbnailInput: TorrentThumbnailInput?
     let toggleTransfer: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         row
         .contentShape(Rectangle())
     }
 
     private var row: some View {
-        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
+        HStack(alignment: .center, spacing: density.showsIcon ? 14 : 10) {
             if density.showsIcon {
                 leadingIcon
             }
@@ -49,11 +51,11 @@ struct TorrentRowView: View, Equatable {
                 if groupIsExpanded {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 42)
+                        .frame(width: 44, height: 48)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     GroupFolderFanIcon(count: groupCount)
-                        .frame(width: 36, height: 42)
+                        .frame(width: 44, height: 48)
                 }
             }
             .buttonStyle(.plain)
@@ -62,8 +64,8 @@ struct TorrentRowView: View, Equatable {
         } else if showsActivityIcon {
             activityProgress
         } else {
-            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
-                .frame(width: 36, height: 42, alignment: .center)
+            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, size: 44, thumbnailInput: thumbnailInput)
+                .frame(width: 44, height: 48, alignment: .center)
         }
     }
 
@@ -73,7 +75,7 @@ struct TorrentRowView: View, Equatable {
         )
         .font(.system(size: 19, weight: .medium))
         .foregroundStyle(.secondary)
-        .frame(width: 36, height: 42, alignment: .center)
+        .frame(width: 44, height: 48, alignment: .center)
     }
 
     private var showsActivityIcon: Bool {
@@ -81,21 +83,15 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var torrentContent: some View {
-        VStack(alignment: .leading) {
-            titleLine
-            ProgressView(value: torrent.percentDone, total: 1)
-                .controlSize(.small)
-                .tint(Color(nsColor: .secondaryLabelColor))
-                .accessibilityLabel("Download progress")
-        }
-        .foregroundStyle(Color.primary)
-        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        titleLine
+            .foregroundStyle(Color.primary)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(displayName(torrent.name))
-                .font(.body)
+                .font(.system(size: 16))
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(3)
@@ -124,23 +120,45 @@ struct TorrentRowView: View, Equatable {
 
     private var sizeLabel: some View {
         Text(formatBytes(torrent.sizeWhenDone))
-            .font(.caption)
+            .font(.system(size: 13))
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
     }
 
     private var transferButton: some View {
-        Button(action: toggleTransfer) {
-            Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
-                .imageScale(.medium)
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.10), lineWidth: 3)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+
+            Button(action: toggleTransfer) {
+                Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.regular)
+            .foregroundStyle(Color.primary)
+            .help(torrent.canStopTransfer ? "Pause" : "Resume")
+            .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
+            .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
-        .controlSize(.regular)
-        .foregroundStyle(Color.primary)
-        .help(torrent.canStopTransfer ? "Pause" : "Resume")
-        .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
+        .frame(width: 44, height: 44)
+        .padding(2)
+    }
+
+    private var progress: Double {
+        torrent.percentDone.isFinite ? min(max(torrent.percentDone, 0), 1) : 0
     }
 
     private var isFolderLike: Bool {
@@ -187,7 +205,7 @@ private struct GroupFolderFanIcon: View {
     var body: some View {
         ZStack {
             ForEach(0..<count, id: \.self) { index in
-                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                TorrentFileIcon(fileName: "", isFolder: true, size: 34)
                     .rotationEffect(rotation(for: index), anchor: .bottom)
                     .offset(offset(for: index))
                     .zIndex(Double(index))
