@@ -66,6 +66,7 @@ public struct GlassRootView: View {
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
 
         }
+        .tint(Color.gray)
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome())
         .ignoresSafeArea(.container, edges: .top)
