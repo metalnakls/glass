@@ -29,6 +29,7 @@ struct TorrentRowView: View, Equatable {
     var pendingOldName: String?
     var shareUnavailable = false
     var thumbnailInput: TorrentThumbnailInput?
+    var fileAction: ((TorrentFileActions.Action) -> Void)?
     let toggleTransfer: () async -> Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -69,10 +70,19 @@ struct TorrentRowView: View, Equatable {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
                         }
                     }
+                    .onTapGesture(count: 2) { if groupIsExpanded == nil { fileAction?(.open) } }
+                    .simultaneousGesture(TapGesture().onEnded {
+                        if groupIsExpanded == nil && NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                    })
                     .padding(.trailing, 12)
             }
 
             torrentContent
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { fileAction?(.open) }
+                .simultaneousGesture(TapGesture().onEnded {
+                    if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                })
             transferButton
                 .padding(.leading, stateGap)
         }

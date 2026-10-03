@@ -247,6 +247,7 @@ private struct TorrentInspectorContent: View {
             onSetWanted: { index, wanted in setFileWanted(in: details, index: index, wanted: wanted) },
             onSetPriority: { index, priority in setFilePriority(in: details, index: index, priority: priority) },
             onSetAllWanted: { wanted in setAllFiles(in: details, wanted: wanted) },
+            onFileAction: { row, action in performFileAction(row, details: details, action: action) },
             showsControls: showsControls,
             isCompact: true,
             stagesChanges: true,
@@ -269,6 +270,24 @@ private struct TorrentInspectorContent: View {
             }
         )
         .id(details.hashString)
+    }
+
+    private func performFileAction(_ row: TorrentFileTreeRow, details: TorrentDetails, action: TorrentFileActions.Action) {
+        guard let directory = details.downloadDir else { return }
+        let entries = fileEntries(for: details)
+        guard let entry = row.entry ?? entries.first(where: { row.indices.contains($0.index) }) else { return }
+        let path: String
+        if row.isFolder {
+            // Smart names are presentation-only; preserve the original disk path.
+            let displayDepth = entry.displayName.split(separator: "/").count
+            let original = entry.originalPath.split(separator: "/")
+            let hiddenParents = max(0, original.count - displayDepth)
+            path = original.prefix(hiddenParents + row.depth + 1).joined(separator: "/")
+        } else { path = entry.originalPath }
+        Task {
+            do { try await TorrentFileActions.shared.perform(action, sourceID: sourceID, directory: directory, path: path, isLocal: sourceID == model.localSourceID) }
+            catch { model.errorMessage = error.localizedDescription }
+        }
     }
 
     private func groupMemberName(_ torrent: TorrentSummary, group: TorrentNameSequenceGroup) -> String {

@@ -214,28 +214,9 @@ struct TorrentListView: View {
             return .handled
         }
         .onKeyPress(.space, phases: [.down]) { _ in
-            guard
-                records.first(where: { $0.id == selection })?.sourceID == model.localSourceID,
-                let selectedTorrent,
-                platformIntegration.canPreviewDownloadedItem(for: selectedTorrent)
-            else {
-                return .ignored
-            }
-            platformIntegration.previewDownloadedItem(for: selectedTorrent)
+            guard let row = presentation.rows.first(where: { $0.id == selection }) else { return .ignored }
+            performFileAction(for: row, action: .preview)
             return .handled
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(model.sources.filter { $0.refreshErrorMessage != nil }) { source in
-                    Label("\(model.sourceName(for: source.id)): \(source.records.isEmpty ? "Couldn’t connect" : "Showing last available torrents")", systemImage: "wifi.exclamationmark")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .help(source.refreshErrorMessage ?? "")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                }
-            }
         }
         .overlay {
             if records.isEmpty {
@@ -257,6 +238,7 @@ struct TorrentListView: View {
             folderIDs: row.groupMemberIDs.map { Array($0.prefix(3)) } ?? [],
             folderID: presentation.rows.first(where: { $0.groupMemberIDs?.prefix(3).contains(row.id) == true }) == nil ? nil : row.id,
             elevationController: elevationController,
+            fileAction: { performFileAction(for: row, action: $0) },
             density: density,
             model: model,
             platformIntegration: platformIntegration,
@@ -283,6 +265,22 @@ struct TorrentListView: View {
             }
             Task { await model.reorder(hashes(dragged), before: hashes(row), sourceID: row.sourceID) }
             return true
+        }
+    }
+
+    private func performFileAction(for row: TorrentListRowPresentation, action: TorrentFileActions.Action) {
+        let torrent: TorrentSummary
+        switch row.kind {
+        case let .torrent(record, _): torrent = record.summary
+        case let .group(records, _, _):
+            guard let first = records.first else { return }; torrent = first.summary
+        }
+        guard let directory = torrent.downloadDir else { return }
+        let details = model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: row.sourceID, including: [.files])
+        let path = details?.files.first?.name.split(separator: "/").first.map(String.init) ?? torrent.name
+        Task {
+            do { try await TorrentFileActions.shared.perform(action, sourceID: row.sourceID, directory: directory, path: path, isLocal: row.sourceID == model.localSourceID) }
+            catch { model.errorMessage = error.localizedDescription }
         }
     }
 
@@ -444,6 +442,7 @@ private struct TorrentListLiveRow: View {
     let folderIDs: [String]
     let folderID: String?
     let elevationController: TorrentListElevationController
+    let fileAction: (TorrentFileActions.Action) -> Void
     let density: TorrentRowDensity
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
@@ -473,6 +472,7 @@ private struct TorrentListLiveRow: View {
             pendingOldName: pendingOldName,
             shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
+            fileAction: fileAction,
             toggleTransfer: toggleTransfers
         )
         .equatable()

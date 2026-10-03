@@ -9,6 +9,7 @@ struct TorrentFilesBrowser: View {
     let onSetWanted: (Int, Bool) -> Void
     let onSetPriority: (Int, Int) -> Void
     let onSetAllWanted: (Bool) -> Void
+    var onFileAction: ((TorrentFileTreeRow, TorrentFileActions.Action) -> Void)?
     var showsControls = true
     var isCompact = false
     var thumbnailInput: ((TorrentFileBrowserEntry) -> TorrentThumbnailInput?)?
@@ -94,6 +95,10 @@ struct TorrentFilesBrowser: View {
                         }
                         .padding(.leading, CGFloat(row.depth) * 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                        .simultaneousGesture(TapGesture().onEnded {
+                            if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
+                        })
                     }
                     .contextMenu {
                         Button("High Priority", systemImage: "star.fill") { setPriority(row, 1) }
@@ -110,6 +115,19 @@ struct TorrentFilesBrowser: View {
                     Text(formatBytes(row.size)).monospacedDigit()
                         .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
                 }.width(68)
+            }
+            .contextMenu(forSelectionType: String.self) { ids in
+                if let row = rows.first(where: { ids.contains($0.id) }) {
+                    Button("High Priority", systemImage: "star.fill") { setPriority(row, 1) }
+                    Button("Normal Priority", systemImage: "minus") { setPriority(row, 0) }
+                    Button("Low Priority", systemImage: "arrow.down") { setPriority(row, -1) }
+                }
+            } primaryAction: { ids in
+                if let row = rows.first(where: { ids.contains($0.id) }) { onFileAction?(row, .open) }
+            }
+            .onKeyPress(.space, phases: [.down]) { _ in
+                guard let onFileAction, let row = rows.first(where: { nativeSelection.contains($0.id) }) else { return .ignored }
+                onFileAction(row, .preview); return .handled
             }
             .tableStyle(.inset)
             .controlSize(.small)
