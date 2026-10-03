@@ -74,6 +74,7 @@ final class TorrentListElevationController: NSObject {
     var dragSelectionChanged: ((String) -> Void)?
     private var dragMonitor: Any?
     private var dragStartedInTable = false
+    private var dragPoint: NSPoint?
     private var movementViews: [NSView] = []
     func configure(_ settings: TorrentShadowSettings) {
         self.settings = settings
@@ -117,6 +118,11 @@ final class TorrentListElevationController: NSObject {
         update(animated: changed)
     }
     func register(_ anchor: TorrentListElevationAnchor.Anchor) {
+        for key in anchors.keyEnumerator().allObjects as? [NSString] ?? [] {
+            if anchors.object(forKey: key) === anchor, key as String != anchor.rowID {
+                anchors.removeObject(forKey: key)
+            }
+        }
         anchors.setObject(anchor, forKey: anchor.rowID as NSString)
         updateSeparators()
         guard anchor.rowID == selectedID else { return }
@@ -145,7 +151,13 @@ final class TorrentListElevationController: NSObject {
         selectedAnchorID = nil
         anchors.removeAllObjects()
     }
-    @objc private func scrolled() { update(animated: false) }
+    @objc private func scrolled() {
+        if !dragStartedInTable {
+            surface.layer?.removeAnimation(forKey: "glide")
+            overlay.cancelMotion()
+        }
+        update(animated: false)
+    }
     private func trackSelectionDrag(_ event: NSEvent) {
         guard let table, event.window === table.window else { return }
         let point = table.convert(event.locationInWindow, from: nil)
@@ -160,11 +172,15 @@ final class TorrentListElevationController: NSObject {
             }
         } else if event.type == .leftMouseUp {
             dragStartedInTable = false
+            dragPoint = nil
+            update(animated: true)
         } else if dragStartedInTable, row >= 0, table.visibleRect.contains(point) {
             for anchor in anchors.objectEnumerator()?.allObjects as? [TorrentListElevationAnchor.Anchor] ?? [] {
                 guard anchor.window === table.window,
                       table.convert(anchor.bounds, from: anchor).contains(point) else { continue }
+                dragPoint = point
                 dragSelectionChanged?(anchor.rowID)
+                update(animated: false)
                 break
             }
         }
@@ -182,8 +198,12 @@ final class TorrentListElevationController: NSObject {
         }
         // The anchor fills the actual SwiftUI card background. Its bounds are
         // the single source of truth for the card, outline, cutout and shadows.
-        let rect = overlay.convert(selectedAnchor.bounds, from: selectedAnchor)
-        let surfaceRect = table.convert(selectedAnchor.bounds, from: selectedAnchor)
+        var surfaceRect = table.convert(selectedAnchor.bounds, from: selectedAnchor)
+        if let dragPoint, dragStartedInTable {
+            // Follow 78% of cursor travel, retaining a gentle attraction to the row.
+            surfaceRect.origin.y += (dragPoint.y - surfaceRect.midY) * 0.78
+        }
+        let rect = overlay.convert(surfaceRect, from: table)
         let visible = rect.intersects(overlay.bounds)
         let previous = surface.layer?.presentation()?.frame ?? surface.frame
         let previousOpacity = surface.layer?.presentation()?.opacity ?? surface.layer?.opacity ?? 0
@@ -197,7 +217,8 @@ final class TorrentListElevationController: NSObject {
         if visible && animated && wasVisible && previous != surfaceRect { motion &+= 1 }
         surface.rootView = SelectionSurface(settings: settings, entrance: entrance, motion: motion)
         CATransaction.commit()
-        if visible, animated, wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if dragStartedInTable { surface.layer?.removeAnimation(forKey: "glide") }
+        if visible, animated, wasVisible, !dragStartedInTable, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             surface.layer?.removeAnimation(forKey: "appear")
             animateFrame(surface.layer, from: previous, fromPosition: previousPosition, to: surfaceRect, duration: settings.easeIn)
         } else if visible, !wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
@@ -310,6 +331,11 @@ private final class ElevationOverlay: NSView {
     private let bottom = CALayer()
     private var displayedRect: CGRect?
     private var departing: CALayer?
+    func cancelMotion() {
+        top.removeAllAnimations()
+        bottom.removeAllAnimations()
+        (layer?.mask as? CAShapeLayer)?.removeAllAnimations()
+    }
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     init() {
