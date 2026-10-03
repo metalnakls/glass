@@ -131,7 +131,7 @@ struct TorrentListPresentationTests {
         #expect(secondName == nil)
     }
 
-    @Test("season folders display their series title before and after grouping")
+    @Test("season folders keep a series group title and short child names")
     func seasonFolderNamesInLibrary() throws {
         let sourceID = UUID()
         let seasons = [4, 5].map { season in
@@ -157,10 +157,10 @@ struct TorrentListPresentationTests {
             guard case let .torrent(_, name) = row.kind else { return nil }
             return name
         }
-        #expect(names == ["Fargo 4", "Fargo 5"])
+        #expect(names == ["Season 4", "Season 5"])
     }
 
-    @Test("seasons sharing one flat root still group by their saved names")
+    @Test("seasons sharing one flat root retain grouping with short child names")
     func flatSeasonFolderNames() throws {
         let sourceID = UUID()
         let seasons = [4, 5].map { season in
@@ -180,7 +180,7 @@ struct TorrentListPresentationTests {
             guard case let .torrent(_, name) = row.kind else { return nil }
             return name
         }
-        #expect(names == ["Fargo 4", "Fargo 5"])
+        #expect(names == ["Season 4", "Season 5"])
         #expect(seasons.allSatisfy { $0.summary.name == "Fargo" && $0.summary.downloadDir == "/Volumes/and" })
     }
 

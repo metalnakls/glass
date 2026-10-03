@@ -258,6 +258,15 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
         self.wasCompleted = wasCompleted
     }
 
+    static func commonRoot(paths: [String]) -> String? {
+        guard let first = paths.first?.split(separator: "/").first, !paths.isEmpty,
+              paths.allSatisfy({ path in
+                  let parts = path.split(separator: "/")
+                  return parts.count > 1 && parts.first == first
+              }) else { return nil }
+        return String(first)
+    }
+
     static func relativePath(_ path: String, removingRoot rootName: String) -> String {
         let rootPrefix = rootName + "/"
         guard path.hasPrefix(rootPrefix) else { return path }

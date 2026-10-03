@@ -326,12 +326,13 @@ private struct TorrentInspectorContent: View {
     }
 
     private func fileEntries(for details: TorrentDetails) -> [TorrentFileBrowserEntry] {
-        details.files.enumerated().map { index, file in
+        let root = TorrentFileBrowserEntry.commonRoot(paths: details.files.map(\.name)) ?? details.name
+        return details.files.enumerated().map { index, file in
             let stats = details.fileStats.indices.contains(index) ? details.fileStats[index] : nil
             return TorrentFileBrowserEntry(
                 index: index,
                 file: file,
-                rootName: details.name,
+                rootName: root,
                 completedBytes: stats?.bytesCompleted,
                 isWanted: stats?.wanted ?? true,
                 priority: stats?.priority ?? 0,

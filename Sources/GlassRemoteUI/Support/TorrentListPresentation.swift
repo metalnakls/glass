@@ -254,7 +254,7 @@ struct TorrentListRowPresentation: Identifiable {
                 ))
                 if isExpanded {
                     rows.append(contentsOf: memberRecords.map { record in
-                        let displayName = pendingRenameNames[record.id] ?? record.displayName ?? seasonDisplayName(record.summary)
+                        let displayName = pendingRenameNames[record.id] ?? groupMemberDisplayName(record, groupName: group.displayName)
                         return TorrentListRowPresentation(
                             id: record.id,
                             kind: .torrent(record: record, displayName: displayName)
@@ -264,6 +264,15 @@ struct TorrentListRowPresentation: Identifiable {
             }
         }
         return rows
+    }
+
+    static func groupMemberDisplayName(_ record: TorrentRecord, groupName: String) -> String {
+        let name = record.displayName ?? record.summary.name
+        let suffix = name.hasPrefix(groupName) ? String(name.dropFirst(groupName.count)) : name
+        let cleaned = suffix.replacingOccurrences(of: #"(?i)^\s*(?:season|s)[\s._-]*"#, with: "", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let season = Int(cleaned), season > 0 { return "Season \(season)" }
+        return name
     }
 
     private static func seasonDisplayName(_ torrent: TorrentSummary) -> String? {

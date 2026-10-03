@@ -350,7 +350,7 @@ private struct TorrentBatchGroupEditor: View {
             TorrentFileBrowserEntry(
                 index: index,
                 file: file,
-                rootName: item.draft.preview.name,
+                rootName: TorrentFileBrowserEntry.commonRoot(paths: item.draft.preview.files.map(\.name)) ?? item.draft.preview.name,
                 displayName: renamedFiles[file.name],
                 isWanted: item.selectedFileIndices.contains(index),
                 priority: item.filePriorities[index] ?? 0

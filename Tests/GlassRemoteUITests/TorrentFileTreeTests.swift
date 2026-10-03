@@ -23,6 +23,17 @@ struct TorrentFileTreeTests {
         #expect(!session.hasChanges && !session.hasSelection)
     }
 
+    @Test("renamed torrent roots do not repeat the series above seasons")
+    func renamedRoot() {
+        let paths = ["Fargo.original/Season 1/S01E01.mkv", "Fargo.original/Season 2/S02E01.mkv"]
+        let root = TorrentFileBrowserEntry.commonRoot(paths: paths) ?? "Fargo"
+        let entries = paths.enumerated().map { index, path in
+            TorrentFileBrowserEntry(index: index, file: TorrentFile(name: path, length: 10, bytesCompleted: 0), rootName: root)
+        }
+        #expect(TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "").map(\.name) == ["Season 1", "S01E01.mkv", "Season 2", "S02E01.mkv"])
+        #expect(TorrentFileBrowserEntry.commonRoot(paths: ["a.mkv", "b.mkv"]) == nil)
+    }
+
     @Test("nested folders preserve file indices and aggregate sizes when collapsed or searched")
     func hierarchy() {
         let entries = ["Show/Season 1/S01E01.mkv", "Show/Season 1/Subtitles/en.srt", "Show/Season 2/S02E01.mkv"].enumerated().map { index, path in
