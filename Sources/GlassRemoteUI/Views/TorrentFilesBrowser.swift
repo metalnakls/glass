@@ -19,6 +19,7 @@ struct TorrentFilesBrowser: View {
     var editSession: TorrentFileEditSession?
     var editID = ""
     var showsActionBar = true
+    var onSetPriorities: (([Int], Int) -> Void)?
     @State private var localSelection = Set<Int>()
     @State private var localWanted: [Int: Bool] = [:]
     private var selection: Set<Int> {
@@ -54,10 +55,10 @@ struct TorrentFilesBrowser: View {
             LazyVStack(spacing: 0) {
                 ForEach(rows) { row in
                     TorrentSwipeRow(selected: !selection.isDisjoint(with: row.indices), remove: { higher in
-                        for index in row.indices {
-                            let current = byIndex[index]?.priority ?? 0
-                            onSetPriority(index, min(1, max(-1, current + (higher ? 1 : -1))))
+                        let grouped = Dictionary(grouping: row.indices) { index in
+                            min(1, max(-1, (byIndex[index]?.priority ?? 0) + (higher ? 1 : -1)))
                         }
+                        for (priority, indices) in grouped { applyPriority(indices, priority) }
                     }, presentationChanged: { _ in },
                     leading: .init(name: "Lower priority", symbol: "arrow.down", color: .gray),
                     trailing: .init(name: "Raise priority", symbol: "arrow.up", color: .gray)) {
@@ -152,7 +153,11 @@ struct TorrentFilesBrowser: View {
     }
     private func setPriority(_ row: TorrentFileTreeRow, _ value: Int) {
         let indices = selection.contains(row.indices.first ?? -1) ? Array(selection) : row.indices
-        for index in indices { onSetPriority(index, value) }
+        applyPriority(indices, value)
+    }
+    private func applyPriority(_ indices: [Int], _ value: Int) {
+        if let onSetPriorities { onSetPriorities(indices, value) }
+        else { for index in indices { onSetPriority(index, value) } }
     }
     private func statusSymbol(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> String {
         let members = row.indices.compactMap { byIndex[$0] }

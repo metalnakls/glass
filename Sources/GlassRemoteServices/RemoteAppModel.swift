@@ -889,6 +889,14 @@ public final class RemoteAppModel {
         }
         if didRemove {
             stopWatching(sourceID: sourceID, hashStrings: Set(ids))
+            let state = sourceState(for: sourceID)
+            state.records.removeAll { ids.contains($0.hashString) }
+            state.structureRevision &+= 1
+            if var cached = torrentCache[sourceID] {
+                cached.torrents.removeAll { ids.contains($0.hashString) }
+                torrentCache[sourceID] = cached
+                persistTorrentCache()
+            }
             let remaining = Set(sourceState(for: sourceID).records.filter { !ids.contains($0.hashString) }.map(\.id))
             pruneTorrentDisplayNames(sourceID: sourceID, keeping: remaining)
         }
@@ -1131,7 +1139,9 @@ public final class RemoteAppModel {
 
         do {
             torrentCache = Dictionary(uniqueKeysWithValues: try profileStore.loadTorrentCache().map { ($0.profileID, $0) })
+            let storedCount = torrentCache.count
             trimTorrentCache()
+            if torrentCache.count != storedCount { persistTorrentCache() }
         } catch {
             torrentCache = [:]
         }

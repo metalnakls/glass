@@ -85,6 +85,7 @@ final class TorrentListElevationController: NSObject {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
         detach()
         self.table = table
+        table.floatsGroupRows = true
         table.addSubview(separators, positioned: .below, relativeTo: nil)
         table.addSubview(surface, positioned: .above, relativeTo: separators)
         dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in

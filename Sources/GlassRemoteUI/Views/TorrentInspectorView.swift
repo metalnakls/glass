@@ -258,7 +258,10 @@ private struct TorrentInspectorContent: View {
             onSmartRename: { Task { await model.smartRename(details, sourceID: sourceID) } },
             editSession: editSession,
             editID: details.hashString,
-            showsActionBar: false
+            showsActionBar: false,
+            onSetPriorities: { indices, priority in
+                Task { await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID) }
+            }
         )
         .id(details.hashString)
     }

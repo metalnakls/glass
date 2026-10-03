@@ -418,7 +418,7 @@ struct RemoteAppModelTests {
         let profiles = (0..<6).map { index in RemoteProfile(id: UUID(), name: "Server \(index)", rpcURL: URL(string: "http://server\(index)/rpc")!, username: "") }
         let store = MemoryProfileStore(profiles: profiles)
         try store.savePreferences(GlassRemotePreferences(isTorrentCachingEnabled: false, cachedServerLimit: 1))
-        let cached = TorrentSummary(id: 55, hashString: "cached", name: "Cached", status: 0, percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 0, eta: -1, uploadRatio: 0, peersConnected: nil)
+        let cached = TorrentSummary(id: 55, hashString: "cached", name: "Cached", status: 0, percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 0, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
         try store.saveTorrentCache(profiles.enumerated().map { index, profile in
             CachedTorrentList(profileID: profile.id, torrents: [cached], refreshedAt: index == 5 ? Calendar.current.date(byAdding: .month, value: -3, to: Date())! : Date())
         })
