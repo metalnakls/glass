@@ -64,7 +64,7 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
                     Text(section.title)
-                        .font(.caption.weight(.semibold))
+                        .font(.title3.weight(.semibold))
                         .foregroundStyle(.secondary)
                         .padding(.vertical, 8)
                         .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
