@@ -8,6 +8,9 @@ struct TorrentRowView: View, Equatable {
     var showsExtensions = false
     var density: TorrentRowDensity = .regular
     var grid = false
+    var folderMotion: Namespace.ID?
+    var folderIDs: [String] = []
+    var folderID: String?
     @State private var clickRevision = 0
     var groupIsExpanded: Bool?
     var groupCount = 0
@@ -50,6 +53,8 @@ struct TorrentRowView: View, Equatable {
             && lhs.showsExtensions == rhs.showsExtensions
             && lhs.density == rhs.density
             && lhs.grid == rhs.grid
+            && lhs.folderIDs == rhs.folderIDs
+            && lhs.folderID == rhs.folderID
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
@@ -70,7 +75,7 @@ struct TorrentRowView: View, Equatable {
                         .contentShape(Rectangle())
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    GroupFolderFanIcon(count: groupCount)
+                    GroupFolderFanIcon(count: groupCount, namespace: folderMotion, ids: folderIDs)
                         .frame(width: 36, height: 42)
                 }
             }
@@ -79,6 +84,10 @@ struct TorrentRowView: View, Equatable {
             .accessibilityLabel(groupIsExpanded ? "Collapse Group" : "Expand Group")
         } else if showsActivityIcon {
             activityProgress
+        } else if let folderID, let folderMotion {
+            TorrentFileIcon(fileName: "", isFolder: true)
+                .matchedGeometryEffect(id: folderID, in: folderMotion)
+                .frame(width: 36, height: 42)
         } else {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
                 .frame(width: 36, height: 42, alignment: .center)
@@ -244,17 +253,27 @@ enum TorrentRowDensity: Equatable {
 
 private struct GroupFolderFanIcon: View {
     let count: Int
+    var namespace: Namespace.ID?
+    var ids: [String] = []
 
     var body: some View {
         ZStack {
             ForEach(0..<count, id: \.self) { index in
-                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                fanIcon(index)
                     .rotationEffect(rotation(for: index), anchor: .bottom)
                     .offset(offset(for: index))
                     .zIndex(Double(index))
             }
         }
         .accessibilityHidden(true)
+    }
+
+    @ViewBuilder
+    private func fanIcon(_ index: Int) -> some View {
+        if let namespace, ids.indices.contains(index) {
+            TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                .matchedGeometryEffect(id: ids[index], in: namespace)
+        } else { TorrentFileIcon(fileName: "", isFolder: true, size: 27) }
     }
 
     private func rotation(for index: Int) -> Angle {

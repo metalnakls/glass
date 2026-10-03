@@ -32,6 +32,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
+    @Namespace private var folderMotion
     @State private var swipingRowID: String?
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -205,6 +206,9 @@ struct TorrentListView: View {
             sidePadding: grid ? 0 : sidePadding,
             grid: grid,
             rowHeight: densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60,
+            folderMotion: folderMotion,
+            folderIDs: row.groupMemberIDs.map { Array($0.prefix(3)) } ?? [],
+            folderID: presentation.rows.first(where: { $0.groupMemberIDs?.prefix(3).contains(row.id) == true }) == nil ? nil : row.id,
             elevationController: elevationController,
             density: density,
             model: model,
@@ -360,6 +364,9 @@ private struct TorrentListLiveRow: View {
     let sidePadding: CGFloat
     let grid: Bool
     let rowHeight: CGFloat
+    let folderMotion: Namespace.ID
+    let folderIDs: [String]
+    let folderID: String?
     let elevationController: TorrentListElevationController
     let density: TorrentRowDensity
     let model: RemoteAppModel
@@ -379,6 +386,9 @@ private struct TorrentListLiveRow: View {
             showsExtensions: showExtensions,
             density: density,
             grid: grid,
+            folderMotion: folderMotion,
+            folderIDs: folderIDs,
+            folderID: folderID,
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
