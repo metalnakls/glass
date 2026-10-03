@@ -357,6 +357,7 @@ struct TorrentFileIcon: View {
     let isFolder: Bool
     var size: CGFloat = 36
     var thumbnailInput: TorrentThumbnailInput?
+    @Environment(\.glassSampleArtwork) private var sampleArtwork
     @State private var thumbnail: NSImage?
     @State private var isVisible = false
     @State private var artworkTint = Color.black
@@ -381,6 +382,11 @@ struct TorrentFileIcon: View {
             .shadow(color: (coloredShadows && thumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.22 : 0), radius: 6, y: 5)
             .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
             .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
+                if sampleArtwork {
+                    let image = TorrentSampleArtwork.image(for: fileName)
+                    thumbnail = image; artworkTint = TorrentArtworkTint.color(image)
+                    return
+                }
                 guard let input = thumbnailInput, !isFolder else { thumbnail = nil; return }
                 guard isVisible else { return }
                 thumbnail = TorrentThumbnailService.shared.cachedImage(for: input)

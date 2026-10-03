@@ -106,9 +106,8 @@ private struct GlassCommands: Commands {
             Toggle("Show Extensions", isOn: $showExtensions)
             if ProcessInfo.processInfo.arguments.contains("--tune-appearance") {
                 Divider()
-                Button("Selection Appearance…") {
-                    SelectionAppearanceWindow.show()
-                }
+                Button("Selection Appearance…") { SelectionAppearanceWindow.show() }
+                Button("Test Torrents…") { TorrentTestWindow.show() }
             }
         }
 

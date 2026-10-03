@@ -5,6 +5,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 public struct GlassRootView: View {
+    private let isTestWorkspace: Bool
     private let model: RemoteAppModel
     private let platformIntegration: any GlassPlatformIntegrating
 
@@ -30,8 +31,10 @@ public struct GlassRootView: View {
 
     public init(
         model: RemoteAppModel,
-        platformIntegration: any GlassPlatformIntegrating = UnavailableGlassPlatformIntegration.shared
+        platformIntegration: any GlassPlatformIntegrating = UnavailableGlassPlatformIntegration.shared,
+        isTestWorkspace: Bool = false
     ) {
+        self.isTestWorkspace = isTestWorkspace
         self.model = model
         self.platformIntegration = platformIntegration
     }
@@ -170,8 +173,8 @@ public struct GlassRootView: View {
         .onAppear {
             model.selectedTorrentGroup = .all
             persistSelectedSourceID()
-            model.setApplicationActive(scenePhase == .active)
-            if openURLRegistrationID == nil {
+            model.setApplicationActive(isTestWorkspace || scenePhase == .active)
+            if !isTestWorkspace, openURLRegistrationID == nil {
                 openURLRegistrationID = GlassOpenURLRouter.shared.register { urls in
                     openURLs(urls)
                 }
@@ -190,12 +193,12 @@ public struct GlassRootView: View {
             persistSelectedSourceID()
         }
         .onChange(of: scenePhase) { _, phase in
-            model.setApplicationActive(phase == .active)
+            model.setApplicationActive(isTestWorkspace || phase == .active)
         }
         .task(id: selectedTorrentID) {
             await loadSelectedTorrentDetails()
         }
-        .focusedSceneValue(\.glassCommandActions, commandActions)
+        .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
     }
 
     private var selectedRecord: TorrentRecord? {
@@ -293,6 +296,7 @@ public struct GlassRootView: View {
     }
 
     private func persistSelectedSourceID() {
+        guard !isTestWorkspace else { return }
         storedSelectedSourceID = model.selectedSourceID.uuidString
     }
 

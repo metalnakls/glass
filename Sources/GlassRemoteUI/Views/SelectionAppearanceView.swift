@@ -65,6 +65,7 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
+                Button("Test Torrents…") { TorrentTestWindow.show() }
                 Toggle("Lowercase section titles", isOn: $lowercaseTitles)
                 Toggle("Fun mode", isOn: $funMode)
                 if funMode {
