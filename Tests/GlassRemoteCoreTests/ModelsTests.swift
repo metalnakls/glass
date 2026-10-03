@@ -4,6 +4,22 @@ import Testing
 
 @Suite("Core models")
 struct ModelsTests {
+    @Test("unfinished counts paused partial downloads but respects skipped files")
+    func unfinishedDefinition() throws {
+        let data = try JSONEncoder().encode(makeTorrent(status: 0, percentDone: 1))
+        var object = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        // The entire payload is only 75% present, but all wanted files are done.
+        object["percentComplete"] = 0.75
+        let skipped = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(skipped.isCompleted)
+        #expect(!skipped.isUnfinished)
+        object["error"] = 3
+        let unavailable = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(unavailable.isUnfinished)
+        #expect(makeTorrent(status: 0, percentDone: 0).isUnfinished)
+        #expect(makeTorrent(status: 0, percentDone: 0.5).isUnfinished)
+    }
+
     @Test("storage errors survive RPC decoding and old cached summaries remain readable")
     func storageErrorCoding() throws {
         let encoded = try JSONEncoder().encode(makeTorrent())

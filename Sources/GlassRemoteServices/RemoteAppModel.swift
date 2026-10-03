@@ -254,9 +254,9 @@ public final class RemoteAppModel {
         case .all:
             return torrents
         case .downloading:
-            return torrents.filter(\.isDownloading)
+            return torrents.filter(\.isUnfinished)
         case .completed:
-            return torrents.filter(\.isCompleted)
+            return torrents.filter { !$0.isUnfinished }
         }
     }
 

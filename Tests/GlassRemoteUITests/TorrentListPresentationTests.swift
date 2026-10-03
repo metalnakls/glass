@@ -150,14 +150,14 @@ struct TorrentListPresentationTests {
         #expect(TorrentLibraryFilter.records(all, group: .all).map(\.id) == all.map(\.id))
     }
 
-    @Test("filter preserves flat-root display aliases and active finished torrents")
+    @Test("filter preserves aliases and excludes downloads already finished in full")
     func filterUsesAliasesAndActiveState() throws {
         let source = UUID()
         let first = filterRecord(source, season: 4, complete: true, rawName: "Fargo", displayName: "Fargo 4")
         let second = filterRecord(source, season: 5, complete: false, rawName: "Fargo", displayName: "Fargo 5")
         #expect(TorrentLibraryFilter.records([first, second], group: .downloading).count == 2)
         let active = filterRecord(source, season: 1, complete: true, downloading: true)
-        #expect(TorrentLibraryFilter.records([active], group: .downloading).count == 1)
+        #expect(TorrentLibraryFilter.records([active], group: .downloading).isEmpty)
         let lone = filterRecord(source, season: 2, complete: false, rawName: "Movie.mkv")
         #expect(TorrentLibraryFilter.records([lone], group: .downloading).count == 1)
     }

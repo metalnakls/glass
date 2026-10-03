@@ -24,8 +24,8 @@ enum TorrentLibraryFilter {
             case let .group(records, _, _): members = records
             }
             let matches = group == .downloading
-                ? members.contains { $0.isDownloading || !$0.isCompleted }
-                : members.allSatisfy(\.isCompleted)
+                ? members.contains { $0.summary.isUnfinished }
+                : members.allSatisfy { !$0.summary.isUnfinished }
             if matches { included.formUnion(members.map(\.id)) }
         }
         return records.filter { included.contains($0.id) }
