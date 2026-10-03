@@ -191,6 +191,8 @@ struct TorrentRowView: View, Equatable {
             .fixedSize(horizontal: true, vertical: false)
     }
 
+    private var stateDiameter: CGFloat { density == .compact && !grid ? 24 : 36 }
+
     private var transferButton: some View {
         ZStack {
             if !stateGlass && !progressFilled {
@@ -212,7 +214,7 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityLabel(stateLabel)
                 .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .frame(width: density == .compact && !grid ? 24 : 36, height: density == .compact && !grid ? 24 : 36)
+        .frame(width: stateDiameter, height: stateDiameter)
         .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
         .padding(2)
     }
@@ -220,7 +222,7 @@ struct TorrentRowView: View, Equatable {
     @ViewBuilder
     private var stateControl: some View {
         if stateGlass {
-            Button(action: requestStateChange) { stateGlyph.frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28) }
+            Button(action: requestStateChange) { stateGlyph.frame(width: stateDiameter, height: stateDiameter) }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
                 .allowsHitTesting(!shareUnavailable && !torrent.isCompleted && pendingRunning == nil)
