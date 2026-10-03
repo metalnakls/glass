@@ -67,7 +67,7 @@ struct TorrentListView: View {
                         ForEach(section.rows) { row in
                             liveRow(for: row)
                                 .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
+                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                                 .listRowSeparator(.hidden)
                                 .listItemTint(.monochrome)
                                 .tag(row.id)
@@ -179,6 +179,7 @@ struct TorrentListView: View {
         TorrentListLiveRow(
             row: row,
             isSelected: selection == row.id,
+            sidePadding: sidePadding,
             elevationController: elevationController,
             density: density,
             model: model,
@@ -318,6 +319,7 @@ private struct TorrentListLiveRow: View {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
     let isSelected: Bool
+    let sidePadding: CGFloat
     let elevationController: TorrentListElevationController
     let density: TorrentRowDensity
     let model: RemoteAppModel
@@ -331,6 +333,7 @@ private struct TorrentListLiveRow: View {
     let toggleTransfers: () -> Void
 
     var body: some View {
+        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
@@ -353,21 +356,10 @@ private struct TorrentListLiveRow: View {
                 .padding(.vertical, 3)
         }
         .glassContextMenu(select: select) { contextMenuContent }
-        .glassFlatSwipeActions(onPresentationChanged: swipePresentationChanged) {
-            Button("Delete Torrent + Data", systemImage: "trash", role: .destructive) {
-                removeRow(deleteData: true)
-            }
-            .labelStyle(.iconOnly)
-            .help("Delete Torrent + Data")
-            .tint(.red)
-            Button("Delete Torrent", systemImage: "xmark") {
-                removeRow(deleteData: false)
-            }
-            .labelStyle(.iconOnly)
-            .help("Delete Torrent")
-            .tint(.yellow)
+        .padding(.horizontal, sidePadding + 16)
         }
     }
+
 
     @ViewBuilder
     var contextMenuContent: some View {
