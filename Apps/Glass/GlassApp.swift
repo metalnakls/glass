@@ -81,6 +81,7 @@ struct GlassApp: App {
 private struct GlassCommands: Commands {
     let updaterController: SPUStandardUpdaterController?
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
+    @AppStorage("GlassList.density") private var density = 1
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
@@ -94,6 +95,9 @@ private struct GlassCommands: Commands {
         }
 
         CommandGroup(after: .toolbar) {
+            Button("Make Smaller") { density = max(0, density - 1) }.keyboardShortcut("-", modifiers: .command)
+            Button("Make Larger") { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
+            Divider()
             Toggle("Show Extensions", isOn: $showExtensions)
             if ProcessInfo.processInfo.arguments.contains("--tune-appearance") {
                 Divider()

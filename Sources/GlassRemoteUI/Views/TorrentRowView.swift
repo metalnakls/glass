@@ -96,7 +96,7 @@ struct TorrentRowView: View, Equatable {
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(displayName(torrent.name))
-                .font(.body)
+                .font(density == .compact ? .callout : .body)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(3)

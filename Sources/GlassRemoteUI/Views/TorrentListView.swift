@@ -28,6 +28,7 @@ struct TorrentListView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
+    @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
     @State private var swipingRowID: String?
@@ -56,7 +57,7 @@ struct TorrentListView: View {
     }
 
     private var density: TorrentRowDensity {
-        columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - 2 * sidePadding)) : .regular
+        densityLevel == 0 ? .compact : (columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - 2 * sidePadding)) : .regular)
     }
 
     var body: some View {
@@ -93,7 +94,7 @@ struct TorrentListView: View {
                     value: proxy.size.width
                 )
             })
-            .environment(\.defaultMinListRowHeight, 60)
+            .environment(\.defaultMinListRowHeight, densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectStyle(.soft, for: .top)
@@ -180,6 +181,7 @@ struct TorrentListView: View {
             row: row,
             isSelected: selection == row.id,
             sidePadding: sidePadding,
+            rowHeight: densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60,
             elevationController: elevationController,
             density: density,
             model: model,
@@ -320,6 +322,7 @@ private struct TorrentListLiveRow: View {
     let row: TorrentListRowPresentation
     let isSelected: Bool
     let sidePadding: CGFloat
+    let rowHeight: CGFloat
     let elevationController: TorrentListElevationController
     let density: TorrentRowDensity
     let model: RemoteAppModel
@@ -347,7 +350,7 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
-        .frame(minHeight: 60)
+        .frame(minHeight: rowHeight)
         .background {
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
