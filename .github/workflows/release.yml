@@ -85,7 +85,7 @@ jobs:
       - name: Package update
         run: |
           mkdir -p dist
-          ZIP="dist/Glass-${VERSION}.zip"
+          ZIP="dist/Glass.zip"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "$ZIP"
           echo "ZIP=$ZIP" >> "$GITHUB_ENV"
 
@@ -111,7 +111,7 @@ jobs:
         run: |
           TAG="v${VERSION}"
           ASSET_NAME="$(basename "$ZIP")"
-          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/$TAG/$ASSET_NAME"
+          DOWNLOAD_URL="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Glass.zip"
           PUB_DATE="$(LC_ALL=C date -u '+%a, %d %b %Y %H:%M:%S %z')"
 
           cat > "$RUNNER_TEMP/appcast.xml" <<EOF
