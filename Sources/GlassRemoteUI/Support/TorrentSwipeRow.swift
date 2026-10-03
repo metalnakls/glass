@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A full-width action plane under a moving foreground. Native scroll events
-/// drive it; row padding belongs to the foreground and never clips the buttons.
+/// Native trackpad deltas move the foreground; actions are cut out behind its rounded frame.
 struct TorrentSwipeRow<Content: View>: View {
     struct Action {
         let name: String
@@ -15,67 +14,120 @@ struct TorrentSwipeRow<Content: View>: View {
     let remove: (Bool) -> Void
     let presentationChanged: (Bool) -> Void
     let selected: Bool
+    var commitsOnRelease: Bool
+    var foregroundInset: CGFloat
     @State private var offset: CGFloat = 0
+    @State private var width: CGFloat = 300
+    @State private var committed = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorScheme) private var colorScheme
 
     init(selected: Bool, remove: @escaping (Bool) -> Void, presentationChanged: @escaping (Bool) -> Void,
+         commitsOnRelease: Bool = false, foregroundInset: CGFloat = 0,
          leading: Action = Action(name: "Delete Torrent", symbol: "xmark", color: .yellow),
          trailing: Action = Action(name: "Delete Torrent + Data", symbol: "trash", color: .red),
          @ViewBuilder content: () -> Content) {
-        self.selected = selected
-        self.leading = leading
-        self.trailing = trailing
-        self.remove = remove
-        self.presentationChanged = presentationChanged
+        self.selected = selected; self.leading = leading; self.trailing = trailing
+        self.remove = remove; self.presentationChanged = presentationChanged
+        self.commitsOnRelease = commitsOnRelease; self.foregroundInset = foregroundInset
         self.content = content()
     }
 
+    private var fullThreshold: CGFloat { max(180, width * 0.55) }
     var body: some View {
-        ZStack(alignment: .trailing) {
+        ZStack(alignment: offset > 0 ? .leading : .trailing) {
             HStack(spacing: 8) {
-                action(leading.name, symbol: leading.symbol, color: leading.color, data: false)
-                action(trailing.name, symbol: trailing.symbol, color: trailing.color, data: true)
+                action(leading, data: false)
+                action(trailing, data: true)
             }
-            .padding(.trailing, 10)
-            .opacity(offset < -0.5 ? 1 : 0)
-            .allowsHitTesting(offset < -0.5)
-            content.offset(x: offset)
+            .padding(.horizontal, 12)
+            .opacity(min(abs(offset) / 36, 1))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: offset > 0 ? .leading : .trailing)
+            .mask {
+                SwipeRevealMask(offset: offset, inset: foregroundInset)
+                    .fill(style: FillStyle(eoFill: true))
+            }
+            .allowsHitTesting(abs(offset) > 40 && !committed)
+            content
+                .background {
+                    if abs(offset) > 0.5 && !(commitsOnRelease && selected) {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color(white: colorScheme == .dark ? 0.12 : 1))
+                            .padding(.horizontal, foregroundInset).padding(.vertical, 3)
+                    }
+                }
+                .offset(x: offset)
         }
-        .background(ScrollGestureAnchor(offset: offset, changed: { value, ended in
-            let target = ended ? (value < -35 ? CGFloat(-98) : 0) : value
-            withAnimation(ended && !reduceMotion ? .snappy(duration: 0.22) : nil) { offset = target }
+        .background(GeometryReader { proxy in Color.clear.onAppear { width = proxy.size.width }.onChange(of: proxy.size.width) { _, value in width = value } })
+        .background(ScrollGestureAnchor(offset: offset, limit: width, changed: { value, ended, cancelled in
+            guard !committed else { return }
+            if ended {
+                if !cancelled && commitsOnRelease && abs(value) >= 56 {
+                    committed = true
+                    let deleteData = abs(value) >= fullThreshold
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { offset = value.sign == .minus ? -width : width }
+                    Task { @MainActor in
+                        if !reduceMotion { try? await Task.sleep(for: .milliseconds(180)) }
+                        remove(deleteData)
+                        // A rejected/cancelled deletion restores the foreground.
+                        withAnimation(.spring(duration: 0.28, bounce: 0.12)) { offset = 0 }
+                        committed = false
+                    }
+                } else {
+                    let target: CGFloat = !cancelled && !commitsOnRelease && abs(value) > 35 ? (value < 0 ? -98 : 98) : 0
+                    withAnimation(reduceMotion ? nil : .spring(duration: 0.28, bounce: 0.12)) { offset = target }
+                }
+            } else { offset = value }
         }))
-        .onChange(of: offset < -0.5) { _, shown in presentationChanged(shown) }
+        .onChange(of: abs(offset) > 0.5) { _, shown in presentationChanged(shown) }
+        .onChange(of: abs(offset) >= fullThreshold) { _, crossed in
+            if crossed && commitsOnRelease { NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now) }
+        }
         .onChange(of: selected) { _, value in
-            if !value { withAnimation(reduceMotion ? nil : .snappy(duration: 0.22)) { offset = 0 } }
+            if !value && !committed { withAnimation(reduceMotion ? nil : .spring(duration: 0.25)) { offset = 0 } }
         }
     }
 
-    private func action(_ name: String, symbol: String, color: Color, data: Bool) -> some View {
+    private func action(_ action: Action, data: Bool) -> some View {
         Button { remove(data) } label: {
-            Image(systemName: symbol)
+            Image(systemName: action.symbol)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(color == .yellow ? Color.black : .white)
+                .foregroundStyle(action.color == .yellow ? Color.black : .white)
                 .frame(width: 34, height: 34)
-                .background(color, in: Circle())
+                .background(action.color, in: Circle())
+                .scaleEffect((0.8 + 0.2 * min(abs(offset) / 80, 1)) * (data && abs(offset) >= fullThreshold ? 1.15 : 1))
+                .animation(reduceMotion ? nil : .spring(duration: 0.2), value: abs(offset) >= fullThreshold)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel(name)
-        .help(name)
+        .buttonStyle(.plain).accessibilityLabel(action.name).help(action.name)
+    }
+}
+
+private struct SwipeRevealMask: Shape {
+    var offset: CGFloat
+    var inset: CGFloat
+    var animatableData: CGFloat { get { offset } set { offset = newValue } }
+    func path(in rect: CGRect) -> Path {
+        var path = Path(rect)
+        path.addRoundedRect(in: rect.insetBy(dx: inset, dy: 3).offsetBy(dx: offset, dy: 0), cornerSize: CGSize(width: 12, height: 12))
+        return path
     }
 }
 
 private struct ScrollGestureAnchor: NSViewRepresentable {
     let offset: CGFloat
-    let changed: (CGFloat, Bool) -> Void
+    let limit: CGFloat
+    let changed: (CGFloat, Bool, Bool) -> Void
     func makeNSView(context: Context) -> Anchor { Anchor() }
-    func updateNSView(_ view: Anchor, context: Context) { view.offset = offset; view.changed = changed }
+    func updateNSView(_ view: Anchor, context: Context) { if !view.tracking { view.offset = offset }; view.limit = limit; view.changed = changed }
 
     final class Anchor: NSView {
         var offset: CGFloat = 0
-        var changed: ((CGFloat, Bool) -> Void)?
+        var limit: CGFloat = 300
+        var changed: ((CGFloat, Bool, Bool) -> Void)?
         private var monitor: Any?
-        private var tracking = false
+        fileprivate var tracking = false
+        private var vertical = false
+        private var finishTask: Task<Void, Never>?
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -86,22 +138,33 @@ private struct ScrollGestureAnchor: NSViewRepresentable {
                 guard let self, event.window === self.window else { return event }
                 let point = self.convert(event.locationInWindow, from: nil)
                 if event.type == .leftMouseDown {
-                    if self.offset != 0 && !self.bounds.contains(point) { self.changed?(0, true) }
+                    if self.offset != 0 && !self.bounds.contains(point) { self.changed?(0, true, true) }
                     return event
                 }
+                if !event.momentumPhase.isEmpty { return self.tracking ? nil : event }
+                if event.phase.contains(.began) || event.phase.contains(.mayBegin) { self.vertical = false }
                 guard self.tracking || self.bounds.contains(point) else { return event }
                 if !self.tracking {
-                    guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY), abs(event.scrollingDeltaX) > 0 else { return event }
+                    guard !self.vertical else { return event }
+                    if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) { self.vertical = true; return event }
+                    guard abs(event.scrollingDeltaX) > 0 else { return event }
                     self.tracking = true
                 }
-                let value = min(0, max(-110, self.offset + event.scrollingDeltaX))
-                self.offset = value
-                let ended = event.phase.contains(.ended) || event.phase.contains(.cancelled) || (event.phase.isEmpty && event.momentumPhase.isEmpty)
-                self.changed?(value, ended)
-                if ended { self.tracking = false }
+                self.finishTask?.cancel()
+                self.offset = min(self.limit * 0.95, max(-self.limit * 0.95, self.offset + event.scrollingDeltaX))
+                let ended = event.phase.contains(.ended) || event.phase.contains(.cancelled)
+                self.changed?(self.offset, ended, event.phase.contains(.cancelled))
+                if ended { self.tracking = false; self.vertical = false }
+                else if event.phase.isEmpty {
+                    self.finishTask = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(120))
+                        guard !Task.isCancelled, let self else { return }
+                        self.changed?(self.offset, true, false); self.tracking = false; self.vertical = false
+                    }
+                }
                 return nil
             }
         }
-        isolated deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+        isolated deinit { finishTask?.cancel(); if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }

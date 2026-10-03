@@ -390,7 +390,7 @@ private struct TorrentListLiveRow: View {
     let toggleTransfers: () -> Void
 
     var body: some View {
-        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged) {
+        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : sidePadding + 2) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
