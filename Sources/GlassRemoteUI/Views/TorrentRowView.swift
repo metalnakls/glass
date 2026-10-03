@@ -14,6 +14,8 @@ struct TorrentRowView: View, Equatable {
     var thumbnailInput: TorrentThumbnailInput?
     let toggleTransfer: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     var body: some View {
         row
         .contentShape(Rectangle())
@@ -81,15 +83,9 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var torrentContent: some View {
-        VStack(alignment: .leading) {
-            titleLine
-            ProgressView(value: torrent.percentDone, total: 1)
-                .controlSize(.small)
-                .tint(Color(nsColor: .secondaryLabelColor))
-                .accessibilityLabel("Download progress")
-        }
-        .foregroundStyle(Color.primary)
-        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+        titleLine
+            .foregroundStyle(Color.primary)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var titleLine: some View {
@@ -131,16 +127,38 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var transferButton: some View {
-        Button(action: toggleTransfer) {
-            Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
-                .imageScale(.medium)
+        ZStack {
+            Circle()
+                .stroke(Color.primary.opacity(0.10), lineWidth: 2)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+            Circle()
+                .trim(from: 0, to: progress)
+                .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
+                .accessibilityHidden(true)
+                .allowsHitTesting(false)
+
+            Button(action: toggleTransfer) {
+                Image(systemName: torrent.canStopTransfer ? "pause.fill" : "play.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.bordered)
+            .buttonBorderShape(.circle)
+            .controlSize(.regular)
+            .foregroundStyle(Color.primary)
+            .help(torrent.canStopTransfer ? "Pause" : "Resume")
+            .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
+            .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .buttonStyle(.bordered)
-        .buttonBorderShape(.circle)
-        .controlSize(.regular)
-        .foregroundStyle(Color.primary)
-        .help(torrent.canStopTransfer ? "Pause" : "Resume")
-        .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
+        .frame(width: 36, height: 36)
+        .padding(2)
+    }
+
+    private var progress: Double {
+        torrent.percentDone.isFinite ? min(max(torrent.percentDone, 0), 1) : 0
     }
 
     private var isFolderLike: Bool {

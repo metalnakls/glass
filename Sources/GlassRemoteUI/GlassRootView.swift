@@ -74,6 +74,7 @@ public struct GlassRootView: View {
         .inspector(isPresented: $isInspectorPresented) {
             TorrentSelectionInspector(
                 model: model,
+                platformIntegration: platformIntegration,
                 selectedID: selectedTorrentID,
                 presentation: presentation
             )
@@ -665,6 +666,7 @@ private struct TorrentListContent: View {
 
 private struct TorrentSelectionInspector: View {
     let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
     let selectedID: String?
     let presentation: TorrentListPresentationModel
 
@@ -672,6 +674,7 @@ private struct TorrentSelectionInspector: View {
         let row = presentation.rows.first { $0.id == selectedID }
         TorrentInspectorView(
             model: model,
+            platformIntegration: platformIntegration,
             sourceID: row?.sourceID ?? model.selectedSourceID,
             selectedTorrentHash: row?.torrentRecord?.hashString ?? row?.id,
             selectedTorrentGroup: row?.selectedGroup

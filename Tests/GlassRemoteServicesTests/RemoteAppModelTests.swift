@@ -210,6 +210,24 @@ struct RemoteAppModelTests {
         #expect(model.isCompletionWatcherRunning == false)
     }
 
+    @Test("inspector publishes a selection only when its files are ready and source matches")
+    func inspectorWaitsForFiles() async throws {
+        let profile = makeProfile()
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        await model.loadDetails(for: torrent)
+        #expect(model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: profile.id, including: [.files]) == nil)
+
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await model.loadDetailSection(.files, forHashString: torrent.hashString)
+        let ready = try #require(model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: profile.id, including: [.files]))
+        #expect(ready.files.first?.name == "Episode.mkv")
+        #expect(model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: UUID(), including: [.files]) == nil)
+        #expect(model.readyTorrentDetails(forHashString: "another-torrent", sourceID: profile.id, including: [.files]) == nil)
+    }
+
     @Test("loads only visible torrent detail sections")
     func loadsOnlyVisibleTorrentDetailSections() async throws {
         let profile = makeProfile()
@@ -249,6 +267,36 @@ struct RemoteAppModelTests {
         #expect(model.selectedTorrentDetails?.files.first?.bytesCompleted == 75)
         #expect(model.loadingTorrentDetailSections.isEmpty)
         #expect(await client.fetchTorrentPeersCount == 0)
+    }
+
+    @Test("a newly selected torrent never publishes the previous torrent's files")
+    func inspectorSelectionReadiness() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient(detailDelay: .milliseconds(120))
+        let factory = StubRPCClientFactory { _ in client }
+        let model = makeModel(profile: profile, factory: factory)
+        await model.refresh()
+        let first = try #require(model.torrents.first)
+        await model.loadDetails(for: first)
+        model.setVisibleTorrentDetailSections([.files], forHashString: first.hashString)
+        await model.loadDetailSection(.files, forHashString: first.hashString)
+        #expect(model.readyTorrentDetails(forHashString: first.hashString, sourceID: profile.id, including: [.files]) != nil)
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0, percentDone: 0,
+            rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 100, eta: -1, uploadRatio: 0,
+            peersConnected: nil, downloadDir: "/downloads")
+        let loading = Task { await model.loadDetails(for: second) }
+        for _ in 0..<100 {
+            if model.isLoadingTorrentDetails { break }
+            await Task.yield()
+        }
+        #expect(model.isLoadingTorrentDetails)
+        #expect(model.readyTorrentDetails(forHashString: first.hashString, sourceID: profile.id, including: [.files]) == nil)
+        #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files]) == nil)
+        await loading.value
+        #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files]) == nil)
+        model.setVisibleTorrentDetailSections([.files], forHashString: second.hashString)
+        await model.loadDetailSection(.files, forHashString: second.hashString)
+        #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files])?.hashString == second.hashString)
     }
 
     @Test("changing selection cancels obsolete detail work")

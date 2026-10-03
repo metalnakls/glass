@@ -39,6 +39,10 @@ struct TorrentThumbnailFolderLink: Codable, Sendable, Equatable {
     let localPath: String
     let bookmark: Data
 
+    static func directoryURL(remoteRoot: String, localRoot: URL, directory: String) -> URL? {
+        fileURL(remoteRoot: remoteRoot, localRoot: localRoot, directory: directory, filePath: ".glass-location")?.deletingLastPathComponent()
+    }
+
     static func fileURL(remoteRoot: String, localRoot: URL, directory: String, filePath: String) -> URL? {
         guard remoteRoot.hasPrefix("/"), directory.hasPrefix("/"), !filePath.isEmpty else { return nil }
         let remote = URL(fileURLWithPath: remoteRoot, isDirectory: true).standardizedFileURL.path
@@ -137,6 +141,49 @@ final class TorrentThumbnailService {
     }
 
     func link(for sourceID: UUID) -> TorrentThumbnailFolderLink? { links[sourceID.uuidString] }
+
+    /// Resolve bookmarks and check mounted files on the existing background file lane.
+    func openDownloadLocation(sourceID: UUID, directory: String, itemPath: String, isLocal: Bool) async throws {
+        let link = isLocal ? nil : link(for: sourceID)
+        let target = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(target: URL, scope: URL?), Error>) in
+            fileQueue.async {
+                do {
+                    if isLocal {
+                        let root = URL(fileURLWithPath: directory, isDirectory: true).standardizedFileURL
+                        let item = root.appendingPathComponent(itemPath).standardizedFileURL
+                        guard !itemPath.hasPrefix("/"), !itemPath.split(separator: "/").contains(".."),
+                              item.path.hasPrefix(root.path == "/" ? "/" : root.path + "/") else {
+                            throw CocoaError(.fileReadInvalidFileName)
+                        }
+                        let target = FileManager.default.fileExists(atPath: item.path) ? item : root
+                        guard FileManager.default.fileExists(atPath: target.path) else { throw CocoaError(.fileNoSuchFile) }
+                        continuation.resume(returning: (target, nil))
+                    } else {
+                        guard let link else { throw CocoaError(.fileNoSuchFile) }
+                        var stale = false
+                        let root = try URL(resolvingBookmarkData: link.bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
+                        let scoped = root.startAccessingSecurityScopedResource()
+                        guard TorrentThumbnailFolderLink.directoryURL(remoteRoot: link.remoteRoot, localRoot: root, directory: directory) != nil,
+                              FileManager.default.fileExists(atPath: root.path) else {
+                            if scoped { root.stopAccessingSecurityScopedResource() }
+                            throw CocoaError(.fileNoSuchFile)
+                        }
+                        // Open the mounted share, even when its linked download folder is nested.
+                        let components = root.pathComponents
+                        let share = components.count > 2 && components[1] == "Volumes"
+                            ? URL(fileURLWithPath: "/Volumes").appendingPathComponent(components[2], isDirectory: true) : root
+                        continuation.resume(returning: (share, scoped ? root : nil))
+                    }
+                } catch { continuation.resume(throwing: error) }
+            }
+        }
+        defer { target.scope?.stopAccessingSecurityScopedResource() }
+        if isLocal {
+            NSWorkspace.shared.activateFileViewerSelecting([target.target])
+        } else if !NSWorkspace.shared.open(target.target) {
+            throw CocoaError(.fileReadUnknown)
+        }
+    }
 
     func updateRemoteRoot(sourceID: UUID, remoteRoot: String) throws {
         guard remoteRoot.hasPrefix("/"), let previous = link(for: sourceID) else { throw CocoaError(.fileReadInvalidFileName) }

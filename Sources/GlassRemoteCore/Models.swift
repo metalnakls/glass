@@ -114,6 +114,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let bandwidthPriority: Int?
     public let queuePosition: Int?
     public let fileCount: Int?
+    public let addedDate: Int?
 
     public init(
         id: Int,
@@ -132,7 +133,8 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         downloadDir: String?,
         bandwidthPriority: Int? = nil,
         queuePosition: Int? = nil,
-        fileCount: Int? = nil
+        fileCount: Int? = nil,
+        addedDate: Int? = nil
     ) {
         self.id = id
         self.hashString = hashString
@@ -151,12 +153,14 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         self.bandwidthPriority = bandwidthPriority
         self.queuePosition = queuePosition
         self.fileCount = fileCount
+        self.addedDate = addedDate
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, hashString, name, status, percentDone, metadataPercentComplete
         case rateDownload, rateUpload, sizeWhenDone, leftUntilDone, eta, uploadRatio
         case peersConnected, downloadDir, bandwidthPriority, queuePosition
+        case addedDate
         case fileCount = "file-count"
     }
 
