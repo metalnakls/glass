@@ -20,6 +20,11 @@ struct TorrentNameSequenceGroup: Identifiable {
     let displayName: String
     let torrents: [TorrentSummary]
 
+    // Completed or missing seasons must not override an unfinished transfer.
+    var transferTorrents: [TorrentSummary] {
+        torrents.filter { $0.isUnfinished && !$0.hasStorageError }
+    }
+
     var summary: TorrentSummary {
         let size = torrents.reduce(UInt64(0)) { $0 + $1.sizeWhenDone }
         let left = torrents.reduce(UInt64(0)) { $0 + $1.leftUntilDone }
@@ -28,7 +33,10 @@ struct TorrentNameSequenceGroup: Identifiable {
         let percentDone = allCompleted ? 1 : size > 0
             ? min(1, max(0, Double(downloaded) / Double(size)))
             : (torrents.isEmpty ? 0 : torrents.reduce(0) { $0 + $1.percentDone } / Double(torrents.count))
-        let activeTorrents = torrents.filter(\.isActive)
+        let transfers = transferTorrents
+        let stateTorrents = transfers.isEmpty ? torrents : transfers
+        let activeTorrents = stateTorrents.filter(\.canStopTransfer)
+        let storageError = transfers.isEmpty ? torrents.first(where: \.hasStorageError) : nil
         let eta = activeTorrents.map(\.eta).filter { $0 > 0 }.max() ?? -1
 
         return TorrentSummary(
@@ -49,8 +57,8 @@ struct TorrentNameSequenceGroup: Identifiable {
             bandwidthPriority: nil,
             queuePosition: nil,
             fileCount: torrents.compactMap(\.fileCount).reduce(0, +),
-            error: torrents.first(where: \.hasStorageError)?.error,
-            errorString: torrents.first(where: \.hasStorageError)?.errorString
+            error: storageError?.error,
+            errorString: storageError?.errorString
         )
     }
 }

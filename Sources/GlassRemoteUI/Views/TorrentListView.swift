@@ -275,16 +275,25 @@ struct TorrentListView: View {
         }
     }
 
+    private func isUnavailable(_ record: TorrentRecord) -> Bool {
+        record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
+            sourceID: record.sourceID, directory: record.summary.downloadDir,
+            isLocal: record.sourceID == model.localSourceID
+        )
+    }
+
     private func toggleGroupTransfers(_ records: [TorrentRecord]) async {
         let liveTorrents = records.filter { $0.summary.id >= 0 }
-        guard !liveTorrents.isEmpty else { return }
+        let unfinished = liveTorrents.filter { $0.summary.isUnfinished && !isUnavailable($0) }
+        let transfers = unfinished.isEmpty ? liveTorrents : unfinished
+        guard !transfers.isEmpty else { return }
 
-        if liveTorrents.contains(where: { $0.summary.canStopTransfer }) {
-            for record in liveTorrents where record.summary.canStopTransfer {
+        if transfers.contains(where: { $0.summary.canStopTransfer }) {
+            for record in transfers where record.summary.canStopTransfer {
                 await model.stop(record.summary, sourceID: record.sourceID)
             }
         } else {
-            for record in liveTorrents {
+            for record in transfers {
                 await model.start(record.summary, sourceID: record.sourceID)
             }
         }
@@ -400,16 +409,20 @@ private struct TorrentListLiveRow: View {
     }
 
     private var shareUnavailable: Bool {
-        let records: [TorrentRecord]
-        switch row.kind {
-        case let .torrent(record, _): records = [record]
-        case let .group(members, _, _): records = members
-        }
-        return records.contains { record in
+        func isUnavailable(_ record: TorrentRecord) -> Bool {
             record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
                 sourceID: record.sourceID, directory: record.summary.downloadDir,
                 isLocal: record.sourceID == model.localSourceID
             )
+        }
+        switch row.kind {
+        case let .torrent(record, _):
+            return isUnavailable(record)
+        case let .group(members, _, _):
+            if members.contains(where: { $0.summary.isUnfinished && !isUnavailable($0) }) {
+                return false
+            }
+            return members.contains(where: isUnavailable)
         }
     }
 

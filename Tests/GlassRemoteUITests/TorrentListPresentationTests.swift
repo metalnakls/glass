@@ -41,6 +41,32 @@ struct TorrentListPresentationTests {
         #expect(unavailable.summary.errorString == "No data found!")
     }
 
+    @Test("unfinished live seasons override missing completed seasons and seeding siblings")
+    func groupTransferStatePriority() {
+        func season(_ id: Int, progress: Double, status: Int = 0, error: Int? = nil) -> TorrentSummary {
+            TorrentSummary(id: id, hashString: "season-\(id)", name: "Fargo \(id)", status: status,
+                percentDone: progress, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: progress == 1 ? 0 : 100, eta: -1, uploadRatio: 0,
+                peersConnected: nil, downloadDir: "/downloads", error: error)
+        }
+        let dead = [season(1, progress: 1, error: 3), season(2, progress: 1, error: 3)]
+        let paused = season(3, progress: 0)
+        let downloading = season(4, progress: 0.2, status: 4)
+        let seeding = season(5, progress: 1, status: 6)
+        let pausedGroup = TorrentNameSequenceGroup(id: "group", displayName: "Fargo", torrents: dead + [paused, seeding])
+        #expect(!pausedGroup.summary.hasStorageError)
+        #expect(pausedGroup.summary.isUnfinished)
+        #expect(!pausedGroup.summary.canStopTransfer)
+        #expect(pausedGroup.transferTorrents.map(\.id) == [3])
+        let active = TorrentNameSequenceGroup(id: "group", displayName: "Fargo", torrents: dead + [paused, downloading])
+        #expect(!active.summary.hasStorageError)
+        #expect(active.summary.canStopTransfer)
+        #expect(active.summary.isDownloading)
+        let missingOnly = TorrentNameSequenceGroup(id: "group", displayName: "Fargo", torrents: dead)
+        #expect(missingOnly.summary.hasStorageError)
+        #expect(missingOnly.summary.isCompleted)
+    }
+
     @Test("same torrents on two sources form independent groups")
     func groupsKeepTheirSource() throws {
         let first = UUID()
