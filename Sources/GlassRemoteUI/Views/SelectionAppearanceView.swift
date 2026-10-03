@@ -4,6 +4,10 @@ import SwiftUI
 public struct SelectionAppearanceView: View {
     public init() {}
     @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
+    @AppearanceStorage("GlassList.funMode") private var funMode = false
+    @AppearanceStorage("GlassList.funScale") private var funScale = 1.5
+    @AppearanceStorage("GlassList.funTilt") private var funTilt = 9.0
+    @AppearanceStorage("GlassList.posterColoredShadows") private var coloredShadows = true
     @State private var saveStatus: String?
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -62,6 +66,12 @@ public struct SelectionAppearanceView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
                 Toggle("Lowercase section titles", isOn: $lowercaseTitles)
+                Toggle("Fun mode", isOn: $funMode)
+                if funMode {
+                    shadowSlider("Icon scale", value: $funScale, range: 1...1.8, decimal: true)
+                    shadowSlider("Icon tilt", value: $funTilt, range: 0...16)
+                    Toggle("Coloured poster shadows", isOn: $coloredShadows)
+                }
                 ColorPicker("Highlight · light", selection: highlightColor(dark: false), supportsOpacity: false)
                 ColorPicker("Highlight · dark", selection: highlightColor(dark: true), supportsOpacity: false)
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
@@ -144,12 +154,12 @@ public struct SelectionAppearanceView: View {
         }
     }
 
-    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
+    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false, decimal: Bool = false) -> some View {
         VStack(spacing: 3) {
             HStack {
                 Text(title)
                 Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : "\(Int(value.wrappedValue.rounded()))")
+                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : decimal ? value.wrappedValue.formatted(.number.precision(.fractionLength(2))) : "\(Int(value.wrappedValue.rounded()))")
                     .monospacedDigit().foregroundStyle(.secondary)
             }
             .font(.caption)

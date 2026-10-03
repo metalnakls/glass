@@ -463,6 +463,7 @@ private struct TorrentListLiveRow: View {
             folderMotion: folderMotion,
             folderIDs: folderIDs,
             folderID: folderID,
+            iconIdentity: row.id,
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,

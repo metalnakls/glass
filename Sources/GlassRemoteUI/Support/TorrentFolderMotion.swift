@@ -15,8 +15,9 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var generation = 0
     @ObservationIgnored private var completion: Task<Void, Never>?
     @ObservationIgnored private var scrollObserver: NSObjectProtocol?
+    @ObservationIgnored private var poses: [String: TorrentIconPose] = [:]
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
-    private static let image = NSWorkspace.shared.icon(for: .folder).cgImage(forProposedRect: nil, context: nil, hints: nil)
+    private static let image = TorrentFileIconCache.icon(fileName: "", isFolder: true).cgImage(forProposedRect: nil, context: nil, hints: nil)
 
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
@@ -46,14 +47,21 @@ final class TorrentFolderMotion {
         overlay.frame = scroll.contentView.frame
         self.groupID = groupID; self.members = Array(members.prefix(3))
         self.expanding = expanding; self.inset = inset
+        poses = Dictionary(uniqueKeysWithValues: ([groupID] + self.members).map { ($0, TorrentIconPose.forIdentity($0)) })
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (slot, id) in self.members.enumerated() {
             let sourceID = expanding ? groupID : id
             guard let row = indices[sourceID], row < table.numberOfRows else { continue }
-            let source = endpoint(row: row, slot: slot, fan: expanding)
+            let source = endpoint(row: row, slot: slot, fan: expanding, id: sourceID)
             let layer = CALayer()
             layer.contents = Self.image
             layer.contentsGravity = .resizeAspect
+            let scale = poses[sourceID]?.scale ?? 1
+            if scale > 1 {
+                layer.shadowOpacity = 0.2
+                layer.shadowRadius = 4 * scale
+                layer.shadowOffset = CGSize(width: 0, height: 4 * scale)
+            }
             layer.contentsScale = table.window?.backingScaleFactor ?? 2
             layer.position = interrupted[id]?.0 ?? source.center
             layer.bounds.size = interrupted[id]?.1 ?? source.size
@@ -83,7 +91,7 @@ final class TorrentFolderMotion {
             table.layoutSubtreeIfNeeded()
             for (slot, id) in self.members.enumerated() {
                 guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
-                let target = self.endpoint(row: row, slot: slot, fan: !self.expanding)
+                let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
                 let position = CABasicAnimation(keyPath: "position")
                 position.fromValue = layer.position; position.toValue = target.center
                 let size = CABasicAnimation(keyPath: "bounds.size")
@@ -107,7 +115,7 @@ final class TorrentFolderMotion {
         }
     }
 
-    private func endpoint(row: Int, slot: Int, fan: Bool) -> (center: CGPoint, size: CGSize, angle: Double) {
+    private func endpoint(row: Int, slot: Int, fan: Bool, id: String) -> (center: CGPoint, size: CGSize, angle: Double) {
         guard let table else { return (.zero, .zero, 0) }
         let rowFrame = table.rect(ofRow: row)
         let progress = members.count > 1 ? Double(slot) / Double(members.count - 1) : 0.5
@@ -117,7 +125,13 @@ final class TorrentFolderMotion {
         // rotates around its center. Match that transformed center exactly.
         let point = CGPoint(x: inset + 18 + (fan ? -5 + 10 * progress + size / 2 * sin(angle) : 0),
                             y: rowFrame.midY + (fan ? abs(progress - 0.5) * 2 + size / 2 * (1 - cos(angle)) : 0))
-        return (overlay.convert(point, from: table), CGSize(width: size, height: size), angle)
+        let pose = poses[id] ?? TorrentIconPose()
+        let center = CGPoint(x: inset + 18, y: rowFrame.midY)
+        let dx = (point.x - center.x) * pose.scale
+        let dy = (point.y - center.y) * pose.scale
+        let transformed = CGPoint(x: center.x + dx * cos(pose.angle) - dy * sin(pose.angle) + pose.x,
+                                  y: center.y + dx * sin(pose.angle) + dy * cos(pose.angle))
+        return (overlay.convert(transformed, from: table), CGSize(width: size * pose.scale, height: size * pose.scale), angle + pose.angle)
     }
 
     func cancel() {

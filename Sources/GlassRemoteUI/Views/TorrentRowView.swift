@@ -11,6 +11,7 @@ struct TorrentRowView: View, Equatable {
     var folderMotion: TorrentFolderMotion?
     var folderIDs: [String] = []
     var folderID: String?
+    var iconIdentity: String?
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
@@ -34,7 +35,7 @@ struct TorrentRowView: View, Equatable {
         Group {
             if grid {
                 VStack(spacing: 10) {
-                    leadingIcon.scaleEffect(1.7).frame(height: 76)
+                    leadingIcon.modifier(TorrentIconPersonality(id: iconIdentity ?? torrent.hashString, enabled: groupIsExpanded != true, grid: true)).scaleEffect(1.7).frame(height: 76)
                     Text(displayName(torrent.name)).font(.body).lineLimit(2).multilineTextAlignment(.center)
                     HStack { sizeLabel; Spacer(); transferButton }
                 }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
@@ -53,7 +54,7 @@ struct TorrentRowView: View, Equatable {
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                leadingIcon.padding(.trailing, 12)
+                leadingIcon.modifier(TorrentIconPersonality(id: iconIdentity ?? torrent.hashString, enabled: groupIsExpanded != true)).padding(.trailing, 12)
             }
 
             torrentContent
@@ -69,6 +70,7 @@ struct TorrentRowView: View, Equatable {
             && lhs.grid == rhs.grid
             && lhs.folderIDs == rhs.folderIDs
             && lhs.folderID == rhs.folderID
+            && lhs.iconIdentity == rhs.iconIdentity
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
@@ -357,6 +359,9 @@ struct TorrentFileIcon: View {
     var thumbnailInput: TorrentThumbnailInput?
     @State private var thumbnail: NSImage?
     @State private var isVisible = false
+    @State private var artworkTint = Color.black
+    @AppearanceStorage("GlassList.funMode") private var funMode = false
+    @AppearanceStorage("GlassList.posterColoredShadows") private var coloredShadows = true
 
     @ViewBuilder
     var body: some View {
@@ -367,20 +372,24 @@ struct TorrentFileIcon: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: size, height: size)
+                .shadow(color: .black.opacity(funMode ? 0.2 : 0), radius: 4, y: 4)
         } else {
         Image(nsImage: thumbnail ?? nativeIcon)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)
+            .shadow(color: (coloredShadows && thumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.22 : 0), radius: 6, y: 5)
             .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
             .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
                 guard let input = thumbnailInput, !isFolder else { thumbnail = nil; return }
                 guard isVisible else { return }
                 thumbnail = TorrentThumbnailService.shared.cachedImage(for: input)
+                if let thumbnail { artworkTint = TorrentArtworkTint.color(thumbnail) }
                 do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 let image = await TorrentThumbnailService.shared.image(for: input)
                 guard !Task.isCancelled else { return }
                 thumbnail = image
+                if let image { artworkTint = TorrentArtworkTint.color(image) }
             }
         }
     }
@@ -397,7 +406,7 @@ private struct ThumbnailTaskID: Equatable {
 }
 
 @MainActor
-private enum TorrentFileIconCache {
+enum TorrentFileIconCache {
     private static let icons = NSCache<NSString, NSImage>()
 
     static func icon(fileName: String, isFolder: Bool) -> NSImage {
