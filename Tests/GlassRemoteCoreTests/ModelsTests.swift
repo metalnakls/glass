@@ -16,6 +16,14 @@ struct ModelsTests {
         object["error"] = 3
         let unavailable = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
         #expect(!unavailable.isUnfinished)
+        object["percentDone"] = 0.99999
+        object["leftUntilDone"] = 1
+        object["doneDate"] = 1_700_000_000
+        let deleted = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(!deleted.isUnfinished)
+        object["doneDate"] = 0
+        let neverFinished = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(neverFinished.isUnfinished)
         #expect(makeTorrent(status: 0, percentDone: 0).isUnfinished)
         #expect(makeTorrent(status: 0, percentDone: 0.5).isUnfinished)
     }

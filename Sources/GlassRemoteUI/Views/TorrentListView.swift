@@ -524,7 +524,8 @@ extension TorrentSummary {
             fileCount: fileCount,
             addedDate: addedDate,
             error: error,
-            errorString: errorString
+            errorString: errorString,
+            doneDate: doneDate
         )
     }
 }

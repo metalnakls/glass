@@ -308,7 +308,8 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
             queuePosition: dictionary.optionalInt("queuePosition"),
             fileCount: dictionary.optionalInt("fileCount"),
             error: dictionary.optionalInt("error"),
-            errorString: dictionary.string("errorString")
+            errorString: dictionary.string("errorString"),
+            doneDate: dictionary.optionalInt("doneDate")
         )
     }
 

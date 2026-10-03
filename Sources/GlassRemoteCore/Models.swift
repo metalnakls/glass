@@ -102,6 +102,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let name: String
     public let status: Int
     public let percentDone: Double
+    public let doneDate: Int?
     public let metadataPercentComplete: Double?
     public let rateDownload: Double
     public let rateUpload: Double
@@ -138,13 +139,15 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         fileCount: Int? = nil,
         addedDate: Int? = nil,
         error: Int? = nil,
-        errorString: String? = nil
+        errorString: String? = nil,
+        doneDate: Int? = nil
     ) {
         self.id = id
         self.hashString = hashString
         self.name = name
         self.status = status
         self.percentDone = percentDone
+        self.doneDate = doneDate
         self.metadataPercentComplete = metadataPercentComplete
         self.rateDownload = rateDownload
         self.rateUpload = rateUpload
@@ -166,7 +169,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         case id, hashString, name, status, percentDone, metadataPercentComplete
         case rateDownload, rateUpload, sizeWhenDone, leftUntilDone, eta, uploadRatio
         case peersConnected, downloadDir, bandwidthPriority, queuePosition
-        case addedDate, error, errorString
+        case addedDate, doneDate, error, errorString
         case fileCount = "file-count"
     }
 
@@ -175,7 +178,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     }
 
     public var isCompleted: Bool {
-        percentDone >= 1.0 || leftUntilDone == 0 && sizeWhenDone > 0
+        percentDone >= 1.0 || leftUntilDone == 0 && sizeWhenDone > 0 || hasStorageError && (doneDate ?? 0) > 0
     }
 
     public var isUnfinished: Bool {
