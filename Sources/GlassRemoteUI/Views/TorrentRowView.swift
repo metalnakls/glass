@@ -30,6 +30,7 @@ struct TorrentRowView: View, Equatable {
 
             torrentContent
             transferButton
+                .padding(.leading, 16)
         }
     }
 
@@ -53,7 +54,8 @@ struct TorrentRowView: View, Equatable {
                 if groupIsExpanded {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
-                        .frame(width: 36, height: 42)
+                        .frame(width: 36, height: 48)
+                        .contentShape(Rectangle())
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     GroupFolderFanIcon(count: groupCount)
