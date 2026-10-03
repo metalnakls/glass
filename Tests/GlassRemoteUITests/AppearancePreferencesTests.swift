@@ -10,6 +10,9 @@ struct AppearancePreferencesTests {
         let suite = "GlassTests.Appearance.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
+        // Saved release defaults are intentionally user-adjustable.
+        defaults.set(0.92, forKey: "GlassList.headerFadeStrengthDark")
+        defaults.set(0.92, forKey: "GlassList.headerFadeStrengthLight")
         let preferences = AppearancePreferences(defaults: defaults)
         let invalidated = Flag()
         withObservationTracking {
