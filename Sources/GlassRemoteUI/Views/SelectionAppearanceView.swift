@@ -30,7 +30,7 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
-                shadowSlider("Minimum side padding", value: $sidePadding, range: 0...160)
+                shadowSlider("Side padding", value: $sidePadding, range: 0...160)
                 HStack {
                     Text("HDR white")
                     Spacer()

@@ -26,6 +26,7 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppStorage("GlassList.sidePadding") private var sidePadding = 18.0
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
@@ -55,7 +56,7 @@ struct TorrentListView: View {
     }
 
     private var density: TorrentRowDensity {
-        columnWidth > 0 ? TorrentRowDensity(width: columnWidth) : .regular
+        columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - 2 * sidePadding)) : .regular
     }
 
     var body: some View {
@@ -63,16 +64,17 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
+                    .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
                     .listRowBackground(raisedSurface(rowID: row.id, selected: selection == row.id, isSwiping: swipingRowID == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
                 }
             }
-            .listStyle(.inset)
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .background(listSurface)
-            .contentMargins(.horizontal, nil, for: .scrollContent)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .background(GeometryReader { proxy in
                 Color.clear.preference(
                     key: TorrentListColumnWidthKey.self,
@@ -87,10 +89,16 @@ struct TorrentListView: View {
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
             }
-            .frame(maxWidth: 480)
-            .padding(.horizontal, sidePadding)
             .frame(maxWidth: .infinity, alignment: .center)
             .background(listSurface)
+        }
+        .task(id: columnWidth) {
+            guard !paddingIsPermanent, columnWidth > 0 else { return }
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard !Task.isCancelled else { return }
+            // Preserve the gap of the former centered 480-point list exactly once.
+            sidePadding = max(sidePadding, (columnWidth - 480) / 2)
+            paddingIsPermanent = true
         }
         .onAppear {
             if UserDefaults.standard.object(forKey: "GlassList.sidePadding") == nil {
@@ -158,7 +166,7 @@ struct TorrentListView: View {
     private func raisedSurface(rowID: String, selected: Bool, isSwiping: Bool) -> some View {
         Color.clear
             .background(TorrentListElevationAnchor(controller: elevationController, rowID: rowID, selected: selected))
-            .padding(.horizontal, 2)
+            .padding(.horizontal, sidePadding + 2)
             .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)
     }
