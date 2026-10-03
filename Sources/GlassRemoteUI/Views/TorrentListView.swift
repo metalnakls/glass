@@ -29,6 +29,7 @@ struct TorrentListView: View {
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
     @State private var shadowTuning = false
+    @State private var swipingRowID: String?
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
     @AppStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
@@ -70,7 +71,7 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
-                    .listRowBackground(raisedSurface(selected: selection == row.id))
+                    .listRowBackground(raisedSurface(selected: selection == row.id, isSwiping: swipingRowID == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
@@ -164,7 +165,7 @@ struct TorrentListView: View {
         }
     }
 
-    private func raisedSurface(selected: Bool) -> some View {
+    private func raisedSurface(selected: Bool, isSwiping: Bool) -> some View {
         RoundedRectangle(cornerRadius: 12, style: .circular)
             .fill(selected ? selectedSurface : .clear)
             .allowedDynamicRange(.high)
@@ -176,6 +177,7 @@ struct TorrentListView: View {
             }
             .background(TorrentListElevationAnchor(controller: elevationController, selected: selected))
             .padding(.horizontal, 2)
+            .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)
             .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25), value: selected)
     }
@@ -239,6 +241,10 @@ struct TorrentListView: View {
             platformIntegration: platformIntegration,
             pendingOldName: row.torrentRecord.flatMap { pendingRenameOldNames[$0.id] },
             select: { selection = row.id },
+            swipePresentationChanged: { visible in
+                let update = { swipingRowID = visible ? row.id : (swipingRowID == row.id ? nil : swipingRowID) }
+                if accessibilityReduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.20), update) }
+            },
             toggleGroupExpansion: { toggleAutoGroup(row) },
             rename: rename,
             remove: remove,
@@ -363,6 +369,7 @@ private struct TorrentListLiveRow: View {
     let platformIntegration: any GlassPlatformIntegrating
     let pendingOldName: String?
     let select: () -> Void
+    let swipePresentationChanged: (Bool) -> Void
     let toggleGroupExpansion: () -> Void
     let rename: (TorrentSummary, UUID) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
@@ -382,16 +389,25 @@ private struct TorrentListLiveRow: View {
         )
         .equatable()
         .glassContextMenu(select: select) { contextMenuContent }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button("Delete Torrent + Data", systemImage: "trash.fill", role: .destructive) {
-                removeRow(deleteData: true)
+        .glassFlatSwipeActions(onPresentationChanged: swipePresentationChanged) {
+            Button(role: .destructive) { removeRow(deleteData: true) } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red)
+                    .font(.body.weight(.semibold))
             }
-            .labelStyle(.iconOnly)
-            Button("Delete Torrent", systemImage: "trash") {
-                removeRow(deleteData: false)
+            .accessibilityLabel("Delete Torrent + Data")
+            .help("Delete Torrent + Data")
+            .buttonStyle(.plain)
+            .tint(.clear)
+            Button { removeRow(deleteData: false) } label: {
+                Image(systemName: "xmark")
+                    .foregroundStyle(.yellow)
+                    .font(.body.weight(.semibold))
             }
-            .labelStyle(.iconOnly)
-            .tint(.orange)
+            .accessibilityLabel("Delete Torrent")
+            .help("Delete Torrent")
+            .buttonStyle(.plain)
+            .tint(.clear)
         }
     }
 
