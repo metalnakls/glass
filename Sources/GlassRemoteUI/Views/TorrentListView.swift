@@ -390,24 +390,18 @@ private struct TorrentListLiveRow: View {
         .equatable()
         .glassContextMenu(select: select) { contextMenuContent }
         .glassFlatSwipeActions(onPresentationChanged: swipePresentationChanged) {
-            Button(role: .destructive) { removeRow(deleteData: true) } label: {
-                Image(systemName: "trash")
-                    .foregroundStyle(.red)
-                    .font(.body.weight(.semibold))
+            Button("Delete Torrent + Data", systemImage: "trash", role: .destructive) {
+                removeRow(deleteData: true)
             }
-            .accessibilityLabel("Delete Torrent + Data")
+            .labelStyle(.iconOnly)
             .help("Delete Torrent + Data")
-            .buttonStyle(.plain)
-            .tint(.clear)
-            Button { removeRow(deleteData: false) } label: {
-                Image(systemName: "xmark")
-                    .foregroundStyle(.yellow)
-                    .font(.body.weight(.semibold))
+            .tint(.red)
+            Button("Delete Torrent", systemImage: "xmark") {
+                removeRow(deleteData: false)
             }
-            .accessibilityLabel("Delete Torrent")
+            .labelStyle(.iconOnly)
             .help("Delete Torrent")
-            .buttonStyle(.plain)
-            .tint(.clear)
+            .tint(.yellow)
         }
     }
 
