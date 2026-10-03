@@ -65,6 +65,14 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           echo "APP=$APP" >> "$GITHUB_ENV"
 
+          # sign_update ships inside the Sparkle package checkout.
+          SIGN_UPDATE="$(find "$DERIVED_DATA/SourcePackages" -type f -name sign_update -perm +111 | head -1)"
+          if [ -z "$SIGN_UPDATE" ]; then
+            echo "Could not find sign_update in $DERIVED_DATA/SourcePackages" >&2
+            exit 1
+          fi
+          echo "SIGN_UPDATE=$SIGN_UPDATE" >> "$GITHUB_ENV"
+
       - name: Package update
         run: |
           mkdir -p dist
@@ -76,7 +84,6 @@ jobs:
         env:
           SPARKLE_PRIVATE_ED_KEY: ${{ secrets.SPARKLE_PRIVATE_ED_KEY }}
         run: |
-          SIGN_UPDATE="$(find "$DERIVED_DATA/SourcePackages" -type f -name sign_update -perm +111 | head -1)"
           test -x "$SIGN_UPDATE"
 
           SIGNATURE_LINE="$(printf '%s' "$SPARKLE_PRIVATE_ED_KEY" | "$SIGN_UPDATE" "$ZIP" --ed-key-file -)"
@@ -119,6 +126,12 @@ jobs:
             </channel>
           </rss>
           EOF
+
+          # Every push publishes, so an unchanged VERSION can re-run. Replace the
+          # existing tag and assets instead of failing on a duplicate release.
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
 
           gh release create "$TAG" "$ZIP" "$RUNNER_TEMP/appcast.xml" \
             --repo "$GITHUB_REPOSITORY" \
