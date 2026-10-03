@@ -33,6 +33,35 @@ enum TorrentLibraryFilter {
 }
 
 @MainActor
+struct TorrentListSection: Identifiable {
+    let id: String
+    let title: String
+    let rows: [TorrentListRowPresentation]
+
+    static func sections(for rows: [TorrentListRowPresentation]) -> [Self] {
+        let unfinishedMembers = Set(rows.flatMap { row -> [String] in
+            guard case let .group(members, _, _) = row.kind,
+                  members.contains(where: { $0.summary.isUnfinished }) else { return [] }
+            return members.map(\.id)
+        })
+        var unfinished: [TorrentListRowPresentation] = []
+        var finished: [TorrentListRowPresentation] = []
+        for row in rows {
+            let isUnfinished: Bool
+            switch row.kind {
+            case let .torrent(record, _):
+                isUnfinished = record.summary.isUnfinished || unfinishedMembers.contains(record.id)
+            case let .group(members, _, _):
+                isUnfinished = members.contains { $0.summary.isUnfinished }
+            }
+            if isUnfinished { unfinished.append(row) } else { finished.append(row) }
+        }
+        return [Self(id: "unfinished", title: "Unfinished", rows: unfinished),
+                Self(id: "finished", title: "Finished", rows: finished)].filter { !$0.rows.isEmpty }
+    }
+}
+
+@MainActor
 @Observable
 final class TorrentListPresentationModel {
     private(set) var rows: [TorrentListRowPresentation] = []

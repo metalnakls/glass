@@ -62,12 +62,21 @@ struct TorrentListView: View {
     var body: some View {
         ScrollViewReader { scrollProxy in
             List(selection: $selection) {
-                ForEach(presentation.rows) { row in
-                    liveRow(for: row)
-                    .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
-                    .listItemTint(.monochrome)
-                    .tag(row.id)
-                    .accessibilityElement(children: .contain)
+                ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
+                    Section {
+                        ForEach(section.rows) { row in
+                            liveRow(for: row)
+                                .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
+                                .listItemTint(.monochrome)
+                                .tag(row.id)
+                                .accessibilityElement(children: .contain)
+                        }
+                    } header: {
+                        Text(section.title)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.leading, sidePadding)
+                    }
                 }
             }
             .listStyle(.plain)

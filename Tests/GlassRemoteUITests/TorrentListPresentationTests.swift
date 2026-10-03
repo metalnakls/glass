@@ -7,6 +7,23 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
+    @Test("unfinished section keeps completed siblings in their expanded group")
+    func unfinishedSectionsKeepGroupsTogether() throws {
+        let source = UUID()
+        let complete = filterRecord(source, season: 1, complete: true)
+        let partial = filterRecord(source, season: 2, complete: false)
+        let finished = filterRecord(source, season: 3, complete: true, rawName: "Finished Movie.mkv")
+        let records = [finished, complete, partial]
+        let collapsed = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+        let groupID = try #require(collapsed.first { !$0.isTorrent }?.id)
+        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [groupID])
+        let sections = TorrentListSection.sections(for: rows)
+        #expect(sections.map(\.id) == ["unfinished", "finished"])
+        #expect(sections[0].rows.map(\.id) == [groupID, complete.id, partial.id])
+        #expect(sections[1].rows.map(\.id) == [finished.id])
+        #expect(Set(sections.flatMap { $0.rows.map(\.id) }).count == rows.count)
+    }
+
     @Test("group completion follows member completion even with rounded engine progress")
     func groupCompletionAndStorageErrors() {
         func torrent(_ id: Int, progress: Double, error: Int? = nil) -> TorrentSummary {
