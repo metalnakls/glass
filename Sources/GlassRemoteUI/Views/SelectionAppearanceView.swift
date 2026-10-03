@@ -25,6 +25,21 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
     @AppStorage("GlassList.progressFilled") private var progressFilled = false
+    @AppStorage("GlassList.headerFadeStrength") private var headerFadeStrength = 0.75
+    @AppStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
+    @AppStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
+    @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
+    @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
+    @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
+    @AppStorage("GlassList.headerReleaseRows") private var headerReleaseRows = 2
+    @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
+    @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
+    private var headerColor: Binding<Color> {
+        Binding(get: { Color(nsColor: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight)) }, set: {
+            let hex = HeaderFadeColor.encode(NSColor($0))
+            if colorScheme == .dark { headerFadeColorDark = hex } else { headerFadeColorLight = hex }
+        })
+    }
 
     private var columnBrightness: Binding<Double> {
         Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
@@ -48,6 +63,16 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
                 shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
                 Divider()
+                Text("Sticky Headers").font(.subheadline.weight(.semibold))
+                ColorPicker("Fade colour", selection: headerColor, supportsOpacity: false)
+                shadowSlider("Fade strength", value: $headerFadeStrength, range: 0...1, percent: true)
+                shadowSlider("Fade reach below title", value: $headerFadeReach, range: 0...240)
+                durationSlider("Background fade in", value: $headerBackgroundIn)
+                durationSlider("Background fade out", value: $headerBackgroundOut)
+                durationSlider("Title ease in", value: $headerTitleIn)
+                durationSlider("Title ease out", value: $headerTitleOut)
+                Stepper("Release before last \(headerReleaseRows) rows", value: $headerReleaseRows, in: 0...6)
+                Divider()
                 Text("State Button").font(.subheadline.weight(.semibold))
                 shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
                 shadowSlider("Progress glow blur", value: $progressGlowBlur, range: 0...16)
@@ -69,6 +94,10 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
                 Button("Reset") {
+                    headerFadeStrength = 0.75; headerFadeReach = 48
+                    headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
+                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerReleaseRows = 2
+                    headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
                     stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
                     sidePadding = 18
                     selectionEaseIn = 0.25

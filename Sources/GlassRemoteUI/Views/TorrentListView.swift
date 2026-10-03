@@ -32,6 +32,21 @@ struct TorrentListView: View {
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var stickyHeaders = TorrentStickyHeaders()
+    @AppStorage("GlassList.headerFadeStrength") private var headerFadeStrength = 0.75
+    @AppStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
+    @AppStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
+    @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
+    @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
+    @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
+    @AppStorage("GlassList.headerReleaseRows") private var headerReleaseRows = 2
+    @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
+    @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
+    private var headerAppearance: TorrentHeaderAppearance {
+        TorrentHeaderAppearance(strength: headerFadeStrength, reach: headerFadeReach,
+            backgroundIn: headerBackgroundIn, backgroundOut: headerBackgroundOut,
+            titleIn: headerTitleIn, titleOut: headerTitleOut, releaseRows: headerReleaseRows,
+            color: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight))
+    }
     @State private var elevationController = TorrentListElevationController()
     @Namespace private var folderMotion
     @State private var swipingRowID: String?
@@ -137,6 +152,7 @@ struct TorrentListView: View {
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
             elevationController.observeTable { stickyHeaders.attach($0) }
         }
+        .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: presentation.rows.map(\.id)) { _, _ in
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
         }

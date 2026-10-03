@@ -31,6 +31,7 @@ struct TorrentStickyHeaderTests {
         for y: CGFloat in [20, 150, 170, 187] {
             let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(y)))
             backdrop.present(layout: layout, headers: headers, hosts: hosts)
+            #expect(backdrop.backdropIsActive)
             for placement in layout.titles {
                 let host = placement.index == 0 ? first : second
                 #expect(host.superview === backdrop)
@@ -45,7 +46,8 @@ struct TorrentStickyHeaderTests {
             }
         }
         #expect(first.superview === firstInline)
-        backdrop.restoreInlineTitles()
+        backdrop.dismiss()
+        #expect(!backdrop.backdropIsActive)
         #expect(first.superview === firstInline)
         #expect(second.superview === secondInline)
         #expect(first.frame == firstInline.bounds)
@@ -58,7 +60,6 @@ struct TorrentStickyHeaderTests {
         #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(6)) == nil)
         let pinned = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(7)))
         #expect(pinned.titles[0].frame == CGRect(x: 8, y: 0, width: 480, height: 48))
-        #expect(pinned.backdropOpacity < 1)
     }
     @Test("top breathing room changes the pin boundary without a positional jump")
     func paddedPinBoundary() throws {
@@ -71,7 +72,7 @@ struct TorrentStickyHeaderTests {
         #expect(handoff.titles[0].index == 1)
         #expect(handoff.titles[0].frame.minY == 20)
     }
-    @Test("incoming title pushes the old title without overlap or a material reset")
+    @Test("incoming title pushes the old title without overlap")
     func continuousPush() throws {
         let before = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(137)))
         #expect(before.titles[0].frame.minY == 0)
@@ -83,7 +84,14 @@ struct TorrentStickyHeaderTests {
         #expect(handoff.titles[0].index == 1)
         #expect(handoff.titles[0].frame.minX == 8)
         #expect(handoff.titles[0].frame.minY == 0)
-        #expect(handoff.backdropOpacity == pushing.backdropOpacity)
+    }
+    @Test("outgoing title leaves before the final section rows reach the top")
+    func earlyRelease() throws {
+        let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(130), topInset: 20, releasePoints: [126, 500]))
+        let outgoing = try #require(layout.titles.first { $0.index == 0 })
+        #expect(outgoing.retiring)
+        #expect(outgoing.frame.maxY <= 0)
+        #expect(layout.titles.first { $0.index == 1 }?.frame.minY == 56)
     }
     @Test("reversing scroll reproduces the same geometry and respects horizontal origin")
     func reverseAndHorizontalOrigin() throws {
