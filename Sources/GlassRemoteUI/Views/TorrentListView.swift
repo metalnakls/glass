@@ -392,11 +392,16 @@ struct TorrentListView: View {
     @ViewBuilder
     private var emptyState: some View {
         if records.isEmpty, model.sources.allSatisfy({ !$0.isLoading }) {
-            ContentUnavailableView(
-                "No Torrents", systemImage: "tray",
-                description: Text(model.selectedTorrentGroup == .downloading
-                    ? "There are no downloading torrents." : "Add a torrent to this Mac or a server.")
-            )
+            VStack(spacing: 14) {
+                Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
+                    .resizable().frame(width: 64, height: 64)
+                Text("Drop torrents here").font(.title3.weight(.semibold))
+                Text("Torrent files or magnet links").font(.callout).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay { DropCorners().stroke(.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 2, lineCap: .round)) }
+            .padding(28)
+            .allowsHitTesting(false)
         }
 
     }
