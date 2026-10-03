@@ -52,7 +52,7 @@ struct TorrentListView: View {
                     value: proxy.size.width
                 )
             })
-            .environment(\.defaultMinListRowHeight, 76)
+            .environment(\.defaultMinListRowHeight, 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectStyle(.soft, for: .top)

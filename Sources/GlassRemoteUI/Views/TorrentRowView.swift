@@ -22,7 +22,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var row: some View {
-        HStack(alignment: .center, spacing: density.showsIcon ? 14 : 10) {
+        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
             if density.showsIcon {
                 leadingIcon
             }
@@ -51,11 +51,11 @@ struct TorrentRowView: View, Equatable {
                 if groupIsExpanded {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
-                        .frame(width: 44, height: 48)
+                        .frame(width: 36, height: 42)
                         .contentTransition(.symbolEffect(.replace))
                 } else {
                     GroupFolderFanIcon(count: groupCount)
-                        .frame(width: 44, height: 48)
+                        .frame(width: 36, height: 42)
                 }
             }
             .buttonStyle(.plain)
@@ -64,8 +64,8 @@ struct TorrentRowView: View, Equatable {
         } else if showsActivityIcon {
             activityProgress
         } else {
-            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, size: 44, thumbnailInput: thumbnailInput)
-                .frame(width: 44, height: 48, alignment: .center)
+            TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
+                .frame(width: 36, height: 42, alignment: .center)
         }
     }
 
@@ -75,7 +75,7 @@ struct TorrentRowView: View, Equatable {
         )
         .font(.system(size: 19, weight: .medium))
         .foregroundStyle(.secondary)
-        .frame(width: 44, height: 48, alignment: .center)
+        .frame(width: 36, height: 42, alignment: .center)
     }
 
     private var showsActivityIcon: Bool {
@@ -91,7 +91,7 @@ struct TorrentRowView: View, Equatable {
     private var titleLine: some View {
         HStack(alignment: .firstTextBaseline) {
             Text(displayName(torrent.name))
-                .font(.system(size: 16))
+                .font(.body)
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .layoutPriority(3)
@@ -120,7 +120,7 @@ struct TorrentRowView: View, Equatable {
 
     private var sizeLabel: some View {
         Text(formatBytes(torrent.sizeWhenDone))
-            .font(.system(size: 13))
+            .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
@@ -129,12 +129,12 @@ struct TorrentRowView: View, Equatable {
     private var transferButton: some View {
         ZStack {
             Circle()
-                .stroke(Color.primary.opacity(0.10), lineWidth: 3)
+                .stroke(Color.primary.opacity(0.10), lineWidth: 2)
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
             Circle()
                 .trim(from: 0, to: progress)
-                .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
                 .accessibilityHidden(true)
@@ -153,7 +153,7 @@ struct TorrentRowView: View, Equatable {
             .accessibilityLabel(torrent.canStopTransfer ? "Pause" : "Resume")
             .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .frame(width: 44, height: 44)
+        .frame(width: 36, height: 36)
         .padding(2)
     }
 
@@ -205,7 +205,7 @@ private struct GroupFolderFanIcon: View {
     var body: some View {
         ZStack {
             ForEach(0..<count, id: \.self) { index in
-                TorrentFileIcon(fileName: "", isFolder: true, size: 34)
+                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
                     .rotationEffect(rotation(for: index), anchor: .bottom)
                     .offset(offset(for: index))
                     .zIndex(Double(index))
