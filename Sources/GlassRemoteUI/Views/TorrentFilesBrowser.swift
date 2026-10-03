@@ -159,24 +159,39 @@ struct TorrentFileTreeRow: Identifiable {
     let entry: TorrentFileBrowserEntry?
     var isFolder: Bool { entry == nil }
 
+    private final class Node {
+        let path: String
+        let name: String
+        var entry: TorrentFileBrowserEntry?
+        var indices: [Int] = []
+        var size: UInt64 = 0
+        var children: [String: Node] = [:]
+        init(path: String, name: String) { self.path = path; self.name = name }
+    }
+
     static func rows(entries: [TorrentFileBrowserEntry], collapsed: Set<String>, query: String) -> [Self] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let visible = entries.filter { query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query) || $0.originalPath.localizedCaseInsensitiveContains(query) }
-        func descend(_ prefix: String, depth: Int) -> [Self] {
-            let members = visible.filter { prefix.isEmpty || $0.displayName.hasPrefix(prefix + "/") }
-            let names = Set(members.compactMap { entry -> String? in
-                let suffix = prefix.isEmpty ? entry.displayName : String(entry.displayName.dropFirst(prefix.count + 1))
-                return suffix.split(separator: "/").first.map(String.init)
-            }).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
-            return names.flatMap { name -> [Self] in
-                let path = prefix.isEmpty ? name : prefix + "/" + name
-                let children = members.filter { $0.displayName == path || $0.displayName.hasPrefix(path + "/") }
-                let entry = children.count == 1 && children[0].displayName == path ? children[0] : nil
-                let row = Self(id: path, name: name, depth: depth, indices: children.map(\.index), size: children.reduce(0) { $0 + $1.size }, entry: entry)
-                return [row] + (entry == nil && (!collapsed.contains(path) || !query.isEmpty) ? descend(path, depth: depth + 1) : [])
+        let root = Node(path: "", name: "")
+        for entry in entries where query.isEmpty || entry.displayName.localizedCaseInsensitiveContains(query) || entry.originalPath.localizedCaseInsensitiveContains(query) {
+            let components = entry.displayName.split(separator: "/").map(String.init)
+            var parent = root
+            for (offset, name) in components.enumerated() {
+                let path = parent.path.isEmpty ? name : parent.path + "/" + name
+                let node = parent.children[name] ?? Node(path: path, name: name)
+                parent.children[name] = node
+                node.indices.append(entry.index)
+                node.size += entry.size
+                if offset == components.count - 1 { node.entry = entry }
+                parent = node
             }
         }
-        return descend("", depth: 0)
+        func flatten(_ parent: Node, depth: Int) -> [Self] {
+            parent.children.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.flatMap { node in
+                let row = Self(id: node.path, name: node.name, depth: depth, indices: node.indices, size: node.size, entry: node.entry)
+                return [row] + (node.entry == nil && (!collapsed.contains(node.path) || !query.isEmpty) ? flatten(node, depth: depth + 1) : [])
+            }
+        }
+        return flatten(root, depth: 0)
     }
 }
 
