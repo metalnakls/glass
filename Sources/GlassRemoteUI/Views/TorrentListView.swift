@@ -65,7 +65,6 @@ struct TorrentListView: View {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
                     .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
-                    .listRowBackground(raisedSurface(rowID: row.id, selected: selection == row.id, isSwiping: swipingRowID == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
@@ -163,17 +162,11 @@ struct TorrentListView: View {
         }
     }
 
-    private func raisedSurface(rowID: String, selected: Bool, isSwiping: Bool) -> some View {
-        Color.clear
-            .background(TorrentListElevationAnchor(controller: elevationController, rowID: rowID, selected: selected))
-            .padding(.horizontal, sidePadding + 2)
-            .padding(.trailing, isSwiping ? 120 : 0)
-            .padding(.vertical, 3)
-    }
-
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {
         TorrentListLiveRow(
             row: row,
+            isSelected: selection == row.id,
+            elevationController: elevationController,
             density: density,
             model: model,
             platformIntegration: platformIntegration,
@@ -302,6 +295,8 @@ struct TorrentListView: View {
 private struct TorrentListLiveRow: View {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
+    let isSelected: Bool
+    let elevationController: TorrentListElevationController
     let density: TorrentRowDensity
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
@@ -327,6 +322,13 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
+        .background {
+            // The card extends 14 points beyond the content on each side, and
+            // follows the actual foreground view when native swipe actions move it.
+            TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected)
+                .padding(.horizontal, -14)
+                .padding(.vertical, 3)
+        }
         .glassContextMenu(select: select) { contextMenuContent }
         .glassFlatSwipeActions(onPresentationChanged: swipePresentationChanged) {
             Button("Delete Torrent + Data", systemImage: "trash", role: .destructive) {

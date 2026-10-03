@@ -70,6 +70,7 @@ final class TorrentListElevationController: NSObject {
     var dragSelectionChanged: ((String) -> Void)?
     private var dragMonitor: Any?
     private var dragStartedInTable = false
+    private var movementViews: [NSView] = []
     func configure(_ settings: TorrentShadowSettings) {
         self.settings = settings
         update(animated: false)
@@ -95,6 +96,19 @@ final class TorrentListElevationController: NSObject {
         let changed = selectedAnchor !== anchor || selectedAnchorID != id
         selectedAnchor = anchor
         selectedAnchorID = id
+        if changed {
+            for view in movementViews { NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: view); NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: view) }
+            movementViews.removeAll()
+            var ancestor: NSView? = anchor
+            while let view = ancestor, view !== table {
+                view.postsFrameChangedNotifications = true
+                view.postsBoundsChangedNotifications = true
+                NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.frameDidChangeNotification, object: view)
+                NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSView.boundsDidChangeNotification, object: view)
+                movementViews.append(view)
+                ancestor = view.superview
+            }
+        }
         update(animated: changed)
     }
     func register(_ anchor: TorrentListElevationAnchor.Anchor) {
@@ -115,6 +129,7 @@ final class TorrentListElevationController: NSObject {
         dragMonitor = nil
         dragStartedInTable = false
         NotificationCenter.default.removeObserver(self)
+        movementViews.removeAll()
         overlay.removeFromSuperview()
         surface.removeFromSuperview()
         surfaceVisible = false
