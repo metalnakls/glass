@@ -52,7 +52,7 @@ struct TorrentListView: View {
             color: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight))
     }
     @State private var elevationController = TorrentListElevationController()
-    @Namespace private var folderMotion
+    @State private var folderMotion = TorrentFolderMotion()
     @State private var swipingRowID: String?
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -160,7 +160,10 @@ struct TorrentListView: View {
         }
         .onAppear {
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
-            elevationController.observeTable { stickyHeaders.attach($0) }
+            elevationController.observeTable { table in
+                stickyHeaders.attach(table)
+                folderMotion.attach(table)
+            }
         }
         .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
@@ -187,8 +190,8 @@ struct TorrentListView: View {
             }
             synchronizePresentation(animated: false)
         }
-        .onDisappear { elevationController.detach() }
-        .onChange(of: grid) { _, value in if value { elevationController.detach() } }
+        .onDisappear { elevationController.detach(); folderMotion.detach() }
+        .onChange(of: grid) { _, value in if value { elevationController.detach(); folderMotion.detach() } }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
@@ -300,13 +303,31 @@ struct TorrentListView: View {
         if row.groupIsExpanded == true, let selection, memberIDs.contains(selection) {
             self.selection = row.id
         }
+        if !grid && density.showsIcon {
+            folderMotion.prepare(groupID: row.id, members: memberIDs,
+                expanding: row.groupIsExpanded != true, inset: leftPadding + 16,
+                indices: folderRowIndices(presentation.rows), reduceMotion: accessibilityReduceMotion)
+        }
         let updatedRows = presentation.toggleGroup(
             row.id,
             records: records,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
         )
+        let indices = folderRowIndices(updatedRows)
+        folderMotion.animateAfterLayout(indices: indices,
+            expectedRows: updatedRows.count + TorrentListSection.sections(for: updatedRows).count)
         reconcileSelection(with: updatedRows)
+    }
+
+    private func folderRowIndices(_ rows: [TorrentListRowPresentation]) -> [String: Int] {
+        var result: [String: Int] = [:]
+        var index = 0
+        for section in TorrentListSection.sections(for: rows) {
+            index += 1 // Native inline section title.
+            for row in section.rows { result[row.id] = index; index += 1 }
+        }
+        return result
     }
 
     private func synchronizePresentation(animated: Bool) {
@@ -417,7 +438,7 @@ private struct TorrentListLiveRow: View {
     let rightPadding: CGFloat
     let grid: Bool
     let rowHeight: CGFloat
-    let folderMotion: Namespace.ID
+    let folderMotion: TorrentFolderMotion
     let folderIDs: [String]
     let folderID: String?
     let elevationController: TorrentListElevationController

@@ -8,7 +8,7 @@ struct TorrentRowView: View, Equatable {
     var showsExtensions = false
     var density: TorrentRowDensity = .regular
     var grid = false
-    var folderMotion: Namespace.ID?
+    var folderMotion: TorrentFolderMotion?
     var folderIDs: [String] = []
     var folderID: String?
     @State private var clickRevision = 0
@@ -89,7 +89,7 @@ struct TorrentRowView: View, Equatable {
                         .contentShape(Rectangle())
                         .contentTransition(.symbolEffect(.replace))
                 } else {
-                    GroupFolderFanIcon(count: groupCount, namespace: folderMotion, ids: folderIDs)
+                    GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
                         .frame(width: 36, height: 42)
                 }
             }
@@ -100,7 +100,8 @@ struct TorrentRowView: View, Equatable {
             activityProgress
         } else if let folderID, let folderMotion {
             TorrentFileIcon(fileName: "", isFolder: true)
-                .matchedGeometryEffect(id: folderID, in: folderMotion)
+                .opacity(folderMotion.flyingIDs.contains(folderID) ? 0 : 1)
+                .transaction { $0.animation = nil }
                 .transition(.identity)
                 .frame(width: 36, height: 42)
         } else {
@@ -307,7 +308,7 @@ enum TorrentRowDensity: Equatable {
 
 private struct GroupFolderFanIcon: View {
     let count: Int
-    var namespace: Namespace.ID?
+    var controller: TorrentFolderMotion?
     var ids: [String] = []
 
     var body: some View {
@@ -322,9 +323,10 @@ private struct GroupFolderFanIcon: View {
 
     @ViewBuilder
     private func matchedFanIcon(_ index: Int) -> some View {
-        if let namespace, ids.indices.contains(index) {
+        if let controller, ids.indices.contains(index) {
             fanIcon(index)
-                .matchedGeometryEffect(id: ids[index], in: namespace)
+                .opacity(controller.flyingIDs.contains(ids[index]) ? 0 : 1)
+                .transaction { $0.animation = nil }
                 .transition(.identity)
         } else { fanIcon(index) }
     }
