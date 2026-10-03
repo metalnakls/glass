@@ -23,22 +23,23 @@ struct TorrentInspectorView: View {
 
     var body: some View {
         Group {
-            if selectedTorrentHash == nil {
-                ContentUnavailableView("No Torrent Selected", systemImage: "info.circle", description: Text("Select a torrent to show details."))
-            } else if let snapshot {
+            if let snapshot {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 14) {
                         if let error = selectionError {
                             Text(error).font(.callout).foregroundStyle(.secondary)
                         }
                         TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText)
-                            .disabled(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
+                            .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
+                            .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
                     }
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollEdgeEffectHidden(true, for: .top)
+            } else if selectedTorrentHash == nil {
+                ContentUnavailableView("No Torrent Selected", systemImage: "info.circle", description: Text("Select a torrent to show details."))
             } else if let error = selectionError {
                 ContentUnavailableView("Couldn’t Load Details", systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
@@ -72,11 +73,14 @@ struct TorrentInspectorView: View {
                 groupDetailsError = error.localizedDescription
             }
         }
-        .onChange(of: selectedTorrentHash) { _, hashString in
-            if hashString == nil {
-                fileSearchText = ""
-                snapshot = nil
-            }
+        .task(id: selectionKey) {
+            guard selectionKey == nil else { return }
+            // A native list can briefly clear selection while moving between rows.
+            // Only clear a settled deselection; a new selection cancels this task.
+            do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
+            guard !Task.isCancelled else { return }
+            fileSearchText = ""
+            snapshot = nil
         }
         .onDisappear { fileSearchText = "" }
     }
