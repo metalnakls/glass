@@ -173,13 +173,16 @@ struct TorrentRowView: View, Equatable {
     private var transferButton: some View {
         ZStack {
             if !progressFilled {
+                Circle()
+                    .stroke(Color.primary.opacity(0.12), lineWidth: progressLineWidth)
+                    .allowsHitTesting(false)
                 Circle().trim(from: 0, to: progress)
                     .stroke(Color.primary.opacity(progressGlowStrength), style: StrokeStyle(lineWidth: progressLineWidth * 2, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .blur(radius: progressGlowBlur)
                     .allowsHitTesting(false)
                 Circle().trim(from: 0, to: progress)
-                    .stroke(Color.primary.opacity(0.45), style: StrokeStyle(lineWidth: progressLineWidth, lineCap: .round))
+                    .stroke(Color.primary, style: StrokeStyle(lineWidth: progressLineWidth, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .allowsHitTesting(false)
             }
