@@ -46,6 +46,12 @@ struct GlassApp: App {
             InspectorCommands()
         }
 
+        Window("Selection Appearance", id: "selection-appearance") {
+            SelectionAppearanceView()
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+
         Settings {
             PreferencesView(model: model, platformIntegration: platformIntegration)
         }
@@ -84,6 +90,7 @@ struct GlassApp: App {
 
 private struct GlassCommands: Commands {
     let updaterController: SPUStandardUpdaterController?
+    @Environment(\.openWindow) private var openWindow
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
@@ -99,6 +106,10 @@ private struct GlassCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             Toggle("Show Extensions", isOn: $showExtensions)
+            Divider()
+            Button("Selection Appearance…") {
+                openWindow(id: "selection-appearance")
+            }
         }
 
         CommandGroup(replacing: .newItem) {

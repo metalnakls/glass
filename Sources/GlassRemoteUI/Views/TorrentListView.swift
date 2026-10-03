@@ -28,7 +28,6 @@ struct TorrentListView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
-    @State private var shadowTuning = false
     @State private var swipingRowID: String?
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
@@ -56,12 +55,6 @@ struct TorrentListView: View {
         let base = colorScheme == .dark ? pow((0.21 + 0.055) / 1.055, 2.4) : 1.0
         let white = base + min(max(selectedHDRWhite, 0), 3)
         return Color(.sRGBLinear, white: white).headroom(max(1, white))
-    }
-
-    private var columnBrightness: Binding<Double> {
-        Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
-            if colorScheme == .dark { columnDarkBrightness = $0 } else { columnLightBrightness = $0 }
-        })
     }
 
     private var density: TorrentRowDensity {
@@ -147,19 +140,6 @@ struct TorrentListView: View {
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if selection != nil {
-                Button { shadowTuning = true } label: {
-                    Image(systemName: "slider.horizontal.3")
-                }
-                .help("Tune selection appearance")
-                .accessibilityLabel("Tune selection appearance")
-                .padding(8)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-                .padding(12)
-                .popover(isPresented: $shadowTuning) { shadowControls }
-            }
-        }
         .overlay {
             if records.isEmpty {
                 emptyState
@@ -191,61 +171,6 @@ struct TorrentListView: View {
             .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)
             .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25), value: selected)
-    }
-
-    private var shadowControls: some View {
-        ScrollView {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Selection Appearance").font(.headline)
-                Spacer()
-                Button("Done") { shadowTuning = false }
-            }
-            HStack {
-                Text("HDR white")
-                Spacer()
-                Text(selectedHDRWhite, format: .number.precision(.fractionLength(2)))
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }.font(.caption)
-            Slider(value: $selectedHDRWhite, in: 0...3).accessibilityLabel("HDR white")
-            shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
-            shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
-            shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
-            Divider()
-            Text("Above").font(.subheadline.weight(.semibold))
-            shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
-            shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
-            shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
-            Divider()
-            Text("Below").font(.subheadline.weight(.semibold))
-            shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
-            shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
-            shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
-            Button("Reset") {
-                selectedHDRWhite = 0
-                selectedHDRSoftness = 0
-                selectedHDRSpread = 0
-                if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
-                shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
-                shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
-            }
-        }
-        .padding(16)
-        }
-        .frame(width: 280, height: 530)
-    }
-
-    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : "\(Int(value.wrappedValue.rounded()))")
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }
-            .font(.caption)
-            Slider(value: value, in: range).accessibilityLabel(title)
-        }
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {

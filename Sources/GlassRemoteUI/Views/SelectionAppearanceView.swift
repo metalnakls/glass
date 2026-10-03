@@ -1,0 +1,76 @@
+import SwiftUI
+
+public struct SelectionAppearanceView: View {
+    public init() {}
+
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
+    @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
+    @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
+    @AppStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
+    @AppStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
+    @AppStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
+    @AppStorage("GlassList.shadowTopSoftness") private var shadowTopSoftness = 8.0
+    @AppStorage("GlassList.shadowTopLift") private var shadowTopLift = 4.0
+    @AppStorage("GlassList.shadowBottomStrength") private var shadowBottomStrength = 0.22
+    @AppStorage("GlassList.shadowBottomSoftness") private var shadowBottomSoftness = 12.0
+    @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
+
+    private var columnBrightness: Binding<Double> {
+        Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
+            if colorScheme == .dark { columnDarkBrightness = $0 } else { columnLightBrightness = $0 }
+        })
+    }
+
+    public var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Selection Appearance").font(.headline)
+                HStack {
+                    Text("HDR white")
+                    Spacer()
+                    Text(selectedHDRWhite, format: .number.precision(.fractionLength(2)))
+                        .monospacedDigit().foregroundStyle(.secondary)
+                }.font(.caption)
+                Slider(value: $selectedHDRWhite, in: 0...3).accessibilityLabel("HDR white")
+                shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
+                shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
+                shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
+                Divider()
+                Text("Above").font(.subheadline.weight(.semibold))
+                shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
+                shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
+                shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
+                Divider()
+                Text("Below").font(.subheadline.weight(.semibold))
+                shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
+                shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
+                shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
+                Button("Reset") {
+                    selectedHDRWhite = 0
+                    selectedHDRSoftness = 0
+                    selectedHDRSpread = 0
+                    if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
+                    shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
+                    shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
+                }
+            }
+            .padding(16)
+        }
+        .frame(width: 320, height: 640)
+    }
+
+    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : "\(Int(value.wrappedValue.rounded()))")
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            Slider(value: value, in: range).accessibilityLabel(title)
+        }
+    }
+
+}
