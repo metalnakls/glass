@@ -31,6 +31,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
+    @State private var stickyHeaders = TorrentStickyHeaders()
     @State private var elevationController = TorrentListElevationController()
     @Namespace private var folderMotion
     @State private var swipingRowID: String?
@@ -56,6 +57,15 @@ struct TorrentListView: View {
 
     private var listSurface: Color {
         Color(white: colorScheme == .dark ? columnDarkBrightness : columnLightBrightness)
+    }
+
+    private func headerIndex(_ id: String) -> Int {
+        var index = 0
+        for section in TorrentListSection.sections(for: presentation.rows) {
+            if section.id == id { return index }
+            index += section.rows.count + 1
+        }
+        return index
     }
 
     private var density: TorrentRowDensity {
@@ -84,23 +94,19 @@ struct TorrentListView: View {
             } else {
             List(selection: $selection) {
                 ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
-                    Section {
-                        ForEach(section.rows) { row in
-                            liveRow(for: row)
-                                .listRowBackground(Color.clear)
-                                .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                                .listRowSeparator(.hidden)
-                                .listItemTint(.monochrome)
-                                .tag(row.id)
-                                .accessibilityElement(children: .contain)
-                        }
-                    } header: {
-                        Text(section.title)
-                            .font(.largeTitle.weight(.bold))
-                            .foregroundStyle(.primary)
-                            .padding(.vertical, 8)
-                            .padding(.leading, sidePadding + 16)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                    TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: sidePadding + 16, controller: stickyHeaders)
+                        .selectionDisabled()
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                    ForEach(section.rows) { row in
+                        liveRow(for: row)
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.hidden)
+                            .listItemTint(.monochrome)
+                            .tag(row.id)
+                            .accessibilityElement(children: .contain)
                     }
                 }
             }
@@ -117,7 +123,7 @@ struct TorrentListView: View {
             .environment(\.defaultMinListRowHeight, densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(true, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
@@ -126,6 +132,10 @@ struct TorrentListView: View {
             .background(listSurface)
             }
             }
+        }
+        .onAppear { stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16) }
+        .onChange(of: presentation.rows.map(\.id)) { _, _ in
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: sidePadding + 16)
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
