@@ -228,7 +228,7 @@ struct TorrentListView: View {
         .dropDestination(for: String.self) { ids, _ in
             guard let id = ids.first, id != row.id,
                   let dragged = presentation.rows.first(where: { $0.id == id }), dragged.sourceID == row.sourceID else { return false }
-            func hashes(_ item: TorrentListRowPresentation) -> [String] {
+            @MainActor func hashes(_ item: TorrentListRowPresentation) -> [String] {
                 switch item.kind {
                 case let .torrent(record, _): return [record.hashString]
                 case let .group(records, _, _): return records.map(\.hashString)
