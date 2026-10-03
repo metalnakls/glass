@@ -4,7 +4,9 @@ For build/install changes, follow the global `app-build-install-scripts` and `ma
 
 ## Git delivery
 
-When a turn changes project files and all required validation succeeds, commit only that turn's files and push the commit to the current branch's configured upstream. Routine pushes to this private repository are authorized. Choose a concise commit name automatically, then ask whether the user wants it changed; push once the name is settled. If renamed, amend only before pushing. Preserve unrelated work, never force-push or rewrite published history, and stop to report if validation or the push fails. A user request not to push for a specific turn takes precedence.
+When a turn changes project files and all required validation succeeds, commit only that turn's files. Choose a concise commit name automatically, then ask whether the user wants it changed; amend only when renaming is requested and before pushing. Preserve unrelated work, never force-push or rewrite published history, and stop to report if validation fails.
+
+Never push without an explicit yes in the conversation. Commit locally, then ask. `Scripts/build-mac-app.sh` prints a push reminder after four build/install runs without a push, and repeats it every three runs after that; when that reminder appears, ask the user whether to push and list the unpushed commits. A user request not to push for a specific turn always takes precedence.
 
 ## Local build and install
 
@@ -28,14 +30,16 @@ Run SwiftPM tests with: swift test --package-path . --disable-sandbox
 
 Glass uses a single version number for both `CFBundleVersion` and `CFBundleShortVersionString`, set through the `GLASS_VERSION` build setting. Sparkle compares `CFBundleVersion`, so it must rise for every release or no update is offered.
 
-Local builds derive a date-based version (`YYYYMMDDHHMM`) so debugging never modifies the repository. Releases pass an explicit `GLASS_VERSION`.
+The release version lives in the `VERSION` file at the repository root. Local builds derive a date-based version (`YYYYMMDDHHMM`) so debugging never modifies the repository.
+
+Every push to `main` publishes a release, so bump `VERSION` in the same commit as the change you want to ship.
 
 Bump rules:
 
-- Small fixes and incremental work are point releases. Pick the next sensible number and commit it; do not ask.
+- Small fixes and incremental work are point releases. Pick the next sensible number and bump `VERSION` in the same commit; do not ask.
 - Big features and breaking changes are major releases. Ask before shipping one.
 - There is no marketing version. If `12.42` is the next sensible number, use it.
 
-The version bump is its own commit and always ships with the release.
+See `Docs/UPDATES.md` for the release pipeline.
 
 Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using `SPARKLE_PRIVATE_ED_KEY` from GitHub Secrets, and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.

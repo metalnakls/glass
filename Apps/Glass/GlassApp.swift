@@ -22,6 +22,8 @@ struct GlassApp: App {
                 userDriverDelegate: nil
             )
         } else {
+            // Local builds have no SPARKLE_PUBLIC_ED_KEY injected, so the updater
+            // stays off rather than failing to verify anything it downloads.
             updaterController = nil
         }
 
@@ -39,7 +41,7 @@ struct GlassApp: App {
         .defaultSize(width: 760, height: 444)
         .windowResizability(.contentMinSize)
         .commands {
-            GlassCommands()
+            GlassCommands(updaterController: updaterController)
             ToolbarCommands()
             InspectorCommands()
         }
@@ -81,11 +83,20 @@ struct GlassApp: App {
 }
 
 private struct GlassCommands: Commands {
+    let updaterController: SPUStandardUpdaterController?
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            if let updaterController {
+                Button("Check for Updates...") {
+                    updaterController.updater.checkForUpdates()
+                }
+            }
+        }
+
         CommandGroup(after: .toolbar) {
             Toggle("Show Extensions", isOn: $showExtensions)
         }

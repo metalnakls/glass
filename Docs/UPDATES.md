@@ -1,41 +1,57 @@
 # Automatic updates
 
-Glass uses Sparkle 2 and publishes update artifacts from this repository's GitHub Releases.
+Glass updates itself with [Sparkle](https://sparkle-project.org). Releases are
+built by GitHub Actions on every push to `main`, signed with Sparkle's EdDSA key,
+and published as a GitHub Release that also carries `appcast.xml`.
+
+Glass releases are **not** signed with a Developer ID certificate and are **not**
+notarized. There is no Apple notarization step and no Apple secrets in CI. Sparkle
+still verifies every update with EdDSA, so a tampered download is rejected. Because
+the app itself is unsigned, macOS Gatekeeper asks the user to open Glass once from
+Finder after installing an update.
 
 ## One-time setup
 
-Make `metalnakls/glass` public before shipping the first update.
+Make this repository public, then add one GitHub Actions secret:
 
-Add these GitHub Actions secrets:
+- `SPARKLE_PUBLIC_ED_KEY`: the public key printed by Sparkle's `generate_keys`
+- `SPARKLE_PRIVATE_ED_KEY`: the matching private key
 
-- `MACOS_CERTIFICATE_P12`: base64 of your exported Developer ID Application .p12
-- `MACOS_CERTIFICATE_PASSWORD`: password used when exporting the .p12
-- `DEVELOPER_ID_APPLICATION`: exact identity, e.g. `Developer ID Application: Name (TEAMID)`
-- `APPLE_ID`: Apple ID used for notarization
-- `APPLE_APP_PASSWORD`: app-specific password from appleid.apple.com
-- `APPLE_TEAM_ID`: Apple Developer Team ID
-- `SPARKLE_PUBLIC_ED_KEY`: output of Sparkle's `generate_keys`
-- `SPARKLE_PRIVATE_ED_KEY`: Sparkle private EdDSA key
+No extra update repository, no personal access token, and no Apple certificates are
+required. The workflow uses the repository's built-in `GITHUB_TOKEN`.
 
-No extra update repository or GitHub PAT is required. The workflow uses the repository's built-in `GITHUB_TOKEN`.
+## Sparkle keys
 
-## Sparkle key
-
-Use Sparkle's bundled `generate_keys` tool once on your Mac. Keep the private key private. Put the printed public key in `SPARKLE_PUBLIC_ED_KEY`, and export the private key for CI as `SPARKLE_PRIVATE_ED_KEY`.
-
-## Certificate
-
-In Keychain Access, export the **Developer ID Application** certificate together with its private key as a password-protected .p12, then:
+Generate a key pair once with Sparkle's bundled tool:
 
 ```sh
-base64 -i DeveloperID.p12 | pbcopy
+find ~/Library/Developer/Xcode/DerivedData -name generate_keys -type f -perm +111 | head -1
 ```
 
-Paste that value into `MACOS_CERTIFICATE_P12`.
+Put the printed public key in the `SPARKLE_PUBLIC_ED_KEY` secret. Export the private
+key for CI as `SPARKLE_PRIVATE_ED_KEY`, and keep a copy somewhere safe. Losing the
+private key means losing the ability to sign updates.
 
-## Shipping
+## Versioning
 
-Every push to `main` runs the release workflow. A successful run signs + notarizes Glass and creates a GitHub Release containing both the update ZIP and `appcast.xml`.
+The release version lives in the `VERSION` file at the repository root and feeds
+both `CFBundleVersion` and `CFBundleShortVersionString` through the `GLASS_VERSION`
+build setting. Sparkle decides what is newer by comparing `CFBundleVersion`, so the
+number must rise for every release.
+
+Every push to `main` publishes a release, so bump `VERSION` in the same commit as
+the change you want to ship.
+
+- Small fixes are point releases. Pick the next sensible number without asking.
+- Big features and breaking changes are major releases. Ask first.
+- There is no separate marketing version.
+
+## How a release runs
+
+1. `.github/workflows/release.yml` reads `VERSION`
+2. It builds Release with an ad-hoc signature and the injected public key
+3. It zips `Glass.app` and signs the ZIP with `sign_update`
+4. It creates a GitHub Release containing the ZIP and `appcast.xml`
 
 Installed copies read the stable feed URL:
 
@@ -43,4 +59,4 @@ Installed copies read the stable feed URL:
 https://github.com/metalnakls/glass/releases/latest/download/appcast.xml
 ```
 
-Sparkle checks hourly and handles update installation/relaunch.
+Glass checks hourly and installs and relaunches updates on its own.

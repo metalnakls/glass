@@ -107,6 +107,44 @@ resolve_sign_identity() {
     choose_sign_identity "$available"
 }
 
+# Push reminder
+#
+# Local work is committed automatically, but pushes wait for explicit approval.
+# This counts build/install runs since the last push and prints a nudge once the
+# count passes GLASS_PUSH_REMINDER_AFTER, then every GLASS_PUSH_REMINDER_EVERY
+# runs after that. The agent should then ask the user whether to push.
+PUSH_REMINDER_AFTER="${GLASS_PUSH_REMINDER_AFTER:-4}"
+PUSH_REMINDER_EVERY="${GLASS_PUSH_REMINDER_EVERY:-3}"
+PUSH_COUNTER_FILE="$ROOT_DIR/.push-reminder-count"
+
+remind_about_push() {
+    local pending count
+
+    pending="$(git -C "$ROOT_DIR" log --branches --not --remotes --oneline 2>/dev/null || true)"
+    if [ -z "$pending" ]; then
+        rm -f -- "$PUSH_COUNTER_FILE"
+        return 0
+    fi
+
+    count=0
+    if [ -f "$PUSH_COUNTER_FILE" ]; then
+        count="$(tr -d '[:space:]' < "$PUSH_COUNTER_FILE" 2>/dev/null || echo 0)"
+    fi
+    count=$((count + 1))
+    printf '%s' "$count" > "$PUSH_COUNTER_FILE" 2>/dev/null || true
+
+    if [ "$count" -ge "$PUSH_REMINDER_AFTER" ] \
+        && [ $(((count - PUSH_REMINDER_AFTER) % PUSH_REMINDER_EVERY)) -eq 0 ]; then
+        {
+            echo ""
+            echo "Push reminder: $count build/install runs since the last push."
+            echo "Unpushed commits:"
+            printf '%s\n' "$pending" | sed 's/^/  /'
+            echo "Ask the user whether to push now. Never push without an explicit yes."
+        } >&2
+    fi
+}
+
 restore_install() {
     if [[ "$INSTALL_STARTED" -eq 1 ]]; then
         if [[ -n "$INSTALL_BACKUP" && -d "$INSTALL_BACKUP" ]]; then
@@ -220,5 +258,7 @@ ditto "$APP_DIR" "$INSTALL_DIR"
 codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 codesign --display --verbose=4 "$INSTALL_DIR" 2>&1
 INSTALL_STARTED=0
+
+remind_about_push
 
 echo "$APP_DIR"

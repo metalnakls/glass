@@ -1,11 +1,13 @@
 name: Release Glass
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 1.0 for the first release or 1.1 for a point release"
-        required: true
+        description: "Release version override. Leave empty to use the version committed in the project."
+        required: false
         type: string
 
 permissions:
@@ -37,7 +39,14 @@ jobs:
         env:
           SPARKLE_PUBLIC_ED_KEY: ${{ secrets.SPARKLE_PUBLIC_ED_KEY }}
         run: |
-          VERSION="${{ inputs.version }}"
+          VERSION="$(cat VERSION 2>/dev/null | tr -d '[:space:]')"
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          fi
+          if [ -z "$VERSION" ]; then
+            echo "Could not read the release version from the VERSION file." >&2
+            exit 1
+          fi
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
           xcodebuild \
