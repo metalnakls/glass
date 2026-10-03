@@ -1394,13 +1394,12 @@ public final class RemoteAppModel {
     private func prepareVisibleTorrentsForRefresh(of sourceID: UUID) {
         let state = sourceState(for: sourceID)
         guard !state.hasRefreshed, state.records.isEmpty,
-              preferences.isTorrentCachingEnabled, let cached = torrentCache[sourceID] else { return }
+              let cached = torrentCache[sourceID] else { return }
         replaceTorrentRecords(with: cached.torrents, sourceID: sourceID)
         state.isShowingCachedTorrents = true
     }
 
     private func updateTorrentCache(_ torrents: [TorrentSummary], for profileID: UUID) {
-        guard preferences.isTorrentCachingEnabled else { return }
         torrentCache[profileID] = CachedTorrentList(profileID: profileID, torrents: torrents)
         trimTorrentCache()
         scheduleTorrentCachePersistence()
@@ -1515,13 +1514,8 @@ public final class RemoteAppModel {
         let allowedSourceIDs = Set(profiles.map(\.id) + [Self.localProfileID])
         torrentCache = torrentCache.filter { allowedSourceIDs.contains($0.key) }
 
-        let limit = max(1, preferences.cachedServerLimit)
-        let sortedIDs = torrentCache.values
-            .sorted { $0.refreshedAt > $1.refreshedAt }
-            .map(\.profileID)
-        for profileID in sortedIDs.dropFirst(limit) {
-            torrentCache[profileID] = nil
-        }
+        let cutoff = Calendar.current.date(byAdding: .month, value: -2, to: Date()) ?? .distantPast
+        torrentCache = torrentCache.filter { $0.value.refreshedAt >= cutoff }
     }
 
     private func rememberDownloadDirectory(_ directory: String?, for profileID: UUID) {
