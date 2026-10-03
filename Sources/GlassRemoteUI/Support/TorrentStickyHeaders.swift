@@ -30,8 +30,9 @@ enum TorrentStickyHeaderGeometry {
         let titles: [Placement]
         let backdropHeight: CGFloat
     }
-    static func layout(frames: [CGRect], viewport: CGRect, feather: CGFloat = 48, topInset: CGFloat = 0, releasePoints: [CGFloat]? = nil) -> Layout? {
+    static func layout(frames: [CGRect], viewport: CGRect, feather: CGFloat = 48, topInset: CGFloat = 0, releasePoints: [CGFloat]? = nil, stickyAllowed: [Bool]? = nil) -> Layout? {
         guard let index = frames.indices.last(where: { frames[$0].minY < viewport.minY + topInset }) else { return nil }
+        guard stickyAllowed?[index] != false else { return nil }
         let original = frames[index]
         let next = index + 1 < frames.count ? frames[index + 1] : nil
         var pinned = original.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
@@ -199,11 +200,16 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        let releases = ordered.enumerated().map { offset, _ -> CGFloat in
-            let end = offset + 1 < frames.count ? frames[offset + 1].minY : table.rect(ofRow: table.numberOfRows - 1).maxY
-            return end - appearance.pushLead
+        let stickyAllowed = ordered.enumerated().map { offset, header in
+            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
+            return endIndex - header.index - 1 > 2
         }
-        guard let layout = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases) else {
+        let releases = ordered.enumerated().map { offset, header -> CGFloat in
+            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
+            let row = max(header.index + 1, endIndex - 2)
+            return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
+        }
+        guard let layout = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed) else {
             overlay.dismiss()
             return
         }

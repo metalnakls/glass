@@ -94,6 +94,11 @@ struct TorrentStickyHeaderTests {
         #expect(outgoing.frame.maxY == 32)
         #expect(layout.titles.first { $0.index == 1 }?.frame.minY == 56)
     }
+    @Test("two-item sections never float their title")
+    func shortSectionStaysInline() {
+        #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(50), topInset: 20, stickyAllowed: [false, true]) == nil)
+        #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(190), topInset: 20, stickyAllowed: [false, true])?.titles.first?.index == 1)
+    }
     @Test("reversing scroll reproduces the same geometry and respects horizontal origin")
     func reverseAndHorizontalOrigin() throws {
         let down = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(150))

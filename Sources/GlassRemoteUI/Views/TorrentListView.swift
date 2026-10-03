@@ -29,6 +29,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
@@ -39,7 +40,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
     @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
-    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 24.0
+    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerAppearance: TorrentHeaderAppearance {
@@ -86,6 +87,9 @@ struct TorrentListView: View {
 
     private var density: TorrentRowDensity {
         densityLevel == 0 ? .compact : (columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
+    }
+    private var listRowHeight: CGFloat {
+        max(0, (densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
     }
 
     var body: some View {
@@ -136,7 +140,7 @@ struct TorrentListView: View {
                     value: proxy.size.width
                 )
             })
-            .environment(\.defaultMinListRowHeight, densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60)
+            .environment(\.defaultMinListRowHeight, listRowHeight)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectHidden(true, for: .top)
@@ -238,7 +242,7 @@ struct TorrentListView: View {
             leftPadding: grid ? 0 : leftPadding,
             rightPadding: grid ? 0 : rightPadding,
             grid: grid,
-            rowHeight: densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60,
+            rowHeight: listRowHeight,
             folderMotion: folderMotion,
             folderIDs: row.groupMemberIDs.map { Array($0.prefix(3)) } ?? [],
             folderID: presentation.rows.first(where: { $0.groupMemberIDs?.prefix(3).contains(row.id) == true }) == nil ? nil : row.id,

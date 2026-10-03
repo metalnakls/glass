@@ -6,6 +6,7 @@ public struct SelectionAppearanceView: View {
 
     @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -32,7 +33,7 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
     @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
-    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 24.0
+    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerColor: Binding<Color> {
@@ -54,6 +55,7 @@ public struct SelectionAppearanceView: View {
                 Text("Selection Appearance").font(.headline)
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
+                shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
                 HStack {
                     Text("HDR white")
                     Spacer()
@@ -71,9 +73,9 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Fade reach below title", value: $headerFadeReach, range: 0...240)
                 durationSlider("Background fade in", value: $headerBackgroundIn)
                 durationSlider("Background fade out", value: $headerBackgroundOut)
-                durationSlider("Title ease in", value: $headerTitleIn)
-                durationSlider("Title ease out", value: $headerTitleOut)
-                shadowSlider("Header push lead", value: $headerPushLead, range: 0...120)
+                durationSlider("Title fade in", value: $headerTitleIn)
+                durationSlider("Title fade out", value: $headerTitleOut)
+                shadowSlider("Extra header push lead", value: $headerPushLead, range: 0...120)
                 Divider()
                 Text("State Button").font(.subheadline.weight(.semibold))
                 shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
@@ -98,10 +100,11 @@ public struct SelectionAppearanceView: View {
                 Button("Reset") {
                     headerFadeStrength = 0.75; headerFadeReach = 48
                     headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
-                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 24
+                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 0
                     headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
                     stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
                     leftPadding = 18; rightPadding = 18
+                    itemVerticalPadding = 0
                     selectionEaseIn = 0.25
                     selectionEaseOut = 0.30
                     selectedHDRWhite = 0
@@ -111,6 +114,7 @@ public struct SelectionAppearanceView: View {
                     shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
                     shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
                 }
+                Button("Export tuning") { SelectionAppearanceWindow.exportTuning() }
             }
             .padding(16)
         }
@@ -147,6 +151,15 @@ public struct SelectionAppearanceView: View {
 @MainActor
 public enum SelectionAppearanceWindow {
     private static var window: NSWindow?
+    static func exportTuning() {
+        let values = UserDefaults.standard.dictionaryRepresentation().filter { $0.key.hasPrefix("GlassList.") }
+        guard let data = try? JSONSerialization.data(withJSONObject: values, options: [.prettyPrinted, .sortedKeys]) else { return }
+        let panel = NSSavePanel()
+        panel.title = "Export tuning"
+        panel.nameFieldStringValue = "Glass-tuning.json"
+        panel.directoryURL = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        if panel.runModal() == .OK, let url = panel.url { try? data.write(to: url, options: .atomic) }
+    }
 
     public static func show() {
         guard ProcessInfo.processInfo.arguments.contains("--tune-appearance") else { return }

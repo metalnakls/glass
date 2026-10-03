@@ -203,6 +203,8 @@ else
     BUILD_VERSION="$(date -u +%Y%m%d%H%M)"
 fi
 
+SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-vKl2Nb7sR021uAXfeWPvh/naGAsQuLPKh/2FsMWYkV0=}"
+
 xcodebuild \
     -project "$ROOT_DIR/Apps/Glass/Glass.xcodeproj" \
     -scheme Glass \
@@ -211,6 +213,7 @@ xcodebuild \
     CODE_SIGN_STYLE=Manual \
     CODE_SIGN_IDENTITY="$SIGN_IDENTITY" \
     GLASS_VERSION="$BUILD_VERSION" \
+    SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
     build
 
 APP_DIR="$DERIVED_DATA/Build/Products/$XCODE_CONFIGURATION/Glass.app"
@@ -220,6 +223,11 @@ if [[ ! -d "$APP_DIR" ]]; then
 fi
 codesign --verify --deep --strict --verbose=2 "$APP_DIR"
 codesign --display --verbose=4 "$APP_DIR" 2>&1
+
+if [[ "${GLASS_SKIP_INSTALL:-0}" == "1" ]]; then
+    echo "$APP_DIR"
+    exit 0
+fi
 
 if [[ -L "$INSTALL_DIR" || ( -e "$INSTALL_DIR" && ! -d "$INSTALL_DIR" ) ]]; then
     echo "Install destination exists but is not an app directory: $INSTALL_DIR" >&2
