@@ -26,24 +26,24 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @AppStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
-    @AppStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
-    @AppStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
-    @AppStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
+    @AppearanceStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
+    @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
+    @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var densityLevel = 1
     @State private var columnWidth: CGFloat = 0
     @State private var stickyHeaders = TorrentStickyHeaders()
-    @AppStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
-    @AppStorage("GlassList.headerFadeStrengthDark") private var headerFadeStrengthDark = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
-    @AppStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
-    @AppStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
-    @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
-    @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
-    @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
-    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
-    @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
-    @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
+    @AppearanceStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
+    @AppearanceStorage("GlassList.headerFadeStrengthDark") private var headerFadeStrengthDark = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
+    @AppearanceStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
+    @AppearanceStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
+    @AppearanceStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
+    @AppearanceStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
+    @AppearanceStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
+    @AppearanceStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
+    @AppearanceStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
+    @AppearanceStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerAppearance: TorrentHeaderAppearance {
         TorrentHeaderAppearance(strength: colorScheme == .dark ? headerFadeStrengthDark : headerFadeStrengthLight, reach: headerFadeReach,
             backgroundIn: headerBackgroundIn, backgroundOut: headerBackgroundOut,
@@ -53,21 +53,21 @@ struct TorrentListView: View {
     @State private var elevationController = TorrentListElevationController()
     @Namespace private var folderMotion
     @State private var swipingRowID: String?
-    @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
-    @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
-    @AppStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
-    @AppStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
-    @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
-    @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
-    @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
-    @AppStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
-    @AppStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
-    @AppStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
-    @AppStorage("GlassList.shadowTopSoftness") private var shadowTopSoftness = 8.0
-    @AppStorage("GlassList.shadowTopLift") private var shadowTopLift = 4.0
-    @AppStorage("GlassList.shadowBottomStrength") private var shadowBottomStrength = 0.22
-    @AppStorage("GlassList.shadowBottomSoftness") private var shadowBottomSoftness = 12.0
-    @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
+    @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
+    @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
+    @AppearanceStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
+    @AppearanceStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
+    @AppearanceStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
+    @AppearanceStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
+    @AppearanceStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
+    @AppearanceStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
+    @AppearanceStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
+    @AppearanceStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
+    @AppearanceStorage("GlassList.shadowTopSoftness") private var shadowTopSoftness = 8.0
+    @AppearanceStorage("GlassList.shadowTopLift") private var shadowTopLift = 4.0
+    @AppearanceStorage("GlassList.shadowBottomStrength") private var shadowBottomStrength = 0.22
+    @AppearanceStorage("GlassList.shadowBottomSoftness") private var shadowBottomSoftness = 12.0
+    @AppearanceStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     private var shadowSettings: TorrentShadowSettings {
         TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: selectedHDRWhite, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, highlightColor: HeaderFadeColor.decode(colorScheme == .dark ? highlightColorDark : highlightColorLight), increasedContrast: colorContrast == .increased)

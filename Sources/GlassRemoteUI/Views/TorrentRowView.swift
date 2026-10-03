@@ -14,11 +14,11 @@ struct TorrentRowView: View, Equatable {
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
-    @AppStorage("GlassList.stateGap") private var stateGap = 8.0
-    @AppStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
-    @AppStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
-    @AppStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
-    @AppStorage("GlassList.progressFilled") private var progressFilled = false
+    @AppearanceStorage("GlassList.stateGap") private var stateGap = 8.0
+    @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
+    @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
+    @AppearanceStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppearanceStorage("GlassList.progressFilled") private var progressFilled = false
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
