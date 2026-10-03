@@ -853,14 +853,16 @@ public final class RemoteAppModel {
         }
     }
 
-    public func start(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async {
+    @discardableResult
+    public func start(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async -> Bool {
         let sourceID = requestedSourceID ?? selectedSourceID
         return await performProviderAction(sourceID: sourceID) { provider in
             try await provider.start(ids: [torrent.hashString])
         }
     }
 
-    public func stop(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async {
+    @discardableResult
+    public func stop(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async -> Bool {
         let sourceID = requestedSourceID ?? selectedSourceID
         return await performProviderAction(sourceID: sourceID) { provider in
             try await provider.stop(ids: [torrent.hashString])
@@ -994,8 +996,6 @@ public final class RemoteAppModel {
                 try await provider.setQueuePosition(ids: [hash], position: position)
             }
         }
-    }
-
         if succeeded {
             let state = sourceState(for: sourceID)
             let currentMoving = state.records.filter { hashes.contains($0.hashString) }
@@ -1007,6 +1007,8 @@ public final class RemoteAppModel {
                 scheduleTorrentCachePersistence()
             }
         }
+    }
+
     public func moveInQueue(_ torrents: [TorrentSummary], direction: TorrentQueueMove, sourceID requestedSourceID: UUID? = nil) async {
         let sourceID = requestedSourceID ?? selectedSourceID
         let ids = torrents.map(\.hashString)
@@ -1478,12 +1480,12 @@ public final class RemoteAppModel {
             return TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID))
         }
 
-        if state.records.map(\.id) != updatedRecords.map(\.id) {
-            state.records = updatedRecords
         // Server queue telemetry must not move a card under the user's pointer.
         let incoming = Dictionary(uniqueKeysWithValues: updatedRecords.map { ($0.id, $0) })
         let known = Set(state.records.map(\.id))
         updatedRecords = state.records.compactMap { incoming[$0.id] } + updatedRecords.filter { !known.contains($0.id) }
+        if state.records.map(\.id) != updatedRecords.map(\.id) {
+            state.records = updatedRecords
         }
         if structureChanged {
             state.structureRevision &+= 1

@@ -232,7 +232,7 @@ struct TorrentListView: View {
             toggleGroupExpansion: { toggleAutoGroup(row) },
             rename: rename,
             remove: remove,
-            toggleTransfers: { Task { await toggleTransfers(for: row) } }
+            toggleTransfers: { await toggleTransfers(for: row) }
         )
         .draggable(row.id)
         .dropDestination(for: String.self) { ids, _ in
@@ -316,17 +316,17 @@ struct TorrentListView: View {
         }
     }
 
-    private func toggleTransfers(for row: TorrentListRowPresentation) async {
+    private func toggleTransfers(for row: TorrentListRowPresentation) async -> Bool {
         switch row.kind {
         case let .torrent(record, _):
             let torrent = record.summary
             if torrent.canStopTransfer {
-                await model.stop(torrent, sourceID: record.sourceID)
+                return await model.stop(torrent, sourceID: record.sourceID)
             } else {
-                await model.start(torrent, sourceID: record.sourceID)
+                return await model.start(torrent, sourceID: record.sourceID)
             }
         case let .group(records, _, _):
-            await toggleGroupTransfers(records)
+            return await toggleGroupTransfers(records)
         }
     }
 
@@ -337,21 +337,25 @@ struct TorrentListView: View {
         )
     }
 
-    private func toggleGroupTransfers(_ records: [TorrentRecord]) async {
+    private func toggleGroupTransfers(_ records: [TorrentRecord]) async -> Bool {
         let liveTorrents = records.filter { $0.summary.id >= 0 }
         let unfinished = liveTorrents.filter { $0.summary.isUnfinished && !isUnavailable($0) }
         let transfers = unfinished.isEmpty ? liveTorrents : unfinished
-        guard !transfers.isEmpty else { return }
+        guard !transfers.isEmpty else { return false }
+        var succeeded = true
 
         if transfers.contains(where: { $0.summary.canStopTransfer }) {
             for record in transfers where record.summary.canStopTransfer {
-                await model.stop(record.summary, sourceID: record.sourceID)
+                let result = await model.stop(record.summary, sourceID: record.sourceID)
+                succeeded = result && succeeded
             }
         } else {
             for record in transfers {
-                await model.start(record.summary, sourceID: record.sourceID)
+                let result = await model.start(record.summary, sourceID: record.sourceID)
+                succeeded = result && succeeded
             }
         }
+        return succeeded
     }
 
     @ViewBuilder
@@ -387,7 +391,7 @@ private struct TorrentListLiveRow: View {
     let toggleGroupExpansion: () -> Void
     let rename: (TorrentSummary, UUID) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
-    let toggleTransfers: () -> Void
+    let toggleTransfers: () async -> Bool
 
     var body: some View {
         TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : sidePadding + 2) {

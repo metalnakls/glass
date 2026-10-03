@@ -20,6 +20,12 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.shadowBottomSoftness") private var shadowBottomSoftness = 12.0
     @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
+    @AppStorage("GlassList.stateGap") private var stateGap = 8.0
+    @AppStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
+    @AppStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
+    @AppStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppStorage("GlassList.progressFilled") private var progressFilled = false
+
     private var columnBrightness: Binding<Double> {
         Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
             if colorScheme == .dark { columnDarkBrightness = $0 } else { columnLightBrightness = $0 }
@@ -42,6 +48,13 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
                 shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
                 Divider()
+                Text("State Button").font(.subheadline.weight(.semibold))
+                shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
+                shadowSlider("Progress glow blur", value: $progressGlowBlur, range: 0...16)
+                shadowSlider("Progress glow strength", value: $progressGlowStrength, range: 0...2)
+                shadowSlider("Progress ring width", value: $progressLineWidth, range: 0.5...5)
+                Toggle("Fill circle with progress", isOn: $progressFilled)
+                Divider()
                 Text("Motion").font(.subheadline.weight(.semibold))
                 durationSlider("Ease in", value: $selectionEaseIn)
                 durationSlider("Ease out", value: $selectionEaseOut)
@@ -56,6 +69,7 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
                 Button("Reset") {
+                    stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
                     sidePadding = 18
                     selectionEaseIn = 0.25
                     selectionEaseOut = 0.30

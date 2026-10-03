@@ -12,13 +12,20 @@ struct TorrentRowView: View, Equatable {
     var folderIDs: [String] = []
     var folderID: String?
     @State private var clickRevision = 0
+    @State private var pendingRunning: Bool?
+    @State private var commandTask: Task<Void, Never>?
+    @AppStorage("GlassList.stateGap") private var stateGap = 8.0
+    @AppStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
+    @AppStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
+    @AppStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
+    @AppStorage("GlassList.progressFilled") private var progressFilled = false
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
     var shareUnavailable = false
     var thumbnailInput: TorrentThumbnailInput?
-    let toggleTransfer: () -> Void
+    let toggleTransfer: () async -> Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -33,18 +40,24 @@ struct TorrentRowView: View, Equatable {
             } else { row }
         }
         .contentShape(Rectangle())
-
+        .onChange(of: torrent.canStopTransfer) { _, running in
+            if pendingRunning == running { pendingRunning = nil; commandTask?.cancel() }
+        }
+        .onChange(of: torrent.isCompleted) { _, completed in
+            if completed { pendingRunning = nil; commandTask?.cancel() }
+        }
+        .onDisappear { commandTask?.cancel(); pendingRunning = nil }
     }
 
     private var row: some View {
-        HStack(alignment: .center, spacing: density.showsIcon ? 12 : 0) {
+        HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                leadingIcon
+                leadingIcon.padding(.trailing, 12)
             }
 
             torrentContent
             transferButton
-                .padding(.leading, 16)
+                .padding(.leading, stateGap)
         }
     }
 
@@ -114,7 +127,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var titleLine: some View {
-        HStack(alignment: .firstTextBaseline) {
+        HStack(alignment: .center) {
             Text(displayName(torrent.name))
                 .font(density == .compact ? .callout : .body)
                 .lineLimit(1)
@@ -159,25 +172,24 @@ struct TorrentRowView: View, Equatable {
 
     private var transferButton: some View {
         ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.06), lineWidth: 2)
-                .accessibilityHidden(true)
-                .allowsHitTesting(false)
-            Circle()
-                .trim(from: 0, to: progress)
-                .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .blur(radius: 0.65)
-                .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
-                .accessibilityHidden(true)
-                .allowsHitTesting(false)
-
+            if !progressFilled {
+                Circle().trim(from: 0, to: progress)
+                    .stroke(Color.primary.opacity(progressGlowStrength), style: StrokeStyle(lineWidth: progressLineWidth * 2, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .blur(radius: progressGlowBlur)
+                    .allowsHitTesting(false)
+                Circle().trim(from: 0, to: progress)
+                    .stroke(Color.primary.opacity(0.45), style: StrokeStyle(lineWidth: progressLineWidth, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .allowsHitTesting(false)
+            }
             stateControl
                 .help(stateLabel)
                 .accessibilityLabel(stateLabel)
                 .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
         .frame(width: density == .compact && !grid ? 24 : 36, height: density == .compact && !grid ? 24 : 36)
+        .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
         .padding(2)
     }
 
@@ -186,23 +198,53 @@ struct TorrentRowView: View, Equatable {
         if shareUnavailable || torrent.isCompleted {
             stateImage
         } else {
-            Button { clickRevision &+= 1; toggleTransfer() } label: { stateImage }
+            Button(action: requestStateChange) { stateImage }
                 .buttonStyle(.plain)
+                .allowsHitTesting(pendingRunning == nil)
+        }
+    }
+
+    private func requestStateChange() {
+        clickRevision &+= 1
+        pendingRunning = !torrent.canStopTransfer
+        commandTask?.cancel()
+        commandTask = Task {
+            let succeeded = await toggleTransfer()
+            guard !Task.isCancelled else { return }
+            if !succeeded { pendingRunning = nil; return }
+            if pendingRunning == torrent.canStopTransfer { pendingRunning = nil; return }
+            // Keep the optimistic symbol alive until refreshed server state arrives.
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled else { return }
+            pendingRunning = nil
         }
     }
 
     private var stateImage: some View {
+        ZStack {
+            Circle().fill(progressFilled ? Color.white : Color(nsColor: .controlBackgroundColor).opacity(0.5))
+            if progressFilled {
+                ProgressDisc(progress: progress).fill(.black)
+            }
+            stateGlyph.foregroundStyle(progressFilled ? Color.black : Color.primary)
+            if progressFilled {
+                stateGlyph.foregroundStyle(.white).mask(ProgressDisc(progress: progress))
+            }
+        }
+        .frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28)
+        .phaseAnimator([false, true], trigger: clickRevision) { view, pressed in
+            view.scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
+        } animation: { _ in .easeOut(duration: 0.12) }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: stateSymbol)
+    }
+
+    private var stateGlyph: some View {
         Image(systemName: stateSymbol)
             .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(Color.primary)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
-            .frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28)
-            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: Circle())
-            .phaseAnimator([false, true], trigger: "\(stateSymbol)-\(clickRevision)") { view, active in
-                view.rotationEffect(.degrees(active && !reduceMotion ? 12 : 0))
-                    .scaleEffect(active && !reduceMotion ? 0.9 : 1)
-            } animation: { _ in reduceMotion ? .linear(duration: 0) : .snappy(duration: 0.16) }
-            .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: stateSymbol)
+            .symbolEffect(.breathe, options: .repeating.speed(1.6), isActive: pendingRunning != nil && !reduceMotion)
+            .opacity(reduceMotion && pendingRunning != nil ? 0.65 : 1)
     }
 
     private var progress: Double {
@@ -212,7 +254,7 @@ struct TorrentRowView: View, Equatable {
     private var stateSymbol: String {
         if shareUnavailable { return "questionmark" }
         if torrent.isCompleted { return "checkmark" }
-        return torrent.canStopTransfer ? "pause.fill" : "play.fill"
+        return (pendingRunning ?? torrent.canStopTransfer) ? "pause.fill" : "play.fill"
     }
 
     private var stateLabel: String {
@@ -348,5 +390,22 @@ private enum TorrentFileIconCache {
         icon.size = NSSize(width: 32, height: 32)
         icons.setObject(icon, forKey: key)
         return icon
+    }
+}
+
+
+private struct ProgressDisc: Shape {
+    var progress: Double
+    var animatableData: Double { get { progress } set { progress = newValue } }
+    func path(in rect: CGRect) -> Path {
+        guard progress > 0 else { return Path() }
+        if progress >= 1 { return Path(ellipseIn: rect) }
+        var path = Path()
+        let center = CGPoint(x: rect.midX, y: rect.midY)
+        path.move(to: center)
+        path.addArc(center: center, radius: min(rect.width, rect.height) / 2,
+                    startAngle: .degrees(-90), endAngle: .degrees(-90 + progress * 360), clockwise: false)
+        path.closeSubpath()
+        return path
     }
 }
