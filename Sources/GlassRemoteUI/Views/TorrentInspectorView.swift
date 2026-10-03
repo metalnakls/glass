@@ -79,6 +79,7 @@ struct TorrentInspectorView: View {
         }
         .onChange(of: readyDetails, initial: true) { _, details in
             guard let details else { return }
+            confirmFileEdits(details)
             snapshot = TorrentInspectorSnapshot(sourceID: sourceID, details: details, filesError: model.torrentDetailSectionErrors[.files])
         }
         .task(id: groupDetailLoadInput) {
@@ -87,6 +88,7 @@ struct TorrentInspectorView: View {
             do {
                 let details = try await model.fetchDetails(for: group.torrents, including: [.files], sourceID: sourceID)
                 guard !Task.isCancelled else { return }
+                for detail in details { confirmFileEdits(detail) }
                 snapshot = TorrentInspectorSnapshot(sourceID: sourceID, group: group, groupDetails: Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) }))
             } catch {
                 guard !Task.isCancelled, !(error is CancellationError) else { return }
@@ -118,13 +120,16 @@ struct TorrentInspectorView: View {
                 guard !indices.isEmpty else { continue }
                 await model.setFileWanted(detail.summaryFallback, fileIndices: indices, wanted: value, sourceID: snapshot.sourceID)
                 guard model.errorMessage == nil else { return }
-                if self.snapshot?.selectionKey == snapshot.selectionKey {
-                    for index in indices where editSession.wanted[detail.hashString]?[index] == value {
-                        editSession.wanted[detail.hashString]?[index] = nil
-                    }
-                }
+
             }
         }
+    }
+
+    private func confirmFileEdits(_ details: TorrentDetails) {
+        let values = Dictionary(uniqueKeysWithValues: details.fileStats.enumerated().compactMap { index, stats in
+            stats.wanted.map { (index, $0) }
+        })
+        editSession.confirm(values, for: details.hashString)
     }
 
     private var selectionError: String? {

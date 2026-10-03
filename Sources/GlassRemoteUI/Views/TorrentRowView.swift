@@ -177,7 +177,7 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityLabel(stateLabel)
                 .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
         }
-        .frame(width: 36, height: 36)
+        .frame(width: density == .compact && !grid ? 24 : 36, height: density == .compact && !grid ? 24 : 36)
         .padding(2)
     }
 
@@ -196,7 +196,7 @@ struct TorrentRowView: View, Equatable {
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(Color.primary)
             .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
-            .frame(width: 28, height: 28)
+            .frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28)
             .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: Circle())
             .phaseAnimator([false, true], trigger: "\(stateSymbol)-\(clickRevision)") { view, active in
                 view.rotationEffect(.degrees(active && !reduceMotion ? 12 : 0))

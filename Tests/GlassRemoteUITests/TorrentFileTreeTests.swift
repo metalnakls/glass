@@ -14,6 +14,11 @@ struct TorrentFileTreeTests {
         session.stageSelection(false)
         #expect(session.wanted["one"] == [4: false])
         #expect(session.wanted["two"] == [1: false, 2: false])
+        session.confirm([4: true], for: "one")
+        #expect(session.wanted["one"] == [4: false])
+        session.confirm([4: false], for: "one")
+        #expect(session.wanted["one"]?.isEmpty == true)
+        #expect(session.wanted["two"] == [1: false, 2: false])
         session.reset()
         #expect(!session.hasChanges && !session.hasSelection)
     }

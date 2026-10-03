@@ -143,7 +143,8 @@ struct AddTorrentBatchView: View {
     }
 
     private func needsSeriesDirectory(_ group: TorrentBatchGroup) -> Bool {
-        group.isSeasonGroup || ((smartNamesByGroupID[group.id] ?? true)
+        if optionHeld || disableSmartNamesForAdd { return false }
+        return group.isSeasonGroup || ((smartNamesByGroupID[group.id] ?? true)
             && group.itemIndices.contains { items[$0].smartSeason != nil })
     }
 
