@@ -56,8 +56,8 @@ struct TorrentListSection: Identifiable {
             }
             if isUnfinished { unfinished.append(row) } else { finished.append(row) }
         }
-        return [Self(id: "unfinished", title: "Downloading", rows: unfinished),
-                Self(id: "finished", title: "Finished", rows: finished)].filter { !$0.rows.isEmpty }
+        return [Self(id: "unfinished", title: "loading", rows: unfinished),
+                Self(id: "finished", title: "completed", rows: finished)].filter { !$0.rows.isEmpty }
     }
 }
 
