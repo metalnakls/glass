@@ -43,7 +43,12 @@ struct GlassApp: App {
         .commands {
             GlassCommands(updaterController: updaterController)
             InspectorCommands()
-            CommandGroup(replacing: .appSettings) {}
+            CommandGroup(replacing: .appSettings) {
+                if ProcessInfo.processInfo.arguments.contains("--tune-appearance") {
+                    Button("Selection Appearance…") { SelectionAppearanceWindow.show() }
+                        .keyboardShortcut(",", modifiers: .command)
+                }
+            }
         }
 
     }
@@ -108,6 +113,7 @@ private struct GlassCommands: Commands {
                 Divider()
                 Button("Selection Appearance…") { SelectionAppearanceWindow.show() }
                 Button("Test Torrents…") { TorrentTestWindow.show() }
+                    .keyboardShortcut(",", modifiers: [.command, .shift])
             }
         }
 
