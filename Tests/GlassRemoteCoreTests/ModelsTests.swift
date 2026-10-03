@@ -15,7 +15,7 @@ struct ModelsTests {
         #expect(!skipped.isUnfinished)
         object["error"] = 3
         let unavailable = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
-        #expect(unavailable.isUnfinished)
+        #expect(!unavailable.isUnfinished)
         #expect(makeTorrent(status: 0, percentDone: 0).isUnfinished)
         #expect(makeTorrent(status: 0, percentDone: 0.5).isUnfinished)
     }

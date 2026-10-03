@@ -179,7 +179,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     }
 
     public var isUnfinished: Bool {
-        !isCompleted || isDownloadingMetadata || hasStorageError
+        !isCompleted || isDownloadingMetadata
     }
 
     public var hasStorageError: Bool { error == 3 }
