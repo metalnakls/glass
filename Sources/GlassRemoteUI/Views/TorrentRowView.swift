@@ -350,7 +350,16 @@ struct TorrentFileIcon: View {
     @State private var thumbnail: NSImage?
     @State private var isVisible = false
 
+    @ViewBuilder
     var body: some View {
+        if isFolder {
+            // Folder flights need only the cached system image. Visibility tracking
+            // and thumbnail revisions otherwise invalidate every moving folder.
+            Image(nsImage: nativeIcon)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+        } else {
         Image(nsImage: thumbnail ?? nativeIcon)
             .resizable()
             .aspectRatio(contentMode: .fit)
@@ -365,6 +374,7 @@ struct TorrentFileIcon: View {
                 guard !Task.isCancelled else { return }
                 thumbnail = image
             }
+        }
     }
 
     private var nativeIcon: NSImage {
