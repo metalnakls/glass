@@ -1,7 +1,12 @@
 name: Release Glass
 
 on:
-  push:
+  # Publishing waits on CI. workflow_run fires after the CI workflow completes,
+  # so a release never ships from a tree that failed to build or test.
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
     branches: [main]
   workflow_dispatch:
     inputs:
@@ -20,6 +25,10 @@ concurrency:
 jobs:
   release:
     runs-on: macos-26
+    # workflow_run fires for both conclusions; only publish the green one.
+    if: >-
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
 
     env:
       APP_NAME: Glass
