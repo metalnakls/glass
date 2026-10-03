@@ -63,21 +63,23 @@ struct TorrentListView: View {
         ScrollViewReader { scrollProxy in
             List(selection: $selection) {
                 ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
-                    Text(section.title)
-                        .font(.largeTitle.weight(.bold))
-                        .foregroundStyle(.primary)
-                        .padding(.vertical, 8)
-                        .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
-                        .listRowSeparator(.hidden)
-                        .selectionDisabled()
-                    ForEach(section.rows) { row in
-                        liveRow(for: row)
-                            .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
-                            .listRowSeparator(.hidden)
-                            .listItemTint(.monochrome)
-                            .tag(row.id)
-                            .accessibilityElement(children: .contain)
+                    Section {
+                        ForEach(section.rows) { row in
+                            liveRow(for: row)
+                                .listRowBackground(Color.clear)
+                                .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
+                                .listRowSeparator(.hidden)
+                                .listItemTint(.monochrome)
+                                .tag(row.id)
+                                .accessibilityElement(children: .contain)
+                        }
+                    } header: {
+                        Text(section.title)
+                            .font(.largeTitle.weight(.bold))
+                            .foregroundStyle(.primary)
+                            .padding(.vertical, 8)
+                            .padding(.leading, sidePadding + 16)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
             }
@@ -94,7 +96,7 @@ struct TorrentListView: View {
             .environment(\.defaultMinListRowHeight, 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
-            .scrollEdgeEffectHidden(true, for: .top)
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
