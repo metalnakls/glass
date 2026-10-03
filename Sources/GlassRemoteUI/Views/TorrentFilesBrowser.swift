@@ -57,6 +57,7 @@ struct TorrentFilesBrowser: View {
                 }
                 .padding(.bottom, 6)
             }
+            GeometryReader { geometry in
             Table(rows, selection: Binding<Set<String>>(get: {
                 nativeSelection
             }, set: { ids in
@@ -100,7 +101,7 @@ struct TorrentFilesBrowser: View {
                         Button("Low Priority", systemImage: "arrow.down") { setPriority(row, -1) }
                         if let onSmartRename { Divider(); Button("Smart Rename", action: onSmartRename) }
                     }
-                }.width(min: 70, ideal: 180, max: .infinity)
+                }.width(max(50, geometry.size.width - 170))
                 TableColumn("") { row in
                     Image(systemName: statusSymbol(row, byIndex: byIndex))
                         .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .center)
@@ -113,6 +114,8 @@ struct TorrentFilesBrowser: View {
             .tableStyle(.inset)
             .controlSize(.small)
             .font(.system(size: 12))
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            }
             .frame(height: CGFloat(max(rows.count, 1)) * 24 + 28)
         }
         .safeAreaInset(edge: .bottom, spacing: 4) {
