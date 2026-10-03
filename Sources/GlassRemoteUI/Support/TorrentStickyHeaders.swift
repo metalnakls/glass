@@ -4,10 +4,12 @@ import SwiftUI
 private struct StickyTitleLabel: View {
     let title: String
     let inset: CGFloat
+    var exitBlur = 0.0
     var body: some View {
         Text(title).font(.largeTitle.bold()).foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, inset).padding(.vertical, 8)
+            .blur(radius: exitBlur)
     }
 }
 
@@ -38,7 +40,7 @@ enum TorrentStickyHeaderGeometry {
         var pinned = original.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
         let end = releasePoints?[index] ?? next?.minY ?? .greatestFiniteMagnitude
         pinned.origin.y = min(topInset, end - viewport.minY - original.height)
-        var titles = [Placement(index: index, frame: pinned, retiring: pinned.maxY <= original.height / 2)]
+        var titles = [Placement(index: index, frame: pinned, retiring: pinned.minY < topInset)]
         let height = topInset + original.height + feather
         if let next, next.minY - viewport.minY < height {
             titles.append(Placement(index: index + 1, frame: next.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
@@ -329,6 +331,10 @@ final class TitleHost: NSView {
     func setVisible(_ visible: Bool, duration: Double) {
         guard visibleTarget != visible else { return }
         visibleTarget = visible
+        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil :
+            .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: duration)) {
+            hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset, exitBlur: visible ? 0 : 8)
+        }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
@@ -338,14 +344,19 @@ final class TitleHost: NSView {
     func restoreVisibility() {
         visibleTarget = true
         alphaValue = 1
+        hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset)
     }
     private let hosting: NSHostingController<StickyTitleLabel>
     private var titleKey = ""
+    private var currentTitle = ""
+    private var currentInset: CGFloat = 0
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     init(title: String, inset: CGFloat) {
         hosting = NSHostingController(rootView: StickyTitleLabel(title: title, inset: inset))
         super.init(frame: .zero)
+        wantsLayer = true
+        currentTitle = title; currentInset = inset
         hosting.sizingOptions = []
         hosting.safeAreaRegions = []
         if let view = hosting.view as? NSHostingView<StickyTitleLabel> {
@@ -366,7 +377,8 @@ final class TitleHost: NSView {
         let key = "\(title):\(inset)"
         guard titleKey != key else { return }
         titleKey = key
-        hosting.rootView = StickyTitleLabel(title: title, inset: inset)
+        currentTitle = title; currentInset = inset
+        hosting.rootView = StickyTitleLabel(title: title, inset: inset, exitBlur: visibleTarget ? 0 : 8)
     }
     override func setFrameSize(_ size: NSSize) {
         super.setFrameSize(size)
