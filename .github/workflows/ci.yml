@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: macos-26
+
+    env:
+      APP_NAME: Glass
+      PROJECT: Apps/Glass/Glass.xcodeproj
+      SCHEME: Glass
+      DERIVED_DATA: .build/ci-derived
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+          xcodebuild -version
+
+      - name: Test
+        run: swift test --package-path . --disable-sandbox
+
+      # CI signs ad-hoc. It proves the app builds and links Sparkle; it does not
+      # publish anything. Release signing and appcast publishing live in release.yml.
+      - name: Build
+        run: |
+          VERSION="$(cat VERSION 2>/dev/null | tr -d '[:space:]')"
+          test -n "$VERSION"
+          SPARKLE_PUBLIC_ED_KEY="${SPARKLE_PUBLIC_ED_KEY:-}"
+
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -derivedDataPath "$DERIVED_DATA" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGN_STYLE=Manual \
+            GLASS_VERSION="$VERSION" \
+            SPARKLE_PUBLIC_ED_KEY="$SPARKLE_PUBLIC_ED_KEY" \
+            build
+
+          APP="$DERIVED_DATA/Build/Products/Release/$APP_NAME.app"
+          test -d "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
