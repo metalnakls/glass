@@ -1,3 +1,4 @@
+import GlassRemoteCore
 import GlassRemoteServices
 import SwiftUI
 
@@ -62,6 +63,13 @@ struct TorrentDownloadLocationPicker: View {
             let path = await model.defaultDownloadDirectory(for: requestedSourceID)
             guard !Task.isCancelled, requestedSourceID == sourceID else { return }
             defaultDirectory = path
+        }
+        if let capacity = model.serverFreeSpace[sourceID], let bytes = capacity.availableBytes {
+            LabeledContent("Free space") {
+                Text(formatBytes(bytes))
+                    .foregroundStyle(.secondary)
+                    .help("Available in \(capacity.path)")
+            }
         }
     }
 

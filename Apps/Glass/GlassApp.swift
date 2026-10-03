@@ -36,13 +36,11 @@ struct GlassApp: App {
             GlassRootView(model: model, platformIntegration: platformIntegration)
                 .frame(minWidth: 680, minHeight: 260)
         }
-        .windowStyle(.titleBar)
-        .windowToolbarStyle(.unified(showsTitle: true))
+        .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 760, height: 444)
         .windowResizability(.contentMinSize)
         .commands {
             GlassCommands(updaterController: updaterController)
-            ToolbarCommands()
             InspectorCommands()
         }
 

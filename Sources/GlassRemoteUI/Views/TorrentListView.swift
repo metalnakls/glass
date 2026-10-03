@@ -94,7 +94,7 @@ struct TorrentListView: View {
             .environment(\.defaultMinListRowHeight, 60)
             .focusEffectDisabled()
             .tint(Color(nsColor: .secondaryLabelColor))
-            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(true, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)

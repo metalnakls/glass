@@ -54,22 +54,7 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
-                .toolbarRole(.editor)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Toggle(isOn: downloadingFilterBinding) {
-                            Label(
-                                isDownloadingFilterActive ? "Show All Torrents" : "Show Unfinished Torrents",
-                                systemImage: "line.3.horizontal.decrease"
-                            )
-                        }
-                        .toggleStyle(.button)
-                        .buttonBorderShape(.circle)
-                        .labelStyle(.iconOnly)
-                        .help(isDownloadingFilterActive ? "Show All Torrents" : "Show Unfinished Torrents")
-                    }
-                    .visibilityPriority(.high)
-                }
+
         }
         .inspector(isPresented: $isInspectorPresented) {
             TorrentSelectionInspector(
@@ -79,11 +64,11 @@ public struct GlassRootView: View {
                 presentation: presentation
             )
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
-            .toolbar {
-                // Reserve the native inspector toolbar region so main actions stay over the list.
-                ToolbarSpacer(.flexible, placement: .primaryAction)
-            }
+
         }
+        .toolbarVisibility(.hidden, for: .windowToolbar)
+        .background(MainWindowChrome())
+        .ignoresSafeArea(.container, edges: .top)
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
                 switch sheet {
@@ -116,6 +101,7 @@ public struct GlassRootView: View {
                     }
                 }
             }
+            .toolbarVisibility(.visible, for: .windowToolbar)
             .presentationSizing(.form)
         }
         .alert(activeAlertTitle, isPresented: activeAlertBinding, presenting: activeAlert) { alert in
@@ -149,6 +135,7 @@ public struct GlassRootView: View {
             }
         }
         .onAppear {
+            model.selectedTorrentGroup = .all
             persistSelectedSourceID()
             model.setApplicationActive(scenePhase == .active)
             if openURLRegistrationID == nil {
@@ -241,17 +228,6 @@ public struct GlassRootView: View {
 
     private func toggleDownloadingFilter() {
         model.selectedTorrentGroup = model.selectedTorrentGroup == .downloading ? .all : .downloading
-    }
-
-    private var isDownloadingFilterActive: Bool {
-        model.selectedTorrentGroup == .downloading
-    }
-
-    private var downloadingFilterBinding: Binding<Bool> {
-        Binding(
-            get: { isDownloadingFilterActive },
-            set: { model.selectedTorrentGroup = $0 ? .downloading : .all }
-        )
     }
 
     private func beginRename(_ torrent: TorrentSummary, sourceID: UUID) {
@@ -523,9 +499,6 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
-        .navigationTitle(model.sourceName(for: contextSourceID))
-        .navigationSubtitle(freeSpaceSubtitle)
-        .toolbarTitleDisplayMode(.inlineLarge)
         .dropDestination(for: URL.self) { urls, _ in
             let supportedURLs = urls.filter(isSupportedDropURL)
             guard !supportedURLs.isEmpty else { return false }
@@ -575,17 +548,6 @@ private struct TorrentWorkspaceView: View {
                 )
             }
         }
-    }
-
-    private var contextSourceID: UUID {
-        presentation.rows.first { $0.id == selection }?.sourceID ?? model.selectedSourceID
-    }
-
-    private var freeSpaceSubtitle: Text {
-        guard let bytes = model.serverFreeSpace[contextSourceID]?.availableBytes else { return Text("") }
-        return Text(formatBytes(bytes) + " free")
-            .font(.caption)
-            .foregroundStyle(.secondary)
     }
 
     private func isSupportedDropURL(_ url: URL) -> Bool {
