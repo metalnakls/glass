@@ -505,13 +505,15 @@ private final class SelectionSeparatorCanvas: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
+        var occupied = Set<Int>()
         for (index, row) in rows.enumerated() {
             let line = lines[row.id] ?? CALayer()
             if lines[row.id] == nil { layer?.addSublayer(line); lines[row.id] = line }
             let y = row.rect.maxY + 3
             let hasNeighbor = index + 1 < rows.count && rows[index + 1].rect.minY - row.rect.maxY <= 12
             let touchesHighlight = row.id == selectedID || selectedRect.map { abs($0.minY - y) < 6 } == true
-            let opacity: Float = hasNeighbor && !touchesHighlight ? 1 : 0
+            let unique = occupied.insert(Int((y * 2).rounded())).inserted
+            let opacity: Float = hasNeighbor && !touchesHighlight && unique ? 1 : 0
             let previous = line.presentation()?.opacity ?? line.opacity
             let changed = line.opacity != opacity
             line.frame = CGRect(x: row.rect.minX + row.leadingInset, y: y,
