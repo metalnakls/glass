@@ -92,6 +92,9 @@ struct TorrentListView: View {
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
             }
+            .frame(maxWidth: 480)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .background(listSurface)
         }
         .onAppear {
             elevationController.dragSelectionChanged = { index in
