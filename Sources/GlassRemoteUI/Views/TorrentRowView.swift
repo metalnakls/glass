@@ -139,13 +139,14 @@ struct TorrentRowView: View, Equatable {
     private var transferButton: some View {
         ZStack {
             Circle()
-                .stroke(Color.primary.opacity(0.10), lineWidth: 2)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 2)
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
             Circle()
                 .trim(from: 0, to: progress)
                 .stroke(Color(nsColor: .secondaryLabelColor), style: StrokeStyle(lineWidth: 2, lineCap: .round))
                 .rotationEffect(.degrees(-90))
+                .blur(radius: 0.65)
                 .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
                 .accessibilityHidden(true)
                 .allowsHitTesting(false)
@@ -159,26 +160,18 @@ struct TorrentRowView: View, Equatable {
         .padding(2)
     }
 
-    @ViewBuilder
     private var stateControl: some View {
-        if shareUnavailable || torrent.isCompleted {
+        Button(action: toggleTransfer) {
             Image(systemName: stateSymbol)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Color.primary)
-                .frame(width: 30, height: 30)
-                .background(Color(nsColor: .controlBackgroundColor), in: Circle())
-                .overlay(Circle().strokeBorder(Color.primary.opacity(0.12), lineWidth: 1))
-        } else {
-            Button(action: toggleTransfer) {
-                Image(systemName: stateSymbol)
-                    .font(.system(size: 13, weight: .semibold))
-                    .frame(width: 18, height: 18)
-            }
-            .buttonStyle(.bordered)
-            .buttonBorderShape(.circle)
-            .controlSize(.regular)
-            .foregroundStyle(Color.primary)
+                .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
+                .frame(width: 28, height: 28)
+                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: Circle())
         }
+        .buttonStyle(.plain)
+        .disabled(shareUnavailable || torrent.isCompleted)
+        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: stateSymbol)
     }
 
     private var progress: Double {

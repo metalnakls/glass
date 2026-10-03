@@ -265,13 +265,13 @@ private struct SelectionSurfaceContent: View {
     let motion: Int
     @State private var entranceBlur = 12.0
     private var white: Color {
-        let base = settings.isDark ? pow((0.21 + 0.055) / 1.055, 2.4) : 1.0
+        let base = settings.isDark ? pow((0.12 + 0.055) / 1.055, 2.4) : 1.0
         let value = base + min(max(settings.hdrWhite, 0), 3)
         return Color(.sRGBLinear, white: value).headroom(max(1, value))
     }
     var body: some View {
         RoundedRectangle(cornerRadius: 12, style: .circular)
-            .fill(Color(white: settings.isDark ? 0.21 : 1))
+            .fill(Color(white: settings.isDark ? 0.12 : 1))
             .overlay {
                 if settings.hdrWhite > 0 {
                     RoundedRectangle(cornerRadius: 12, style: .circular)
