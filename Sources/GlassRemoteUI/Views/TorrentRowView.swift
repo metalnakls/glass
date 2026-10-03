@@ -12,6 +12,7 @@ struct TorrentRowView: View, Equatable {
     var folderIDs: [String] = []
     var folderID: String?
     var iconPosition = 0
+    var torrentGroupLandingID: String = ""
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
@@ -63,6 +64,11 @@ struct TorrentRowView: View, Equatable {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
                 leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true))
+                    .background {
+                        if let folderMotion, groupIsExpanded != nil || folderID != nil {
+                            TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
+                        }
+                    }
                     .padding(.trailing, 12)
             }
 
@@ -79,6 +85,7 @@ struct TorrentRowView: View, Equatable {
             && lhs.grid == rhs.grid
             && lhs.folderIDs == rhs.folderIDs
             && lhs.iconPosition == rhs.iconPosition
+            && lhs.torrentGroupLandingID == rhs.torrentGroupLandingID
             && lhs.folderID == rhs.folderID
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount

@@ -30,6 +30,12 @@ struct TorrentFolderMotionTests {
         #expect(motion.flyingIDs == ["first", "second"])
         motion.animateAfterLayout(indices: ["group": 1, "first": 2, "second": 3], expectedRows: 4)
         rows.count = 4; table.reloadData()
+        // A real icon can sit away from the estimated row centre (native insets).
+        let landing = TorrentFolderLandingAnchor.Anchor(frame: CGRect(x: 70, y: 178, width: 36, height: 42))
+        landing.id = "first"
+        landing.pose = TorrentIconPose.forRole(.folder)
+        table.addSubview(landing)
+        motion.register(landing)
         var flights: [CALayer] = []
         for _ in 0..<25 {
             try await Task.sleep(for: .milliseconds(10))
@@ -40,6 +46,9 @@ struct TorrentFolderMotionTests {
         #expect(flights.count == 2)
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
         #expect(animation.duration == 0.30)
+        let pose = TorrentIconPose.forRole(.folder)
+        #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
+        #expect(abs(flights[0].position.y - landing.frame.midY) < 0.1)
         #expect(motion.flyingIDs.count == 2)
         // Row geometry can finish changing after the initial flight starts.
         // Keep the overlay alive for a separate, remeasured settle tail.
@@ -48,7 +57,7 @@ struct TorrentFolderMotionTests {
         var tail: CAAnimation?
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(10))
-            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.18 {
+            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.32 {
                 tail = candidate; break
             }
         }

@@ -1,5 +1,6 @@
 import AppKit
 import Observation
+import SwiftUI
 
 /// Folder images move in the scroll view's overlay, independently of native row layout.
 @MainActor @Observable
@@ -16,8 +17,13 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var completion: Task<Void, Never>?
     @ObservationIgnored private var scrollObserver: NSObjectProtocol?
     @ObservationIgnored private var poses: [String: TorrentIconPose] = [:]
+    @ObservationIgnored private let anchors = NSMapTable<NSString, TorrentFolderLandingAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
     private static let image = TorrentFileIconCache.icon(fileName: "", isFolder: true).cgImage(forProposedRect: nil, context: nil, hints: nil)
+
+    func register(_ anchor: TorrentFolderLandingAnchor.Anchor) {
+        anchors.setObject(anchor, forKey: anchor.id as NSString)
+    }
 
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
@@ -110,6 +116,26 @@ final class TorrentFolderMotion {
                 layer.add(flight, forKey: "folderFlight")
             }
             try? await Task.sleep(for: .milliseconds(270))
+            // Native insertion can keep changing the host geometry after the
+            // nominal row animation duration. Wait for a stable landing view.
+            var lastTargets: [String: CGPoint] = [:]
+            var stableFrames = 0
+            for _ in 0..<20 {
+                guard !Task.isCancelled, self.generation == token else { return }
+                var targets: [String: CGPoint] = [:]
+                for (slot, id) in self.members.enumerated() {
+                    guard let row = indices[self.expanding ? id : self.groupID] else { continue }
+                    targets[id] = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID).center
+                }
+                let stable = targets.count == lastTargets.count && targets.allSatisfy { id, point in
+                    guard let previous = lastTargets[id] else { return false }
+                    return hypot(point.x - previous.x, point.y - previous.y) < 0.1
+                }
+                stableFrames = stable ? stableFrames + 1 : 0
+                lastTargets = targets
+                if stableFrames >= 3 { break }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
             guard !Task.isCancelled, self.generation == token else { return }
             // Native rows have now settled. Re-measure the destination and give
             // the image a gentle tail from its current presentation position.
@@ -130,14 +156,20 @@ final class TorrentFolderMotion {
                 layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
                 CATransaction.commit()
                 let tail = CAAnimationGroup()
-                tail.animations = [position, size, rotation]; tail.duration = 0.18
+                tail.animations = [position, size, rotation]; tail.duration = 0.32
                 tail.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
                 layer.add(tail, forKey: "folderFlight")
             }
-            try? await Task.sleep(for: .milliseconds(180))
+            try? await Task.sleep(for: .milliseconds(320))
             guard !Task.isCancelled, self.generation == token else { return }
+            // SwiftUI can need more than one frame to redraw opacity. Keep the
+            // native image present and dissolve it, rather than exposing a gap.
             self.flyingIDs = []
-            try? await Task.sleep(for: .milliseconds(16))
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.16)
+            for layer in self.layers.values { layer.opacity = 0 }
+            CATransaction.commit()
+            try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled, self.generation == token else { return }
             self.cancel()
         }
@@ -151,10 +183,16 @@ final class TorrentFolderMotion {
         let angle = fan ? (-9 + 18 * progress) * .pi / 180 : 0
         // The static fan rotates around the folder's bottom, whereas a layer
         // rotates around its center. Match that transformed center exactly.
-        let point = CGPoint(x: inset + 18 + (fan ? -5 + 10 * progress + size / 2 * sin(angle) : 0),
-                            y: rowFrame.midY + (fan ? abs(progress - 0.5) * 2 + size / 2 * (1 - cos(angle)) : 0))
-        let pose = poses[id] ?? TorrentIconPose()
-        let center = CGPoint(x: inset + 18, y: rowFrame.midY)
+        let center: CGPoint
+        if let anchor = anchors.object(forKey: id as NSString), anchor.id == id, anchor.window === table.window {
+            center = anchor.convert(CGPoint(x: anchor.bounds.midX, y: anchor.bounds.midY), to: table)
+        } else {
+            center = CGPoint(x: inset + 18, y: rowFrame.midY)
+        }
+        let point = CGPoint(x: center.x + (fan ? -5 + 10 * progress + size / 2 * sin(angle) : 0),
+                            y: center.y + (fan ? abs(progress - 0.5) * 2 + size / 2 * (1 - cos(angle)) : 0))
+        let anchor = anchors.object(forKey: id as NSString)
+        let pose = anchor?.id == id ? anchor!.pose : (poses[id] ?? TorrentIconPose())
         let dx = (point.x - center.x) * pose.scale
         let dy = (point.y - center.y) * pose.scale
         let transformed = CGPoint(x: center.x + dx * cos(pose.angle) - dy * sin(pose.angle) + pose.x,
@@ -186,4 +224,25 @@ private final class FolderFlightOverlay: NSView {
         layer?.masksToBounds = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+/// Report the actual untransformed leading-icon layout, including native cell insets.
+struct TorrentFolderLandingAnchor: NSViewRepresentable {
+    let controller: TorrentFolderMotion
+    let id: String
+    var pose = TorrentIconPose()
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) {
+        view.controller = controller; view.id = id; view.pose = pose; view.connect()
+    }
+    final class Anchor: NSView {
+        weak var controller: TorrentFolderMotion?
+        var id = ""
+        var pose = TorrentIconPose()
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
+        override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); connect() }
+        override func layout() { super.layout(); connect() }
+        func connect() { controller?.register(self) }
+    }
 }
