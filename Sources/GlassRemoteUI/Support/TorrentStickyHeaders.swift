@@ -27,7 +27,12 @@ struct TorrentStickyTitle: View {
 /// Converts the actual inline title frames into one continuous pin/push layout.
 /// Both titles keep their measured x coordinate, height and internal padding.
 enum TorrentStickyHeaderGeometry {
-    struct Placement: Equatable { let index: Int; let frame: CGRect; var retiring = false }
+    struct Placement: Equatable {
+        let index: Int
+        let frame: CGRect
+        var retiring = false
+        var exitProgress: CGFloat = 0
+    }
     struct Layout: Equatable {
         let titles: [Placement]
         let backdropHeight: CGFloat
@@ -40,7 +45,23 @@ enum TorrentStickyHeaderGeometry {
         var pinned = original.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
         let end = releasePoints?[index] ?? next?.minY ?? .greatestFiniteMagnitude
         pinned.origin.y = min(topInset, end - viewport.minY - original.height)
-        var titles = [Placement(index: index, frame: pinned, retiring: pinned.minY < topInset)]
+        func placement(_ index: Int, _ frame: CGRect) -> Placement {
+            let progress = min(1, max(0, (topInset - frame.minY) / (topInset + frame.height)))
+            return Placement(index: index, frame: frame, retiring: progress > 0, exitProgress: progress)
+        }
+        var titles = [placement(index, pinned)]
+        // The incoming title pins at the breathing-room inset. The previous
+        // title still has that inset's worth of travel before clearing the top.
+        if index > 0, stickyAllowed?[index - 1] != false {
+            let previous = frames[index - 1]
+            let previousEnd = releasePoints?[index - 1] ?? original.minY
+            let bottom = previousEnd - viewport.minY
+            if bottom > 0, bottom < topInset + previous.height {
+                var outgoing = previous.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
+                outgoing.origin.y = bottom - previous.height
+                titles.append(placement(index - 1, outgoing))
+            }
+        }
         let height = topInset + original.height + feather
         if let next, next.minY - viewport.minY < height {
             titles.append(Placement(index: index + 1, frame: next.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
@@ -294,12 +315,12 @@ final class HeaderBackdrop: NSView {
         setBackdropActive(layout.titles.contains { !$0.retiring })
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
         effect.frame = CGRect(x: 0, y: 0, width: bounds.width, height: layout.backdropHeight)
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
             fadeMask.frame = effect.bounds
         }
+        CATransaction.commit()
         let visible = Set(layout.titles.map { headers[$0.index].id })
         restoreInlineTitles(except: visible)
         for placement in layout.titles {
@@ -309,12 +330,15 @@ final class HeaderBackdrop: NSView {
             if reparented { addSubview(host) }
             host.isPinned = true
             host.isHidden = false
-            host.setVisible(!placement.retiring, duration: placement.retiring ? settings.titleOut : settings.titleIn)
             titles[header.id] = host
             // Scrolling changes position only. Hosting layout never participates
             // in the per-scroll movement and cannot resize a competing copy.
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
             if host.frame.size != placement.frame.size { host.setFrameSize(placement.frame.size) }
             host.setFrameOrigin(placement.frame.origin)
+            CATransaction.commit()
+            host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
             if reparented {
                 host.needsLayout = true
                 host.layoutSubtreeIfNeeded()
@@ -327,22 +351,22 @@ final class HeaderBackdrop: NSView {
 final class TitleHost: NSView {
     weak var inlineContainer: NSView?
     var isPinned = false
-    private var visibleTarget = true
-    func setVisible(_ visible: Bool, duration: Double) {
-        guard visibleTarget != visible else { return }
-        visibleTarget = visible
+    private var exitProgress: CGFloat = 0
+    func setExitProgress(_ progress: CGFloat, duration: Double) {
+        guard exitProgress != progress else { return }
+        exitProgress = progress
         withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil :
             .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: duration)) {
-            hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset, exitBlur: visible ? 0 : 8)
+            hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset, exitBlur: Double(progress) * 8)
         }
         NSAnimationContext.runAnimationGroup { context in
             context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            animator().alphaValue = visible ? 1 : 0
+            animator().alphaValue = 1 - progress
         }
     }
     func restoreVisibility() {
-        visibleTarget = true
+        exitProgress = 0
         alphaValue = 1
         hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset)
     }
@@ -378,7 +402,7 @@ final class TitleHost: NSView {
         guard titleKey != key else { return }
         titleKey = key
         currentTitle = title; currentInset = inset
-        hosting.rootView = StickyTitleLabel(title: title, inset: inset, exitBlur: visibleTarget ? 0 : 8)
+        hosting.rootView = StickyTitleLabel(title: title, inset: inset, exitBlur: Double(exitProgress) * 8)
     }
     override func setFrameSize(_ size: NSSize) {
         super.setFrameSize(size)

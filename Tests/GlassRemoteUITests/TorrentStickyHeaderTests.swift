@@ -99,6 +99,15 @@ struct TorrentStickyHeaderTests {
         #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(50), topInset: 20, stickyAllowed: [false, true]) == nil)
         #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(190), topInset: 20, stickyAllowed: [false, true])?.titles.first?.index == 1)
     }
+    @Test("handoff retains the outgoing title until it clears the viewport")
+    func outgoingTravelCompletes() throws {
+        let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(170), topInset: 20))
+        let outgoing = try #require(layout.titles.first { $0.index == 0 })
+        #expect(outgoing.frame.maxY == 16)
+        #expect(outgoing.exitProgress > 0 && outgoing.exitProgress < 1)
+        let cleared = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(187), topInset: 20))
+        #expect(!cleared.titles.contains { $0.index == 0 })
+    }
     @Test("reversing scroll reproduces the same geometry and respects horizontal origin")
     func reverseAndHorizontalOrigin() throws {
         let down = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(150))
