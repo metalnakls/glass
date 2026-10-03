@@ -38,7 +38,7 @@ struct TorrentListSection: Identifiable {
     let title: String
     let rows: [TorrentListRowPresentation]
 
-    static func sections(for rows: [TorrentListRowPresentation]) -> [Self] {
+    static func sections(for rows: [TorrentListRowPresentation], lowercase: Bool = false) -> [Self] {
         let unfinishedMembers = Set(rows.flatMap { row -> [String] in
             guard case let .group(members, _, _) = row.kind,
                   members.contains(where: { $0.summary.isUnfinished }) else { return [] }
@@ -56,8 +56,8 @@ struct TorrentListSection: Identifiable {
             }
             if isUnfinished { unfinished.append(row) } else { finished.append(row) }
         }
-        return [Self(id: "unfinished", title: "loading", rows: unfinished),
-                Self(id: "finished", title: "completed", rows: finished)].filter { !$0.rows.isEmpty }
+        return [Self(id: "unfinished", title: lowercase ? "loading" : "Loading", rows: unfinished),
+                Self(id: "finished", title: lowercase ? "completed" : "Completed", rows: finished)].filter { !$0.rows.isEmpty }
     }
 }
 

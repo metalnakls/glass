@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct SelectionAppearanceView: View {
     public init() {}
+    @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
     @State private var saveStatus: String?
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -60,6 +61,7 @@ public struct SelectionAppearanceView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
+                Toggle("Lowercase section titles", isOn: $lowercaseTitles)
                 ColorPicker("Highlight · light", selection: highlightColor(dark: false), supportsOpacity: false)
                 ColorPicker("Highlight · dark", selection: highlightColor(dark: true), supportsOpacity: false)
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)

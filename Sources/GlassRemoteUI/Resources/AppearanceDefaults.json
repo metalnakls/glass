@@ -16,6 +16,7 @@
   "GlassList.highlightColorLight": "FFFFFF",
   "GlassList.itemVerticalPadding": 0.0,
   "GlassList.leftPadding": 18,
+  "GlassList.lowercaseTitles": false,
   "GlassList.paddingIsPermanent": true,
   "GlassList.progressFilled": false,
   "GlassList.progressGlowBlur": 3.0,

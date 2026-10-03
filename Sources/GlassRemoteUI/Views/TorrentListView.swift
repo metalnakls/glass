@@ -26,6 +26,7 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
     @AppearanceStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -82,7 +83,7 @@ struct TorrentListView: View {
 
     private func headerIndex(_ id: String) -> Int {
         var index = 0
-        for section in TorrentListSection.sections(for: presentation.rows) {
+        for section in TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles) {
             if section.id == id { return index }
             index += section.rows.count + 1
         }
@@ -102,7 +103,7 @@ struct TorrentListView: View {
             if grid {
                 ScrollView {
                     LazyVStack(spacing: 12, pinnedViews: .sectionHeaders) {
-                        ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
+                        ForEach(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)) { section in
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
                                     ForEach(section.rows) { row in
@@ -117,7 +118,7 @@ struct TorrentListView: View {
                 }.background(listSurface)
             } else {
             List(selection: $selection) {
-                ForEach(TorrentListSection.sections(for: presentation.rows)) { section in
+                ForEach(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)) { section in
                     TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
                         .selectionDisabled()
                         .listRowBackground(Color.clear)
@@ -158,13 +159,14 @@ struct TorrentListView: View {
             }
         }
         .onAppear {
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16)
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
             elevationController.observeTable { stickyHeaders.attach($0) }
         }
-        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16) }
+        .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
+        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: presentation.rows.map(\.id)) { _, _ in
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows), inset: leftPadding + 16)
+            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
