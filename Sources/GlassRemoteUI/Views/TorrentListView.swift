@@ -72,6 +72,7 @@ struct TorrentListView: View {
                         .selectionDisabled()
                     ForEach(section.rows) { row in
                         liveRow(for: row)
+                            .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
                             .listRowSeparator(.hidden)
                             .listItemTint(.monochrome)
