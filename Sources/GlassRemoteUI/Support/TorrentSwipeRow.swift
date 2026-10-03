@@ -4,7 +4,14 @@ import SwiftUI
 /// A full-width action plane under a moving foreground. Native scroll events
 /// drive it; row padding belongs to the foreground and never clips the buttons.
 struct TorrentSwipeRow<Content: View>: View {
+    struct Action {
+        let name: String
+        let symbol: String
+        let color: Color
+    }
     let content: Content
+    let leading: Action
+    let trailing: Action
     let remove: (Bool) -> Void
     let presentationChanged: (Bool) -> Void
     let selected: Bool
@@ -12,8 +19,12 @@ struct TorrentSwipeRow<Content: View>: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     init(selected: Bool, remove: @escaping (Bool) -> Void, presentationChanged: @escaping (Bool) -> Void,
+         leading: Action = Action(name: "Delete Torrent", symbol: "xmark", color: .yellow),
+         trailing: Action = Action(name: "Delete Torrent + Data", symbol: "trash", color: .red),
          @ViewBuilder content: () -> Content) {
         self.selected = selected
+        self.leading = leading
+        self.trailing = trailing
         self.remove = remove
         self.presentationChanged = presentationChanged
         self.content = content()
@@ -22,8 +33,8 @@ struct TorrentSwipeRow<Content: View>: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             HStack(spacing: 8) {
-                action("Delete Torrent", symbol: "xmark", color: .yellow, data: false)
-                action("Delete Torrent + Data", symbol: "trash", color: .red, data: true)
+                action(leading.name, symbol: leading.symbol, color: leading.color, data: false)
+                action(trailing.name, symbol: trailing.symbol, color: trailing.color, data: true)
             }
             .padding(.trailing, 10)
             .opacity(offset < -0.5 ? 1 : 0)

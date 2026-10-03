@@ -288,59 +288,24 @@ private struct TorrentBatchGroupEditor: View {
             .formStyle(.columns)
             .fixedSize(horizontal: false, vertical: true)
 
-            HStack {
-                Text("Files").font(.headline)
-                Text(selectionSummary).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Menu {
-                    Button("Select All") { setAllFilesWanted(true) }
-                    Button("Deselect All") { setAllFilesWanted(false) }
-                } label: {
-                    Image(systemName: "checklist")
-                }
-                .menuStyle(.borderlessButton)
-                .help("Select Files")
-                .accessibilityLabel("Select Files")
-            }
-            if fileCount > 12 {
-                TextField("Search Files", text: $fileSearchText)
-                    .textFieldStyle(.roundedBorder)
-            }
-            List {
-                ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
-                    let item = items[index]
-                    Section {
-                        ForEach(fileEntries(for: item)) { entry in
-                            HStack(spacing: 8) {
-                                Toggle(isOn: Binding(
-                                    get: { item.selectedFileIndices.contains(entry.index) },
-                                    set: { item.setFileWanted(entry.index, $0) }
-                                )) {
-                                    Text(entry.displayName)
-                                        .lineLimit(1)
-                                        .truncationMode(.middle)
-                                        .help(entry.originalPath)
-                                }
-                                .toggleStyle(.checkbox)
-                                Spacer(minLength: 4)
-                                Text(formatBytes(entry.size))
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                    .monospacedDigit()
-                            }
-                        }
-                    } header: {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
+                        let item = items[index]
                         if group.isSeasonGroup {
-                            Text("Season \(group.seasons[offset])")
+                            Text("Season \(group.seasons[offset])").font(.subheadline.weight(.semibold))
                         }
-                        if item.wasAdded {
-                            Label("Added", systemImage: "checkmark.circle")
-                        }
+                        TorrentFilesBrowser(
+                            entries: fileEntries(for: item), searchText: $fileSearchText,
+                            onSetWanted: { item.setFileWanted($0, $1) },
+                            onSetPriority: { item.filePriorities[$0] = $1 },
+                            onSetAllWanted: { item.setAllFilesWanted($0) },
+                            showsControls: true, isCompact: true
+                        )
+                        .disabled(item.wasAdded)
                     }
-                    .disabled(item.wasAdded)
                 }
             }
-            .listStyle(.inset)
         }
         .disabled(isAdding)
         .onChange(of: smartNamesEnabled) { _, enabled in
@@ -381,7 +346,8 @@ private struct TorrentBatchGroupEditor: View {
                 file: file,
                 rootName: item.draft.preview.name,
                 displayName: renamedFiles[file.name],
-                isWanted: item.selectedFileIndices.contains(index)
+                isWanted: item.selectedFileIndices.contains(index),
+                priority: item.filePriorities[index] ?? 0
             )
         }.filter {
             query.isEmpty || $0.displayName.localizedCaseInsensitiveContains(query)
@@ -411,6 +377,7 @@ final class TorrentBatchItemState {
     let draft: TorrentFileAddDraft
     var name: String
     var selectedFileIndices: Set<Int>
+    var filePriorities: [Int: Int] = [:]
     var wasAdded = false
 
     init(draft: TorrentFileAddDraft) {
@@ -463,7 +430,9 @@ final class TorrentBatchItemState {
         return TorrentAddFileSelection(
             filesWanted: selectedFileIndices.sorted(),
             filesUnwanted: all.subtracting(selectedFileIndices).sorted(),
-            priorityNormal: Array(draft.preview.files.indices)
+            priorityHigh: draft.preview.files.indices.filter { filePriorities[$0] == 1 },
+            priorityNormal: draft.preview.files.indices.filter { (filePriorities[$0] ?? 0) == 0 },
+            priorityLow: draft.preview.files.indices.filter { filePriorities[$0] == -1 }
         )
     }
 

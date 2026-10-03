@@ -135,9 +135,6 @@ private struct TorrentInspectorContent: View {
         } else if let details = snapshot.details {
             VStack(alignment: .leading, spacing: 12) {
                 downloadLocation(details)
-                Divider()
-                Text("Files")
-                    .font(.headline)
                 if let error = snapshot.filesError, details.files.isEmpty {
                     detailErrorView(error)
                 } else {
@@ -153,8 +150,6 @@ private struct TorrentInspectorContent: View {
                 downloadLocation(details)
                 Divider()
             }
-            Text("Files")
-                .font(.headline)
             TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
             ForEach(group.torrents, id: \.hashString) { torrent in
                 if let details = groupDetails[torrent.hashString] {
@@ -193,21 +188,28 @@ private struct TorrentInspectorContent: View {
             onSetAllWanted: { wanted in setAllFiles(in: details, wanted: wanted) },
             showsControls: showsControls,
             isCompact: true,
-            thumbnailInput: { thumbnailInput(for: $0, details: details) }
+            stagesChanges: true,
+            onApplyWanted: { changes in
+                Task {
+                    for wanted in [true, false] {
+                        let indices = changes.filter { $0.value == wanted }.map(\.key)
+                        if !indices.isEmpty {
+                            await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
+                        }
+                    }
+                }
+            }
         )
+        .id(details.hashString)
     }
 
     private func groupMemberName(_ torrent: TorrentSummary, group: TorrentNameSequenceGroup) -> String {
-        guard torrent.name.range(
-            of: #"(?i)^season[\s._-]+[1-9]\d?$"#,
-            options: .regularExpression
-        ) != nil else { return torrent.name }
-        let season = torrent.name.replacingOccurrences(
-            of: #"(?i)^season[\s._-]+"#,
-            with: "",
-            options: .regularExpression
-        )
-        return "\(group.displayName) \(season)"
+        if let season = TorrentNameCleaner.seasonDescriptor(for: TorrentBatchNamingInput(rootName: torrent.name, files: groupDetails[torrent.hashString]?.files ?? []))?.season {
+            return "Season \(season)"
+        }
+        let suffix = torrent.name.replacingOccurrences(of: group.displayName, with: "").trimmingCharacters(in: .whitespaces)
+        if let season = Int(suffix) { return "Season \(season)" }
+        return torrent.name
     }
 
     private func setAllGroupFiles(wanted: Bool) {
