@@ -67,6 +67,7 @@ struct TorrentListView: View {
                         ForEach(section.rows) { row in
                             liveRow(for: row)
                                 .listRowInsets(EdgeInsets(top: 0, leading: sidePadding + 16, bottom: 0, trailing: sidePadding + 16))
+                                .listRowSeparator(.hidden)
                                 .listItemTint(.monochrome)
                                 .tag(row.id)
                                 .accessibilityElement(children: .contain)
@@ -331,10 +332,11 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
+        .frame(minHeight: 60)
         .background {
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
-            TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected)
+            TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: density.showsIcon ? 62 : 14)
                 .padding(.horizontal, -14)
                 .padding(.vertical, 3)
         }
