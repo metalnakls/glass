@@ -92,6 +92,7 @@ public final class RemoteAppModel {
     public var selectedProfileID: UUID?
     public private(set) var sources: [TorrentSourceState] = []
     public var allTorrentRecords: [TorrentRecord] { sources.flatMap(\.records) }
+    public private(set) var fileMutationRevision = 0
     public var libraryStructureRevision: Int { sources.reduce(0) { $0 &+ $1.structureRevision } }
     public private(set) var torrentRecords: [TorrentRecord] {
         get { sourceState(for: selectedSourceID).records }
@@ -809,6 +810,7 @@ public final class RemoteAppModel {
         ) { provider in
             try await provider.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
         }
+        fileMutationRevision &+= 1
     }
 
     public func setFilePriority(_ torrent: TorrentSummary, fileIndices: [Int], priority: Int, sourceID requestedSourceID: UUID? = nil) async {
@@ -822,6 +824,22 @@ public final class RemoteAppModel {
         ) { provider in
             try await provider.setFilePriority(ids: [torrent.hashString], fileIndices: fileIndices, priority: priority)
         }
+        fileMutationRevision &+= 1
+    }
+
+    public func smartRename(_ details: TorrentDetails, sourceID: UUID) async {
+        guard let plan = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
+            selectedFileIndices: Set(details.files.indices)) else { return }
+        await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
+            detailSections: [.files], reloadCoreDetails: true) { provider in
+            for rename in plan.pathRenames {
+                try await provider.renamePath(id: details.hashString, path: rename.path, name: rename.name)
+            }
+            if plan.rootName != details.name {
+                try await provider.renamePath(id: details.hashString, path: details.name, name: plan.rootName)
+            }
+        }
+        fileMutationRevision &+= 1
     }
 
     public func setTorrentPriority(_ torrent: TorrentSummary, priority: Int, sourceID requestedSourceID: UUID? = nil) async {
@@ -1488,7 +1506,6 @@ public final class RemoteAppModel {
 
     private func scheduleTorrentCachePersistence() {
         guard torrentCachePersistenceTask == nil else { return }
-        let cache = torrentCache.values.sorted { $0.refreshedAt > $1.refreshedAt }
         let profileStore = profileStore
         torrentCachePersistenceTask = Task { [weak self] in
             do {
@@ -1496,17 +1513,17 @@ public final class RemoteAppModel {
             } catch {
                 return
             }
-            guard !Task.isCancelled else { return }
-
+            guard !Task.isCancelled, let self else { return }
+            let cache = self.torrentCache.values.sorted { $0.refreshedAt > $1.refreshedAt }
             do {
                 try await Task.detached(priority: .utility) {
                     try profileStore.saveTorrentCache(cache)
                 }.value
-                self?.torrentCachePersistenceTask = nil
+                self.torrentCachePersistenceTask = nil
             } catch {
                 guard !Task.isCancelled else { return }
-                self?.errorMessage = error.localizedDescription
-                self?.torrentCachePersistenceTask = nil
+                self.errorMessage = error.localizedDescription
+                self.torrentCachePersistenceTask = nil
             }
         }
     }

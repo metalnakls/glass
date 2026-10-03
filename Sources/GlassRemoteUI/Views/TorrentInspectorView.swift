@@ -95,7 +95,7 @@ struct TorrentInspectorView: View {
     }
 
     private var groupDetailLoadInput: TorrentGroupInspectorLoadInput {
-        TorrentGroupInspectorLoadInput(sourceID: sourceID, groupID: selectedTorrentGroup?.id, torrents: selectedTorrentGroup?.torrents ?? [])
+        TorrentGroupInspectorLoadInput(sourceID: sourceID, groupID: selectedTorrentGroup?.id, torrents: selectedTorrentGroup?.torrents ?? [], revision: model.fileMutationRevision)
     }
 }
 
@@ -200,7 +200,8 @@ private struct TorrentInspectorContent: View {
                         }
                     }
                 }
-            }
+            },
+            onSmartRename: { Task { await model.smartRename(details, sourceID: sourceID) } }
         )
         .id(details.hashString)
     }
@@ -286,6 +287,7 @@ private struct TorrentGroupInspectorLoadInput: Equatable {
     let sourceID: UUID
     let groupID: String?
     let torrents: [TorrentSummary]
+    let revision: Int
 }
 
 extension TorrentDetails {
