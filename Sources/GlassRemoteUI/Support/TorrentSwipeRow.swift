@@ -14,6 +14,7 @@ struct TorrentSwipeRow<Content: View>: View {
     let remove: (Bool) -> Void
     let presentationChanged: (Bool) -> Void
     let selected: Bool
+    var compactActions: Bool
     var commitsOnRelease: Bool
     var foregroundInset: CGFloat
     var foregroundTrailingInset: CGFloat
@@ -24,10 +25,11 @@ struct TorrentSwipeRow<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     init(selected: Bool, remove: @escaping (Bool) -> Void, presentationChanged: @escaping (Bool) -> Void,
-         commitsOnRelease: Bool = false, foregroundInset: CGFloat = 0, foregroundTrailingInset: CGFloat? = nil,
+         commitsOnRelease: Bool = false, compactActions: Bool = false, foregroundInset: CGFloat = 0, foregroundTrailingInset: CGFloat? = nil,
          leading: Action = Action(name: "Delete Torrent", symbol: "xmark", color: .yellow),
          trailing: Action = Action(name: "Delete Torrent + Data", symbol: "trash", color: .red),
          @ViewBuilder content: () -> Content) {
+        self.compactActions = compactActions
         self.selected = selected; self.leading = leading; self.trailing = trailing
         self.remove = remove; self.presentationChanged = presentationChanged
         self.commitsOnRelease = commitsOnRelease; self.foregroundInset = foregroundInset
@@ -93,9 +95,9 @@ struct TorrentSwipeRow<Content: View>: View {
     private func action(_ action: Action, data: Bool) -> some View {
         Button { remove(data) } label: {
             Image(systemName: action.symbol)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: compactActions ? 9 : 14, weight: .semibold))
                 .foregroundStyle(action.color == .yellow ? Color.black : .white)
-                .frame(width: 34, height: 34)
+                .frame(width: compactActions ? 18 : 34, height: compactActions ? 18 : 34)
                 .background(action.color, in: Circle())
                 .scaleEffect((0.8 + 0.2 * min(abs(offset) / 80, 1)) * (data && abs(offset) >= fullThreshold ? 1.15 : 1))
                 .animation(reduceMotion ? nil : .spring(duration: 0.2), value: abs(offset) >= fullThreshold)
