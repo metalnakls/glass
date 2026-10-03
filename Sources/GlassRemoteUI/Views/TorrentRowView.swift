@@ -20,6 +20,7 @@ struct TorrentRowView: View, Equatable {
     var body: some View {
         row
         .contentShape(Rectangle())
+
     }
 
     private var row: some View {
@@ -191,7 +192,9 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var isFolderLike: Bool {
-        URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
+        if thumbnailInput != nil { return false }
+        if let count = torrent.fileCount { return count > 1 }
+        return URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
     }
 
     private func displayName(_ name: String) -> String {
