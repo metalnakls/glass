@@ -31,6 +31,8 @@ struct TorrentListView: View {
     @State private var shadowTuning = false
     @State private var swipingRowID: String?
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
+    @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
+    @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
     @AppStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
     @AppStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
     @AppStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
@@ -167,7 +169,16 @@ struct TorrentListView: View {
 
     private func raisedSurface(selected: Bool, isSwiping: Bool) -> some View {
         RoundedRectangle(cornerRadius: 12, style: .circular)
-            .fill(selected ? selectedSurface : .clear)
+            .fill(selected ? Color(white: colorScheme == .dark ? 0.21 : 1) : .clear)
+            .overlay {
+                if selected && selectedHDRWhite > 0 {
+                    RoundedRectangle(cornerRadius: 12, style: .circular)
+                        .fill(selectedSurface)
+                        .padding(-selectedHDRSpread)
+                        .blur(radius: selectedHDRSoftness)
+                        .allowsHitTesting(false)
+                }
+            }
             .allowedDynamicRange(.high)
             .overlay {
                 if selected && colorContrast == .increased {
@@ -197,6 +208,8 @@ struct TorrentListView: View {
                     .monospacedDigit().foregroundStyle(.secondary)
             }.font(.caption)
             Slider(value: $selectedHDRWhite, in: 0...3).accessibilityLabel("HDR white")
+            shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
+            shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
             shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
             Divider()
             Text("Above").font(.subheadline.weight(.semibold))
@@ -210,6 +223,8 @@ struct TorrentListView: View {
             shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
             Button("Reset") {
                 selectedHDRWhite = 0
+                selectedHDRSoftness = 0
+                selectedHDRSpread = 0
                 if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
                 shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
                 shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
