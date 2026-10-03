@@ -28,6 +28,17 @@ struct TorrentListView: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
+    @State private var shadowTuning = false
+    @AppStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
+    @AppStorage("GlassList.shadowTopSoftness") private var shadowTopSoftness = 8.0
+    @AppStorage("GlassList.shadowTopLift") private var shadowTopLift = 4.0
+    @AppStorage("GlassList.shadowBottomStrength") private var shadowBottomStrength = 0.22
+    @AppStorage("GlassList.shadowBottomSoftness") private var shadowBottomSoftness = 12.0
+    @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
+
+    private var shadowSettings: TorrentShadowSettings {
+        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift)
+    }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast
 
@@ -44,7 +55,6 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
-                    .background(TorrentListElevationAnchor(controller: elevationController, selected: selection == row.id).frame(width: 0, height: 0))
                     .listRowBackground(raisedSurface(selected: selection == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
@@ -74,6 +84,9 @@ struct TorrentListView: View {
             synchronizePresentation(animated: false)
         }
         .onDisappear { elevationController.detach() }
+        .onChange(of: shadowSettings, initial: true) { _, settings in
+            elevationController.configure(settings)
+        }
         .onChange(of: selection) { _, value in
             if value == nil { elevationController.clear() }
         }
@@ -116,6 +129,19 @@ struct TorrentListView: View {
                 }
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if selection != nil {
+                Button { shadowTuning = true } label: {
+                    Image(systemName: "slider.horizontal.3")
+                }
+                .help("Tune selection shadows")
+                .accessibilityLabel("Tune selection shadows")
+                .padding(8)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .padding(12)
+                .popover(isPresented: $shadowTuning) { shadowControls }
+            }
+        }
         .overlay {
             if records.isEmpty {
                 emptyState
@@ -124,17 +150,56 @@ struct TorrentListView: View {
     }
 
     private func raisedSurface(selected: Bool) -> some View {
-        RoundedRectangle(cornerRadius: 12, style: .continuous)
+        RoundedRectangle(cornerRadius: 12, style: .circular)
             .fill(selected ? (colorScheme == .dark ? Color(white: 0.21) : .white) : .clear)
             .overlay {
-                if selected {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                if selected && colorContrast == .increased {
+                    RoundedRectangle(cornerRadius: 12, style: .circular)
                         .strokeBorder(colorScheme == .dark ? .white.opacity(colorContrast == .increased ? 0.45 : 0.10) : .black.opacity(colorContrast == .increased ? 0.35 : 0.045), lineWidth: 1)
                 }
             }
+            .background(TorrentListElevationAnchor(controller: elevationController, selected: selected))
             .padding(.horizontal, 2)
             .padding(.vertical, 3)
             .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25), value: selected)
+    }
+
+    private var shadowControls: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Selection Shadows").font(.headline)
+                Spacer()
+                Button("Done") { shadowTuning = false }
+            }
+            Text("Above").font(.subheadline.weight(.semibold))
+            shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
+            shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
+            shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
+            Divider()
+            Text("Below").font(.subheadline.weight(.semibold))
+            shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
+            shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
+            shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
+            Button("Reset") {
+                shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
+                shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
+            }
+        }
+        .padding(16)
+        .frame(width: 280)
+    }
+
+    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : "\(Int(value.wrappedValue.rounded()))")
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            .font(.caption)
+            Slider(value: value, in: range).accessibilityLabel(title)
+        }
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {

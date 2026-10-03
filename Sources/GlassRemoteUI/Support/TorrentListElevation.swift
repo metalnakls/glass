@@ -1,6 +1,15 @@
 import AppKit
 import SwiftUI
 
+struct TorrentShadowSettings: Equatable {
+    var topStrength = 0.12
+    var topSoftness = 8.0
+    var topLift = 4.0
+    var bottomStrength = 0.22
+    var bottomSoftness = 12.0
+    var bottomLift = 7.0
+}
+
 /// Draw the shadow above the table's row clipping, while SwiftUI draws the card
 /// behind its content. Native selection, virtualization and hit testing stay intact.
 struct TorrentListElevationAnchor: NSViewRepresentable {
@@ -15,6 +24,8 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
     final class Anchor: NSView {
         weak var controller: TorrentListElevationController?
         var selected = false
+        override func layout() { super.layout(); connect() }
+        override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); connect() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
         override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); connect() }
         func connect() {
@@ -38,6 +49,11 @@ final class TorrentListElevationController: NSObject {
     private weak var table: NSTableView?
     private weak var selectedAnchor: NSView?
     private let overlay = ElevationOverlay()
+    private var settings = TorrentShadowSettings()
+    func configure(_ settings: TorrentShadowSettings) {
+        self.settings = settings
+        update(animated: false)
+    }
 
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
@@ -66,16 +82,13 @@ final class TorrentListElevationController: NSObject {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         overlay.frame = clip.frame
         guard let selectedAnchor, selectedAnchor.window != nil else {
-            overlay.show(nil, animated: animated)
+            overlay.show(nil, settings: settings, animated: animated)
             return
         }
-        let index = table.row(for: selectedAnchor)
-        guard index >= 0 else { overlay.show(nil, animated: animated); return }
-        var rect = overlay.convert(table.rect(ofRow: index), from: table)
-        rect.origin.x = 10
-        rect.size.width = max(0, overlay.bounds.width - 20)
-        rect = rect.insetBy(dx: 0, dy: 3)
-        overlay.show(rect, animated: animated)
+        // The anchor fills the actual SwiftUI card background. Its bounds are
+        // the single source of truth for the card, outline, cutout and shadows.
+        let rect = overlay.convert(selectedAnchor.bounds, from: selectedAnchor)
+        overlay.show(rect, settings: settings, animated: animated)
     }
 }
 
@@ -90,7 +103,7 @@ private final class ElevationOverlay: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         for shadow in [top, bottom] {
-            shadow.backgroundColor = NSColor.white.cgColor
+            shadow.backgroundColor = NSColor.clear.cgColor
             shadow.cornerRadius = 12
             shadow.shadowColor = NSColor.black.cgColor
             layer?.addSublayer(shadow)
@@ -103,7 +116,7 @@ private final class ElevationOverlay: NSView {
         bottom.shadowOffset = CGSize(width: 0, height: 7)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func show(_ rect: CGRect?, animated: Bool) {
+    func show(_ rect: CGRect?, settings: TorrentShadowSettings, animated: Bool) {
         guard let layer else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
@@ -112,6 +125,12 @@ private final class ElevationOverlay: NSView {
         defer { CATransaction.commit() }
         guard let rect, rect.intersects(bounds) else { layer.opacity = 0; return }
         layer.opacity = 1
+        top.shadowOpacity = Float(min(max(settings.topStrength, 0), 1))
+        top.shadowRadius = max(settings.topSoftness, 0)
+        top.shadowOffset = CGSize(width: 0, height: -max(settings.topLift, 0))
+        bottom.shadowOpacity = Float(min(max(settings.bottomStrength, 0), 1))
+        bottom.shadowRadius = max(settings.bottomSoftness, 0)
+        bottom.shadowOffset = CGSize(width: 0, height: max(settings.bottomLift, 0))
         for shadow in [top, bottom] {
             shadow.frame = rect
             shadow.shadowPath = CGPath(roundedRect: CGRect(origin: .zero, size: rect.size), cornerWidth: 12, cornerHeight: 12, transform: nil)
