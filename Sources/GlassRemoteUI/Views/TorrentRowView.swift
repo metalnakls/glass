@@ -181,18 +181,28 @@ struct TorrentRowView: View, Equatable {
         .padding(2)
     }
 
+    @ViewBuilder
     private var stateControl: some View {
-        Button(action: toggleTransfer) {
-            Image(systemName: stateSymbol)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.primary)
-                .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
-                .frame(width: 28, height: 28)
-                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: Circle())
+        if shareUnavailable || torrent.isCompleted {
+            stateImage
+        } else {
+            Button { clickRevision &+= 1; toggleTransfer() } label: { stateImage }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .disabled(shareUnavailable || torrent.isCompleted)
-        .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: stateSymbol)
+    }
+
+    private var stateImage: some View {
+        Image(systemName: stateSymbol)
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(Color.primary)
+            .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
+            .frame(width: 28, height: 28)
+            .background(Color(nsColor: .controlBackgroundColor).opacity(0.5), in: Circle())
+            .phaseAnimator([false, true], trigger: "\(stateSymbol)-\(clickRevision)") { view, active in
+                view.rotationEffect(.degrees(active && !reduceMotion ? 12 : 0))
+                    .scaleEffect(active && !reduceMotion ? 0.9 : 1)
+            } animation: { _ in reduceMotion ? .linear(duration: 0) : .snappy(duration: 0.16) }
+            .animation(reduceMotion ? nil : .snappy(duration: 0.22), value: stateSymbol)
     }
 
     private var progress: Double {
