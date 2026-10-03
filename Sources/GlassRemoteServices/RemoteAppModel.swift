@@ -446,7 +446,7 @@ public final class RemoteAppModel {
     }
 
     public func updatePreferences(_ preferences: GlassRemotePreferences) {
-        self.preferences = preferences
+        self.preferences = GlassRemotePreferences(isTorrentCachingEnabled: true, cachedServerLimit: preferences.cachedServerLimit)
         trimTorrentCache()
         persistPreferences()
         persistTorrentCache()
@@ -1085,6 +1085,7 @@ public final class RemoteAppModel {
 
         do {
             preferences = try profileStore.loadPreferences()
+            preferences.isTorrentCachingEnabled = true
         } catch {
             preferences = GlassRemotePreferences()
         }
