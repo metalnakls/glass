@@ -55,7 +55,7 @@ public final class TorrentRecord: Identifiable {
     @discardableResult
     func apply(_ updatedSummary: TorrentSummary, displayName: String? = nil) -> Bool {
         guard summary != updatedSummary || self.displayName != displayName else { return false }
-        let structureChanged = name != updatedSummary.name || self.displayName != displayName || summary.queuePosition != updatedSummary.queuePosition
+        let structureChanged = name != updatedSummary.name || self.displayName != displayName
         self.displayName = displayName
         if status != updatedSummary.status {
             status = updatedSummary.status
@@ -855,14 +855,14 @@ public final class RemoteAppModel {
 
     public func start(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async {
         let sourceID = requestedSourceID ?? selectedSourceID
-        await performProviderAction(sourceID: sourceID) { provider in
+        return await performProviderAction(sourceID: sourceID) { provider in
             try await provider.start(ids: [torrent.hashString])
         }
     }
 
     public func stop(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async {
         let sourceID = requestedSourceID ?? selectedSourceID
-        await performProviderAction(sourceID: sourceID) { provider in
+        return await performProviderAction(sourceID: sourceID) { provider in
             try await provider.stop(ids: [torrent.hashString])
         }
     }
@@ -983,19 +983,30 @@ public final class RemoteAppModel {
 
     /// Moves a card (including all grouped members) before another card in the same source.
     public func reorder(_ hashes: [String], before targetHashes: [String], sourceID: UUID) async {
-        let ordered = sourceState(for: sourceID).records.sorted { ($0.summary.queuePosition ?? Int.max) < ($1.summary.queuePosition ?? Int.max) }
+        let ordered = sourceState(for: sourceID).records
         let moving = ordered.filter { hashes.contains($0.hashString) }
         let remaining = ordered.filter { !hashes.contains($0.hashString) }
         guard !moving.isEmpty, let target = remaining.firstIndex(where: { targetHashes.contains($0.hashString) }) else { return }
         let placements = moving.enumerated().map { ($0.element.hashString, target + $0.offset) }
         let movingDown = (ordered.firstIndex { hashes.contains($0.hashString) } ?? 0) < target
-        await performProviderAction(sourceID: sourceID, showsActivity: false) { provider in
+        let succeeded = await performProviderAction(sourceID: sourceID, showsActivity: false) { provider in
             for (hash, position) in movingDown ? Array(placements.reversed()) : placements {
                 try await provider.setQueuePosition(ids: [hash], position: position)
             }
         }
     }
 
+        if succeeded {
+            let state = sourceState(for: sourceID)
+            let currentMoving = state.records.filter { hashes.contains($0.hashString) }
+            var current = state.records.filter { !hashes.contains($0.hashString) }
+            if let index = current.firstIndex(where: { targetHashes.contains($0.hashString) }) {
+                current.insert(contentsOf: currentMoving, at: index)
+                state.records = current
+                state.structureRevision &+= 1
+                scheduleTorrentCachePersistence()
+            }
+        }
     public func moveInQueue(_ torrents: [TorrentSummary], direction: TorrentQueueMove, sourceID requestedSourceID: UUID? = nil) async {
         let sourceID = requestedSourceID ?? selectedSourceID
         let ids = torrents.map(\.hashString)
@@ -1456,8 +1467,8 @@ public final class RemoteAppModel {
             state.records.map { ($0.id, $0) },
             uniquingKeysWith: { first, _ in first }
         )
-        var structureChanged = state.records.map(\.id) != summaries.map { Self.recordIdentity(for: $0, sourceID: sourceID) }
-        let updatedRecords = summaries.map { summary in
+        var structureChanged = Set(state.records.map(\.id)) != Set(summaries.map { Self.recordIdentity(for: $0, sourceID: sourceID) })
+        var updatedRecords = summaries.map { summary in
             let identity = Self.recordIdentity(for: summary, sourceID: sourceID)
             if let record = existingByIdentity[identity] {
                 structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID)) || structureChanged
@@ -1469,6 +1480,10 @@ public final class RemoteAppModel {
 
         if state.records.map(\.id) != updatedRecords.map(\.id) {
             state.records = updatedRecords
+        // Server queue telemetry must not move a card under the user's pointer.
+        let incoming = Dictionary(uniqueKeysWithValues: updatedRecords.map { ($0.id, $0) })
+        let known = Set(state.records.map(\.id))
+        updatedRecords = state.records.compactMap { incoming[$0.id] } + updatedRecords.filter { !known.contains($0.id) }
         }
         if structureChanged {
             state.structureRevision &+= 1

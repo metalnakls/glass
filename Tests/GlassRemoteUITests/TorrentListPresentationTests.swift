@@ -7,6 +7,24 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
+    @Test("server queue telemetry cannot reorder the visible library")
+    func queueTelemetryKeepsOrder() throws {
+        let source = UUID()
+        func record(_ id: Int, queue: Int) -> TorrentRecord {
+            TorrentRecord(TorrentSummary(id: id, hashString: "q-\(id)", name: id == 1 ? "Wolf" : "Click", status: 0,
+                percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil,
+                queuePosition: queue), sourceID: source)
+        }
+        let first = record(1, queue: 8)
+        let second = record(2, queue: 0)
+        let rows = TorrentListRowPresentation.rows(records: [first, second], pendingRenameNames: [:], expandedGroupIDs: [])
+        #expect(rows.map(\.id) == [first.id, second.id])
+        let updated = record(1, queue: 20)
+        #expect(!first.apply(updated.summary, displayName: nil))
+        #expect(first.summary.queuePosition == 20)
+    }
+
     @Test("unfinished section keeps completed siblings in their expanded group")
     func unfinishedSectionsKeepGroupsTogether() throws {
         let source = UUID()
