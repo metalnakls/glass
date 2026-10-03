@@ -55,7 +55,7 @@ public final class TorrentRecord: Identifiable {
     @discardableResult
     func apply(_ updatedSummary: TorrentSummary, displayName: String? = nil) -> Bool {
         guard summary != updatedSummary || self.displayName != displayName else { return false }
-        let structureChanged = name != updatedSummary.name || self.displayName != displayName
+        let structureChanged = name != updatedSummary.name || self.displayName != displayName || summary.queuePosition != updatedSummary.queuePosition
         self.displayName = displayName
         if status != updatedSummary.status {
             status = updatedSummary.status
@@ -831,7 +831,7 @@ public final class RemoteAppModel {
         guard let plan = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
             selectedFileIndices: Set(details.files.indices)) else { return }
         await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
-            detailSections: [.files], reloadCoreDetails: true) { provider in
+            reloadCoreDetails: true, detailSections: [.files]) { provider in
             for rename in plan.pathRenames {
                 try await provider.renamePath(id: details.hashString, path: rename.path, name: rename.name)
             }
@@ -970,6 +970,21 @@ public final class RemoteAppModel {
         let sourceID = requestedSourceID ?? selectedSourceID
         await performProviderAction(sourceID: sourceID) { provider in
             try await provider.reannounce(ids: [torrent.hashString])
+        }
+    }
+
+    /// Moves a card (including all grouped members) before another card in the same source.
+    public func reorder(_ hashes: [String], before targetHashes: [String], sourceID: UUID) async {
+        let ordered = sourceState(for: sourceID).records.sorted { ($0.summary.queuePosition ?? Int.max) < ($1.summary.queuePosition ?? Int.max) }
+        let moving = ordered.filter { hashes.contains($0.hashString) }
+        let remaining = ordered.filter { !hashes.contains($0.hashString) }
+        guard !moving.isEmpty, let target = remaining.firstIndex(where: { targetHashes.contains($0.hashString) }) else { return }
+        let placements = moving.enumerated().map { ($0.element.hashString, target + $0.offset) }
+        let movingDown = (ordered.firstIndex { hashes.contains($0.hashString) } ?? 0) < target
+        await performProviderAction(sourceID: sourceID, showsActivity: false) { provider in
+            for (hash, position) in movingDown ? Array(placements.reversed()) : placements {
+                try await provider.setQueuePosition(ids: [hash], position: position)
+            }
         }
     }
 

@@ -27,6 +27,7 @@ public protocol TransmissionRPCServicing: Sendable {
     func remove(ids: [String], deleteLocalData: Bool) async throws
     func verify(ids: [String]) async throws
     func reannounce(ids: [String]) async throws
+    func setQueuePosition(ids: [String], position: Int) async throws
     func queueMoveTop(ids: [String]) async throws
     func queueMoveUp(ids: [String]) async throws
     func queueMoveDown(ids: [String]) async throws
@@ -38,6 +39,11 @@ public protocol TransmissionRPCServicing: Sendable {
 }
 
 public extension TransmissionRPCServicing {
+    func setQueuePosition(ids: [String], position: Int) async throws {
+        try await queueMoveTop(ids: ids)
+        for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
+    }
+
     func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate {
         .full(try await fetchTorrents())
     }
@@ -128,6 +134,7 @@ public protocol TorrentProvider: Sendable {
     func remove(ids: [String], deleteLocalData: Bool) async throws
     func verify(ids: [String]) async throws
     func reannounce(ids: [String]) async throws
+    func setQueuePosition(ids: [String], position: Int) async throws
     func queueMoveTop(ids: [String]) async throws
     func queueMoveUp(ids: [String]) async throws
     func queueMoveDown(ids: [String]) async throws
@@ -140,6 +147,11 @@ public protocol TorrentProvider: Sendable {
 }
 
 public extension TorrentProvider {
+    func setQueuePosition(ids: [String], position: Int) async throws {
+        try await queueMoveTop(ids: ids)
+        for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
+    }
+
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
         try await fetchTorrentDetails(hashString: hashString)
     }
@@ -179,6 +191,7 @@ public protocol LocalTransmissionServicing: Sendable {
     func remove(ids: [String], deleteLocalData: Bool) async throws
     func verify(ids: [String]) async throws
     func reannounce(ids: [String]) async throws
+    func setQueuePosition(ids: [String], position: Int) async throws
     func queueMoveTop(ids: [String]) async throws
     func queueMoveUp(ids: [String]) async throws
     func queueMoveDown(ids: [String]) async throws
@@ -191,6 +204,11 @@ public protocol LocalTransmissionServicing: Sendable {
 }
 
 public extension LocalTransmissionServicing {
+    func setQueuePosition(ids: [String], position: Int) async throws {
+        try await queueMoveTop(ids: ids)
+        for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
+    }
+
     func moveData(id: String, to downloadDirectory: String) async throws {
         throw LocalTransmissionSessionError.unavailable("This local torrent engine cannot move data.")
     }
@@ -396,6 +414,10 @@ public actor RemoteTorrentProvider: TorrentProvider {
         try await client.reannounce(ids: ids)
     }
 
+    public func setQueuePosition(ids: [String], position: Int) async throws {
+        try await client.setQueuePosition(ids: ids, position: position)
+    }
+
     public func queueMoveTop(ids: [String]) async throws {
         try await client.queueMoveTop(ids: ids)
     }
@@ -534,6 +556,10 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func reannounce(ids: [String]) async throws {
         try await session.reannounce(ids: ids)
+    }
+
+    public func setQueuePosition(ids: [String], position: Int) async throws {
+        try await session.setQueuePosition(ids: ids, position: position)
     }
 
     public func queueMoveTop(ids: [String]) async throws {

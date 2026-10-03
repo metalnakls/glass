@@ -291,6 +291,12 @@ public actor TransmissionRPCClient {
         let _: RPCEnvelope<EmptyArgs> = try await request(method: "torrent-reannounce", arguments: ["ids": .array(ids.map(JSONValue.string))])
     }
 
+    public func setQueuePosition(ids: [String], position: Int) async throws {
+        let _: RPCEnvelope<EmptyArgs> = try await request(method: "torrent-set", arguments: [
+            "ids": .array(ids.map(JSONValue.string)), "queuePosition": .int(max(0, position))
+        ])
+    }
+
     public func queueMoveTop(ids: [String]) async throws {
         try await queueMove(method: "queue-move-top", ids: ids)
     }

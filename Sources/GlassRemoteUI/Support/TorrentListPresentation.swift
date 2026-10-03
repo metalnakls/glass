@@ -223,6 +223,11 @@ struct TorrentListRowPresentation: Identifiable {
         pendingRenameNames: [String: String],
         expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
+        let records = records.enumerated().sorted { lhs, rhs in
+            let a = lhs.element.summary.queuePosition ?? Int.max
+            let b = rhs.element.summary.queuePosition ?? Int.max
+            return a == b ? lhs.offset < rhs.offset : a < b
+        }.map(\.element)
         let summaries = records.map { record in
             (pendingRenameNames[record.id] ?? record.displayName).map { record.summary.renamedForPresentation(to: $0) }
                 ?? record.summary

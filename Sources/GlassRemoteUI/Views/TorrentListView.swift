@@ -145,6 +145,7 @@ struct TorrentListView: View {
             synchronizePresentation(animated: false)
         }
         .onDisappear { elevationController.detach() }
+        .onChange(of: grid) { _, _ in elevationController.detach() }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
@@ -197,7 +198,7 @@ struct TorrentListView: View {
         }
     }
 
-    private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {
+    private func liveRow(for row: TorrentListRowPresentation) -> some View {
         TorrentListLiveRow(
             row: row,
             isSelected: selection == row.id,
@@ -219,6 +220,19 @@ struct TorrentListView: View {
             remove: remove,
             toggleTransfers: { Task { await toggleTransfers(for: row) } }
         )
+        .draggable(row.id)
+        .dropDestination(for: String.self) { ids, _ in
+            guard let id = ids.first, id != row.id,
+                  let dragged = presentation.rows.first(where: { $0.id == id }), dragged.sourceID == row.sourceID else { return false }
+            func hashes(_ item: TorrentListRowPresentation) -> [String] {
+                switch item.kind {
+                case let .torrent(record, _): return [record.hashString]
+                case let .group(records, _, _): return records.map(\.hashString)
+                }
+            }
+            Task { await model.reorder(hashes(dragged), before: hashes(row), sourceID: row.sourceID) }
+            return true
+        }
     }
 
     private var structureInput: TorrentListStructureInput {

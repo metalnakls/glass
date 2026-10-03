@@ -132,6 +132,10 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         try ensureBridge().reannounceTorrents(ids)
     }
 
+    func setQueuePosition(ids: [String], position: Int) async throws {
+        try ensureBridge().moveTorrents(ids, toQueuePosition: max(0, position))
+    }
+
     func queueMoveTop(ids: [String]) async throws {
         try ensureBridge().moveTorrents(ids, toQueuePosition: 0)
     }
