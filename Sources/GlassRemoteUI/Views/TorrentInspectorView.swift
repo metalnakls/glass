@@ -9,9 +9,112 @@ struct TorrentInspectorView: View {
     let selectedTorrentHash: String?
     let selectedTorrentGroup: TorrentNameSequenceGroup?
     @State private var fileSearchText = ""
-    @State private var groupDetails: [String: TorrentDetails] = [:]
+    @State private var snapshot: TorrentInspectorSnapshot?
     @State private var groupDetailsError: String?
-    @State private var isLoadingGroupDetails = false
+
+    private var selectionKey: String? {
+        selectedTorrentGroup.map { "group:" + $0.id } ?? selectedTorrentHash.map { "torrent:" + $0 }
+    }
+
+    private var readyDetails: TorrentDetails? {
+        guard selectedTorrentGroup == nil, let selectedTorrentHash else { return nil }
+        return model.readyTorrentDetails(forHashString: selectedTorrentHash, sourceID: sourceID, including: [.files])
+    }
+
+    var body: some View {
+        Group {
+            if selectedTorrentHash == nil {
+                ContentUnavailableView("No Torrent Selected", systemImage: "info.circle", description: Text("Select a torrent to show details."))
+            } else if let snapshot {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if let error = selectionError {
+                            Text(error).font(.callout).foregroundStyle(.secondary)
+                        }
+                        TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText)
+                            .disabled(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .scrollEdgeEffectHidden(true, for: .top)
+            } else if let error = selectionError {
+                ContentUnavailableView("Couldn’t Load Details", systemImage: "exclamationmark.triangle", description: Text(error))
+            } else {
+                HStack(spacing: 8) {
+                    GlassActivityIndicator(label: "Loading torrent details").foregroundStyle(.secondary)
+                    Text("Loading details…")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: detailLoadInput) {
+            guard selectedTorrentGroup == nil, let selectedTorrentHash,
+                  !model.isLoadingTorrentDetails,
+                  model.selectedTorrentDetails?.hashString == selectedTorrentHash else { return }
+            model.setVisibleTorrentDetailSections([.files], forHashString: selectedTorrentHash, sourceID: sourceID)
+            await model.loadDetailSection(.files, forHashString: selectedTorrentHash, sourceID: sourceID)
+        }
+        .onChange(of: readyDetails, initial: true) { _, details in
+            guard let details else { return }
+            snapshot = TorrentInspectorSnapshot(sourceID: sourceID, details: details, filesError: model.torrentDetailSectionErrors[.files])
+        }
+        .task(id: groupDetailLoadInput) {
+            groupDetailsError = nil
+            guard let group = selectedTorrentGroup else { return }
+            do {
+                let details = try await model.fetchDetails(for: group.torrents, including: [.files], sourceID: sourceID)
+                guard !Task.isCancelled else { return }
+                snapshot = TorrentInspectorSnapshot(sourceID: sourceID, group: group, groupDetails: Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) }))
+            } catch {
+                guard !Task.isCancelled, !(error is CancellationError) else { return }
+                groupDetailsError = error.localizedDescription
+            }
+        }
+        .onChange(of: selectedTorrentHash) { _, hashString in
+            if hashString == nil {
+                fileSearchText = ""
+                snapshot = nil
+            }
+        }
+        .onDisappear { fileSearchText = "" }
+    }
+
+    private var selectionError: String? {
+        selectedTorrentGroup == nil ? model.torrentDetailsError : groupDetailsError
+    }
+
+    private var detailLoadInput: TorrentInspectorDetailLoadInput {
+        TorrentInspectorDetailLoadInput(sourceID: sourceID, hashString: selectedTorrentHash,
+            detailsHash: model.selectedTorrentDetails?.hashString, isLoading: model.isLoadingTorrentDetails)
+    }
+
+    private var groupDetailLoadInput: TorrentGroupInspectorLoadInput {
+        TorrentGroupInspectorLoadInput(sourceID: sourceID, groupID: selectedTorrentGroup?.id, torrents: selectedTorrentGroup?.torrents ?? [])
+    }
+}
+
+private struct TorrentInspectorSnapshot {
+    let sourceID: UUID
+    var details: TorrentDetails? = nil
+    var filesError: String? = nil
+    var group: TorrentNameSequenceGroup? = nil
+    var groupDetails: [String: TorrentDetails] = [:]
+
+    var selectionKey: String {
+        if let group { return "group:" + group.id }
+        return "torrent:" + (details?.hashString ?? "")
+    }
+}
+
+private struct TorrentInspectorContent: View {
+    let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
+    let snapshot: TorrentInspectorSnapshot
+    @Binding var fileSearchText: String
+    private var sourceID: UUID { snapshot.sourceID }
+    private var groupDetails: [String: TorrentDetails] { snapshot.groupDetails }
 
     private func thumbnailInput(for entry: TorrentFileBrowserEntry, details: TorrentDetails) -> TorrentThumbnailInput? {
         guard let directory = details.downloadDir,
@@ -21,129 +124,22 @@ struct TorrentInspectorView: View {
             isComplete: entry.completedBytes >= entry.size, isLocal: sourceID == model.localSourceID)
     }
 
-    var body: some View {
-        Group {
-            if selectedTorrentHash == nil {
-                ContentUnavailableView(
-                    "No Torrent Selected",
-                    systemImage: "info.circle",
-                    description: Text("Select a torrent to show details.")
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else if model.isLoadingTorrentDetails {
-                HStack(spacing: 8) {
-                    GlassActivityIndicator(label: "Loading torrent details")
-                        .foregroundStyle(.secondary)
-                    Text("Loading details…")
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else if let error = model.torrentDetailsError {
-                ContentUnavailableView(
-                    "Couldn’t Load Details",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
-                )
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        torrentSection
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .scrollEdgeEffectHidden(true, for: .top)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: detailLoadInput) {
-            guard selectedTorrentGroup == nil else { return }
-            guard let selectedTorrentHash else { return }
-            let sections = Set(detailLoadInput.sections)
-            model.setVisibleTorrentDetailSections(sections, forHashString: selectedTorrentHash, sourceID: sourceID)
-            await withTaskGroup(of: Void.self) { group in
-                for section in sections {
-                    group.addTask {
-                        await model.loadDetailSection(section, forHashString: selectedTorrentHash, sourceID: sourceID)
-                    }
-                }
-            }
-        }
-        .task(id: groupDetailLoadInput) {
-            guard let selectedTorrentGroup else {
-                groupDetails = [:]
-                groupDetailsError = nil
-                isLoadingGroupDetails = false
-                return
-            }
-            isLoadingGroupDetails = groupDetails.isEmpty
-            groupDetailsError = nil
-            do {
-                let sections: Set<TorrentDetailSection> = [.files]
-                let details = try await model.fetchDetails(
-                    for: selectedTorrentGroup.torrents,
-                    including: sections,
-                    sourceID: sourceID
-                )
-                guard !Task.isCancelled else { return }
-                groupDetails = Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) })
-            } catch is CancellationError {
-                return
-            } catch {
-                groupDetailsError = error.localizedDescription
-            }
-            isLoadingGroupDetails = false
-        }
-        .onChange(of: selectedTorrentHash) { _, hashString in
-            if hashString == nil {
-                fileSearchText = ""
-            }
-        }
-        .onDisappear {
-            fileSearchText = ""
-        }
-    }
-
-    private var detailLoadInput: TorrentInspectorDetailLoadInput {
-        TorrentInspectorDetailLoadInput(
-            sourceID: sourceID,
-            hashString: selectedTorrentHash,
-            detailsID: model.selectedTorrentDetails?.id,
-            sections: [.files]
-        )
-    }
-
-    private var groupDetailLoadInput: TorrentGroupInspectorLoadInput {
-        TorrentGroupInspectorLoadInput(
-            sourceID: sourceID,
-            groupID: selectedTorrentGroup?.id,
-            torrents: selectedTorrentGroup?.torrents ?? [],
-            loadsFiles: true
-        )
-    }
-
     @ViewBuilder
-    private var torrentSection: some View {
-        if let group = selectedTorrentGroup {
+    var body: some View {
+        if let group = snapshot.group {
             groupSection(group)
-        } else if let details = model.selectedTorrentDetails {
+        } else if let details = snapshot.details {
             VStack(alignment: .leading, spacing: 12) {
                 downloadLocation(details)
                 Divider()
                 Text("Files")
                     .font(.headline)
-                if model.loadingTorrentDetailSections.contains(.files), details.files.isEmpty {
-                    detailLoadingView("Loading files")
-                } else if let error = model.torrentDetailSectionErrors[.files], details.files.isEmpty {
+                if let error = snapshot.filesError, details.files.isEmpty {
                     detailErrorView(error)
                 } else {
                     filesBrowser(details)
                 }
             }
-        } else if selectedTorrentHash != nil {
-            Text("Details unavailable. Select the torrent again to load files.")
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -156,23 +152,17 @@ struct TorrentInspectorView: View {
             Text("Files")
                 .font(.headline)
             TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
-            if isLoadingGroupDetails, groupDetails.isEmpty {
-                detailLoadingView("Loading files")
-            } else if let groupDetailsError, groupDetails.isEmpty {
-                detailErrorView(groupDetailsError)
-            } else {
-                ForEach(group.torrents, id: \.hashString) { torrent in
-                    if let details = groupDetails[torrent.hashString] {
-                        VStack(alignment: .leading, spacing: 8) {
-                            // Distinguish members of a multi-torrent selection without repeating its title.
-                            Text(groupMemberName(torrent, group: group))
-                                .font(.subheadline.weight(.semibold))
-                                .lineLimit(2)
-                            if details.downloadDir != group.torrents.first.flatMap({ groupDetails[$0.hashString]?.downloadDir }) {
-                                downloadLocation(details)
-                            }
-                            filesBrowser(details, showsControls: false)
+            ForEach(group.torrents, id: \.hashString) { torrent in
+                if let details = groupDetails[torrent.hashString] {
+                    VStack(alignment: .leading, spacing: 8) {
+                        // Distinguish members of a multi-torrent selection without repeating its title.
+                        Text(groupMemberName(torrent, group: group))
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(2)
+                        if details.downloadDir != group.torrents.first.flatMap({ groupDetails[$0.hashString]?.downloadDir }) {
+                            downloadLocation(details)
                         }
+                        filesBrowser(details, showsControls: false)
                     }
                 }
             }
@@ -223,15 +213,6 @@ struct TorrentInspectorView: View {
             Task {
                 await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
             }
-        }
-    }
-
-    private func detailLoadingView(_ label: LocalizedStringKey) -> some View {
-        HStack(spacing: 8) {
-            GlassActivityIndicator(label: label)
-                .foregroundStyle(.secondary)
-            Text(label)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -288,15 +269,14 @@ struct TorrentInspectorView: View {
 private struct TorrentInspectorDetailLoadInput: Equatable {
     let sourceID: UUID
     let hashString: String?
-    let detailsID: Int?
-    let sections: [TorrentDetailSection]
+    let detailsHash: String?
+    let isLoading: Bool
 }
 
 private struct TorrentGroupInspectorLoadInput: Equatable {
     let sourceID: UUID
     let groupID: String?
     let torrents: [TorrentSummary]
-    let loadsFiles: Bool
 }
 
 extension TorrentDetails {

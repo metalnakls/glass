@@ -659,6 +659,24 @@ public final class RemoteAppModel {
         }
     }
 
+    /// Returns one selection only after the requested sections have arrived (or failed).
+    /// Views can retain their previous presentation while this returns nil.
+    public func readyTorrentDetails(
+        forHashString hashString: String,
+        sourceID: UUID,
+        including sections: Set<TorrentDetailSection>
+    ) -> TorrentDetails? {
+        guard selectedDetailsSourceID == sourceID,
+              selectedDetailsTorrentHash == hashString,
+              !isLoadingTorrentDetails,
+              let details = selectedTorrentDetails,
+              details.hashString == hashString,
+              sections.isDisjoint(with: loadingTorrentDetailSections),
+              sections.allSatisfy({ loadedTorrentDetailSections.contains($0) || torrentDetailSectionErrors[$0] != nil })
+        else { return nil }
+        return details
+    }
+
     public func fetchDetails(
         for torrents: [TorrentSummary],
         including sections: Set<TorrentDetailSection>,
