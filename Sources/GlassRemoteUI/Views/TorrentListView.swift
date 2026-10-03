@@ -118,13 +118,15 @@ struct TorrentListView: View {
                 }.background(listSurface)
             } else {
             List(selection: $selection) {
-                ForEach(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)) { section in
-                    TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
-                        .selectionDisabled()
-                        .listRowBackground(Color.clear)
-                        .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowSeparator(.hidden)
-                    ForEach(section.rows) { row in
+                ForEach(TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles)) { entry in
+                    switch entry {
+                    case let .header(section):
+                        TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
+                            .selectionDisabled()
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            .listRowSeparator(.hidden)
+                    case let .torrent(row):
                         liveRow(for: row)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
@@ -168,7 +170,7 @@ struct TorrentListView: View {
         .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
-        .onChange(of: presentation.rows.map(\.id)) { _, _ in
+        .onChange(of: TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map(\.id)) { _, _ in
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
@@ -204,6 +206,7 @@ struct TorrentListView: View {
         .onChange(of: structureInput) { oldInput, newInput in
             let hasRowIdentityChanges = oldInput.recordIDs != newInput.recordIDs
                 || oldInput.pendingRenameNames != newInput.pendingRenameNames
+                || oldInput.unfinishedIDs != newInput.unfinishedIDs
             synchronizePresentation(
                 animated: hasRowIdentityChanges
             )
@@ -288,7 +291,8 @@ struct TorrentListView: View {
         TorrentListStructureInput(
             revision: structureRevision,
             recordIDs: records.map(\.id),
-            pendingRenameNames: pendingRenameNames
+            pendingRenameNames: pendingRenameNames,
+            unfinishedIDs: records.filter { $0.summary.isUnfinished }.map(\.id)
         )
     }
 

@@ -44,6 +44,24 @@ struct TorrentListPresentationTests {
         #expect(Set(sections.flatMap { $0.rows.map(\.id) }).count == rows.count)
     }
 
+    @Test("completion keeps torrent identities in one list and removes the loading title")
+    func completionPreservesFlatIdentity() throws {
+        let source = UUID()
+        let loading = filterRecord(source, season: 1, complete: false, rawName: "Loading Movie.mkv")
+        let completed = filterRecord(source, season: 2, complete: true, rawName: "Completed Movie.mkv")
+        func entries() -> [TorrentListEntry] {
+            TorrentListEntry.entries(for: TorrentListRowPresentation.rows(records: [loading, completed], pendingRenameNames: [:], expandedGroupIDs: []), lowercase: false)
+        }
+        let before = entries().map(\.id)
+        let done = filterRecord(source, season: 1, complete: true, rawName: "Loading Movie.mkv")
+        _ = loading.apply(done.summary, displayName: nil)
+        let after = entries().map(\.id)
+        #expect(before.contains("section:unfinished"))
+        #expect(!after.contains("section:unfinished"))
+        #expect(after == ["section:finished", loading.id, completed.id])
+        #expect(Set(before.filter { !$0.hasPrefix("section:") }) == Set(after.filter { !$0.hasPrefix("section:") }))
+    }
+
     @Test("group completion follows member completion even with rounded engine progress")
     func groupCompletionAndStorageErrors() {
         func torrent(_ id: Int, progress: Double, error: Int? = nil) -> TorrentSummary {

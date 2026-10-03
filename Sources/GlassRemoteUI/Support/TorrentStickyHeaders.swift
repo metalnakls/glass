@@ -108,7 +108,7 @@ private struct HeaderAnchor: NSViewRepresentable {
         }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
         func connect() {
-            guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
+            guard !titleHost.isRetiring, window != nil, bounds.width > 0, bounds.height > 0 else { return }
             titleHost.inlineContainer = self
             if !titleHost.isPinned, titleHost.superview !== self {
                 addSubview(titleHost)
@@ -194,6 +194,10 @@ final class TorrentStickyHeaders: NSObject {
     }
 
     func configure(_ sections: [TorrentListSection], inset: CGFloat) {
+        let removed = Set(headers.keys).subtracting(sections.map(\.id))
+        for id in removed {
+            if let host = titleHosts.removeValue(forKey: id) { overlay.retire(id: id, host: host) }
+        }
         var index = 0
         headers = Dictionary(uniqueKeysWithValues: sections.map { section in
             defer { index += section.rows.count + 1 }
@@ -258,6 +262,26 @@ final class HeaderBackdrop: NSView {
         CATransaction.commit()
         if old.strength != settings.strength, backdropIsActive { animateBackdrop(true) }
     }
+    func retire(id: String, host: TitleHost) {
+        titles[id] = nil
+        guard host.window != nil else { return }
+        let position = convert(host.bounds, from: host)
+        host.inlineContainer = nil
+        host.isRetiring = true
+        host.isPinned = true
+        addSubview(host)
+        host.frame = position
+        host.setExitProgress(1, duration: settings.titleOut)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : settings.titleOut
+            host.animator().setFrameOrigin(CGPoint(x: position.minX, y: position.minY - 20))
+        }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(settings.titleOut))
+            host.removeFromSuperview()
+        }
+    }
+
     func dismiss() {
         restoreInlineTitles()
         setBackdropActive(false)
@@ -351,6 +375,7 @@ final class HeaderBackdrop: NSView {
 final class TitleHost: NSView {
     weak var inlineContainer: NSView?
     var isPinned = false
+    var isRetiring = false
     private var exitProgress: CGFloat = 0
     func setExitProgress(_ progress: CGFloat, duration: Double) {
         guard exitProgress != progress else { return }

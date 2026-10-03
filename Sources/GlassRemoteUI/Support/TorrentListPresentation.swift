@@ -8,6 +8,7 @@ struct TorrentListStructureInput: Equatable {
     let revision: Int
     let recordIDs: [String]
     let pendingRenameNames: [String: String]
+    var unfinishedIDs: [String] = []
 }
 
 @MainActor
@@ -58,6 +59,18 @@ struct TorrentListSection: Identifiable {
         }
         return [Self(id: "unfinished", title: lowercase ? "loading" : "Loading", rows: unfinished),
                 Self(id: "finished", title: lowercase ? "completed" : "Completed", rows: finished)].filter { !$0.rows.isEmpty }
+    }
+}
+
+/// One identity domain lets native List move torrents across section boundaries.
+@MainActor enum TorrentListEntry: Identifiable {
+    case header(TorrentListSection)
+    case torrent(TorrentListRowPresentation)
+    nonisolated var id: String {
+        switch self { case let .header(section): "section:" + section.id; case let .torrent(row): row.id }
+    }
+    static func entries(for rows: [TorrentListRowPresentation], lowercase: Bool) -> [Self] {
+        TorrentListSection.sections(for: rows, lowercase: lowercase).flatMap { [.header($0)] + $0.rows.map(Self.torrent) }
     }
 }
 
