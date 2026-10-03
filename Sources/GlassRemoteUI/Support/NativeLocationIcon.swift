@@ -12,7 +12,7 @@ struct NativeLocationIcon: View {
             .task(id: path) {
                 guard let path else { image = nil; return }
                 let data = await Task.detached(priority: .utility) {
-                    NSWorkspace.shared.icon(forFile: path).tiffRepresentation
+                    (path.hasSuffix(".icns") ? NSImage(contentsOfFile: path) : NSWorkspace.shared.icon(forFile: path))?.tiffRepresentation
                 }.value
                 guard !Task.isCancelled else { return }
                 image = data.flatMap(NSImage.init(data:))

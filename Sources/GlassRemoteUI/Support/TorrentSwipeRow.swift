@@ -96,7 +96,7 @@ private struct ScrollGestureAnchor: NSViewRepresentable {
                 }
                 let value = min(0, max(-110, self.offset + event.scrollingDeltaX))
                 self.offset = value
-                let ended = event.phase.contains(.ended) || event.phase.contains(.cancelled)
+                let ended = event.phase.contains(.ended) || event.phase.contains(.cancelled) || (event.phase.isEmpty && event.momentumPhase.isEmpty)
                 self.changed?(value, ended)
                 if ended { self.tracking = false }
                 return nil
