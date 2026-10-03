@@ -14,6 +14,7 @@ struct GlassApp: App {
     @State private var model: RemoteAppModel
 
     init() {
+        GlassAppearanceDefaults.register()
         let sparklePublicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
         if let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
             updaterController = SPUStandardUpdaterController(

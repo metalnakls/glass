@@ -3,6 +3,7 @@ import SwiftUI
 
 public struct SelectionAppearanceView: View {
     public init() {}
+    @State private var saveStatus: String?
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -103,25 +104,13 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
-                Button("Reset") {
-                    highlightColorLight = "FFFFFF"; highlightColorDark = "1F1F1F"
-                    headerFadeStrengthLight = 0.75; headerFadeStrengthDark = 0.75; headerFadeReach = 48
-                    headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
-                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 0
-                    headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
-                    stateGlass = true; stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
-                    leftPadding = 18; rightPadding = 18
-                    itemVerticalPadding = 0
-                    selectionEaseIn = 0.25
-                    selectionEaseOut = 0.30
-                    selectedHDRWhiteLight = 0; selectedHDRWhiteDark = 0
-                    selectedHDRSoftness = 0
-                    selectedHDRSpread = 0
-                    if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
-                    shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
-                    shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
+                Button("Reset") { AppearancePreferences.shared.resetToDefaults() }
+                Button("Save") {
+                    do {
+                        if try GlassAppearanceDefaults.save() { saveStatus = "Saved defaults for the next build." }
+                    } catch { saveStatus = error.localizedDescription }
                 }
-                Button("Export tuning") { SelectionAppearanceWindow.exportTuning() }
+                if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(16)
         }

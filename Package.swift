@@ -32,7 +32,8 @@ let package = Package(
             dependencies: [
                 "GlassRemoteCore",
                 "GlassRemoteServices"
-            ]
+            ],
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "GlassRemoteCoreTests",
