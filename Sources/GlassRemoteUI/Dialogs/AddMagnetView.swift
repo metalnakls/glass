@@ -42,22 +42,15 @@ struct AddMagnetView: View {
         .formStyle(.columns)
         .padding(20)
         .frame(width: 540, height: 240)
-        .navigationTitle("Add Magnet")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-                .keyboardShortcut(.cancelAction)
-                .disabled(isAdding)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            HStack {
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
+                Spacer()
+                Button("Add") { Task { await add() } }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(normalizedMagnetLink(from: magnet) == nil || isAdding)
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
-                    Task { await add() }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(normalizedMagnetLink(from: magnet) == nil || isAdding)
-            }
+            .controlSize(.large).padding(12).background(.ultraThinMaterial)
         }
     }
 

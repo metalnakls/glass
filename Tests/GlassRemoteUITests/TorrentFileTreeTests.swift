@@ -5,6 +5,19 @@ import Testing
 @MainActor
 @Suite("Compact file tree")
 struct TorrentFileTreeTests {
+    @Test("smart names preserve parents and staged choices stay isolated between torrents")
+    func stagedNaming() {
+        let entry = TorrentFileBrowserEntry(index: 4, file: TorrentFile(name: "Show/Season 1/Subfolder/original.mkv", length: 10, bytesCompleted: 0), rootName: "Show", displayName: "S01E01.mkv")
+        #expect(entry.displayName == "Season 1/Subfolder/S01E01.mkv")
+        let session = TorrentFileEditSession()
+        session.selections = ["one": [4], "two": [1, 2]]
+        session.stageSelection(false)
+        #expect(session.wanted["one"] == [4: false])
+        #expect(session.wanted["two"] == [1: false, 2: false])
+        session.reset()
+        #expect(!session.hasChanges && !session.hasSelection)
+    }
+
     @Test("nested folders preserve file indices and aggregate sizes when collapsed or searched")
     func hierarchy() {
         let entries = ["Show/Season 1/S01E01.mkv", "Show/Season 1/Subtitles/en.srt", "Show/Season 2/S02E01.mkv"].enumerated().map { index, path in

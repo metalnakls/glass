@@ -4,6 +4,18 @@ import Testing
 
 @Suite("TransmissionRPCClient", .serialized)
 struct TransmissionRPCClientTests {
+    @Test("direct queue placement sends a torrent mutation with a stable hash")
+    func directQueuePlacement() async throws {
+        let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body: #"{"result":"success","arguments":{}}"#)])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        try await client.setQueuePosition(ids: ["stable-hash"], position: 7)
+        let body = try #require(transport.recordedRequestBodies.first ?? nil)
+        let request = try JSONDecoder().decode(RecordedRPCRequest.self, from: body)
+        #expect(request.method == "torrent-set")
+        #expect(request.arguments["queuePosition"] == .int(7))
+        #expect(request.arguments["ids"] == .array([.string("stable-hash")]))
+    }
+
     @Test("retries once after HTTP 409 with session header")
     func retriesAfter409() async throws {
         let transport = URLProtocolStubTransport(responses: [

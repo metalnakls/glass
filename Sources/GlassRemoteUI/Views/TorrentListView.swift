@@ -146,7 +146,7 @@ struct TorrentListView: View {
             synchronizePresentation(animated: false)
         }
         .onDisappear { elevationController.detach() }
-        .onChange(of: grid) { _, _ in elevationController.detach() }
+        .onChange(of: grid) { _, value in if value { elevationController.detach() } }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }

@@ -413,6 +413,24 @@ struct RemoteAppModelTests {
         #expect(model.torrents.isEmpty)
     }
 
+    @Test("automatic cache keeps every recent server and expires two-month-old entries despite the legacy toggle")
+    func automaticCacheExpiry() async throws {
+        let profiles = (0..<6).map { index in RemoteProfile(id: UUID(), name: "Server \(index)", rpcURL: URL(string: "http://server\(index)/rpc")!, username: "") }
+        let store = MemoryProfileStore(profiles: profiles)
+        try store.savePreferences(GlassRemotePreferences(isTorrentCachingEnabled: false, cachedServerLimit: 1))
+        let cached = TorrentSummary(id: 55, hashString: "cached", name: "Cached", status: 0, percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 0, eta: -1, uploadRatio: 0, peersConnected: nil)
+        try store.saveTorrentCache(profiles.enumerated().map { index, profile in
+            CachedTorrentList(profileID: profile.id, torrents: [cached], refreshedAt: index == 5 ? Calendar.current.date(byAdding: .month, value: -3, to: Date())! : Date())
+        })
+        let client = StubRPCClient()
+        await client.setFetchTorrentsError(TestError.failed)
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: { _ in client })
+        for profile in profiles { await model.refresh(sourceID: profile.id) }
+        #expect(model.preferences.isTorrentCachingEnabled)
+        for profile in profiles.prefix(5) { #expect(model.sources.first { $0.id == profile.id }?.records.first?.hashString == "cached") }
+        #expect(model.sources.first { $0.id == profiles[5].id }?.records.isEmpty == true)
+    }
+
     @Test("refresh defers torrent cache persistence")
     func refreshDefersTorrentCachePersistence() async {
         let profile = makeProfile()
