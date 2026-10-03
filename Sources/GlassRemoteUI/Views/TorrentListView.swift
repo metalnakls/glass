@@ -29,6 +29,8 @@ struct TorrentListView: View {
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
     @State private var swipingRowID: String?
+    @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
+    @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
     @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
@@ -42,7 +44,7 @@ struct TorrentListView: View {
     @AppStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     private var shadowSettings: TorrentShadowSettings {
-        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift)
+        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut)
     }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast
@@ -92,6 +94,11 @@ struct TorrentListView: View {
             }
         }
         .onAppear {
+            elevationController.dragSelectionChanged = { index in
+                guard presentation.rows.indices.contains(index) else { return }
+                let id = presentation.rows[index].id
+                if selection != id { selection = id }
+            }
             synchronizePresentation(animated: false)
         }
         .onDisappear { elevationController.detach() }
@@ -186,7 +193,7 @@ struct TorrentListView: View {
             .padding(.horizontal, 2)
             .padding(.trailing, isSwiping ? 120 : 0)
             .padding(.vertical, 3)
-            .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25), value: selected)
+            .animation(accessibilityReduceMotion ? nil : .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: selected ? selectionEaseIn : selectionEaseOut), value: selected)
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {

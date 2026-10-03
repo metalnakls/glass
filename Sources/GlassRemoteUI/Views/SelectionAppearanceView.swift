@@ -4,6 +4,8 @@ public struct SelectionAppearanceView: View {
     public init() {}
 
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
+    @AppStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
     @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
     @AppStorage("GlassList.selectedHDRSoftness") private var selectedHDRSoftness = 0.0
     @AppStorage("GlassList.selectedHDRSpread") private var selectedHDRSpread = 0.0
@@ -37,6 +39,10 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
                 shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
                 Divider()
+                Text("Motion").font(.subheadline.weight(.semibold))
+                durationSlider("Ease in", value: $selectionEaseIn)
+                durationSlider("Ease out", value: $selectionEaseOut)
+                Divider()
                 Text("Above").font(.subheadline.weight(.semibold))
                 shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
                 shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
@@ -47,6 +53,8 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
                 shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
                 Button("Reset") {
+                    selectionEaseIn = 0.25
+                    selectionEaseOut = 0.30
                     selectedHDRWhite = 0
                     selectedHDRSoftness = 0
                     selectedHDRSpread = 0
@@ -58,6 +66,18 @@ public struct SelectionAppearanceView: View {
             .padding(16)
         }
         .frame(width: 320, height: 640)
+    }
+
+    private func durationSlider(_ title: String, value: Binding<Double>) -> some View {
+        VStack(spacing: 3) {
+            HStack {
+                Text(title)
+                Spacer()
+                Text("\(value.wrappedValue.formatted(.number.precision(.fractionLength(2)))) s")
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }.font(.caption)
+            Slider(value: value, in: 0...1.5).accessibilityLabel(title)
+        }
     }
 
     private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {

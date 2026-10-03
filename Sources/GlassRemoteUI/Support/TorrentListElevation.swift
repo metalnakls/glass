@@ -8,6 +8,8 @@ struct TorrentShadowSettings: Equatable {
     var bottomStrength = 0.22
     var bottomSoftness = 12.0
     var bottomLift = 7.0
+    var easeIn = 0.25
+    var easeOut = 0.30
 }
 
 /// Draw the shadow above the table's row clipping, while SwiftUI draws the card
@@ -50,6 +52,9 @@ final class TorrentListElevationController: NSObject {
     private weak var selectedAnchor: NSView?
     private let overlay = ElevationOverlay()
     private var settings = TorrentShadowSettings()
+    var dragSelectionChanged: ((Int) -> Void)?
+    private var dragMonitor: Any?
+    private var dragStartedInTable = false
     func configure(_ settings: TorrentShadowSettings) {
         self.settings = settings
         update(animated: false)
@@ -59,6 +64,10 @@ final class TorrentListElevationController: NSObject {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
         detach()
         self.table = table
+        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            self?.trackSelectionDrag(event)
+            return event
+        }
         scroll.addSubview(overlay, positioned: .above, relativeTo: scroll.contentView)
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
@@ -72,12 +81,33 @@ final class TorrentListElevationController: NSObject {
     }
     func clear() { selectedAnchor = nil; update(animated: true) }
     func detach() {
+        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
+        dragMonitor = nil
+        dragStartedInTable = false
         NotificationCenter.default.removeObserver(self)
         overlay.removeFromSuperview()
         table = nil
         selectedAnchor = nil
     }
     @objc private func scrolled() { update(animated: false) }
+    private func trackSelectionDrag(_ event: NSEvent) {
+        guard let table, event.window === table.window else { return }
+        let point = table.convert(event.locationInWindow, from: nil)
+        let row = table.row(at: point)
+        if event.type == .leftMouseDown {
+            dragStartedInTable = row >= 0 && table.visibleRect.contains(point)
+            // Leave native controls in charge of their own press/drag gestures.
+            var hit = table.hitTest(table.superview?.convert(event.locationInWindow, from: nil) ?? point)
+            while let view = hit, view !== table {
+                if view is NSControl { dragStartedInTable = false; break }
+                hit = view.superview
+            }
+        } else if event.type == .leftMouseUp {
+            dragStartedInTable = false
+        } else if dragStartedInTable, row >= 0, table.visibleRect.contains(point) {
+            dragSelectionChanged?(row)
+        }
+    }
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         overlay.frame = clip.frame
@@ -125,10 +155,23 @@ private final class ElevationOverlay: NSView {
         CATransaction.setAnimationDuration(0.25)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
         defer { CATransaction.commit() }
-        guard let rect, rect.intersects(bounds) else { layer.opacity = 0; return }
+        guard let rect, rect.intersects(bounds) else {
+            if animated, displayedRect != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                layer.mask = nil
+                fadePreviousRow(in: layer, duration: settings.easeOut)
+                top.shadowOpacity = 0
+                bottom.shadowOpacity = 0
+                top.removeAllAnimations()
+                bottom.removeAllAnimations()
+            } else {
+                layer.opacity = 0
+            }
+            displayedRect = nil
+            return
+        }
         let moving = animated && displayedRect != nil && displayedRect != rect
         if moving && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            fadePreviousRow(in: layer)
+            fadePreviousRow(in: layer, duration: settings.easeOut)
         }
         displayedRect = rect
         layer.opacity = 1
@@ -154,13 +197,13 @@ private final class ElevationOverlay: NSView {
         layer.mask = mask
         if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             for shadow in [top, bottom] {
-                animate(shadow, key: "shadowOpacity", from: 0, to: Double(shadow.shadowOpacity), duration: 0.25)
-                animate(shadow, key: "shadowRadius", from: shadow.shadowRadius + 12, to: shadow.shadowRadius, duration: 0.25)
+                animate(shadow, key: "shadowOpacity", from: 0, to: Double(shadow.shadowOpacity), duration: settings.easeIn)
+                animate(shadow, key: "shadowRadius", from: shadow.shadowRadius + 12, to: shadow.shadowRadius, duration: settings.easeIn)
             }
         }
     }
 
-    private func fadePreviousRow(in parent: CALayer) {
+    private func fadePreviousRow(in parent: CALayer, duration: Double) {
         guard let displayedRect else { return }
         departing?.removeFromSuperlayer()
         let ghost = CALayer()
@@ -175,7 +218,7 @@ private final class ElevationOverlay: NSView {
             shadow.shadowOpacity = current.shadowOpacity
             shadow.shadowRadius = current.shadowRadius + 12
             ghost.addSublayer(shadow)
-            animate(shadow, key: "shadowRadius", from: current.shadowRadius, to: shadow.shadowRadius, duration: 0.30)
+            animate(shadow, key: "shadowRadius", from: current.shadowRadius, to: shadow.shadowRadius, duration: duration)
         }
         let cutout = CGMutablePath()
         cutout.addRect(bounds)
@@ -187,14 +230,15 @@ private final class ElevationOverlay: NSView {
         ghost.mask = mask
         ghost.opacity = 0
         parent.addSublayer(ghost)
-        animate(ghost, key: "opacity", from: 1, to: 0, duration: 0.30)
+        animate(ghost, key: "opacity", from: 1, to: 0, duration: duration)
         departing = ghost
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.31) { ghost.removeFromSuperlayer() }
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.01) { ghost.removeFromSuperlayer() }
     }
 
-    // Yina OSC's smoothstep dissolve: 0.25s in, 0.30s out. Core Animation
+    // Yina OSC's smoothstep dissolve, with adjustable durations. Core Animation
     // interpolates these samples; no per-frame Swift work or rendering timer.
     private func animate(_ layer: CALayer, key: String, from: Double, to: Double, duration: Double) {
+        guard duration > 0 else { layer.removeAnimation(forKey: key); return }
         let animation = CAKeyframeAnimation(keyPath: key)
         animation.values = (0...120).map { index in
             let t = Double(index) / 120
