@@ -27,15 +27,12 @@ struct TorrentListView: View {
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var columnWidth: CGFloat = 0
-    @State private var focusController = TorrentListFocusController()
-    @State private var focusTuning = false
-    @AppStorage("GlassList.focusStrength") private var focusStrength = 0.55
-    @AppStorage("GlassList.focusFeather") private var focusFeather = 90.0
-    @AppStorage("GlassList.focusAboveGap") private var focusAboveGap = 0.0
-    @AppStorage("GlassList.focusBelowGap") private var focusBelowGap = 0.0
+    @State private var elevationController = TorrentListElevationController()
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.colorSchemeContrast) private var colorContrast
 
-    private var focusSettings: TorrentFocusSettings {
-        TorrentFocusSettings(strength: focusStrength, feather: focusFeather, aboveGap: focusAboveGap, belowGap: focusBelowGap, tuning: focusTuning)
+    private var listSurface: Color {
+        colorScheme == .dark ? Color(white: 0.105) : Color(white: 0.955)
     }
 
     private var density: TorrentRowDensity {
@@ -47,14 +44,16 @@ struct TorrentListView: View {
             List(selection: $selection) {
                 ForEach(presentation.rows) { row in
                     liveRow(for: row)
-                    .background(TorrentListFocusAnchor(controller: focusController, id: row.id, selected: selection == row.id).frame(width: 0, height: 0))
-                    .listRowBackground(Color.clear)
+                    .background(TorrentListElevationAnchor(controller: elevationController, selected: selection == row.id).frame(width: 0, height: 0))
+                    .listRowBackground(raisedSurface(selected: selection == row.id))
                     .listItemTint(.monochrome)
                     .tag(row.id)
                     .accessibilityElement(children: .contain)
                 }
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
+            .background(listSurface)
             .contentMargins(.horizontal, nil, for: .scrollContent)
             .background(GeometryReader { proxy in
                 Color.clear.preference(
@@ -74,15 +73,9 @@ struct TorrentListView: View {
         .onAppear {
             synchronizePresentation(animated: false)
         }
-        .onDisappear { focusController.detach() }
-        .onChange(of: focusSettings, initial: true) { _, settings in
-            focusController.onGapChange = { above, gap in
-                if above { focusAboveGap = gap } else { focusBelowGap = gap }
-            }
-            focusController.configure(settings)
-        }
+        .onDisappear { elevationController.detach() }
         .onChange(of: selection) { _, value in
-            if value == nil { focusController.clearSelection() }
+            if value == nil { elevationController.clear() }
         }
         .onPreferenceChange(TorrentListColumnWidthKey.self) { width in
             columnWidth = width
@@ -123,45 +116,25 @@ struct TorrentListView: View {
                 }
             }
         }
-        .overlay(alignment: .bottomTrailing) {
-            if selection != nil {
-                VStack(alignment: .leading, spacing: 10) {
-                    if focusTuning {
-                        HStack {
-                            Text("Torrent Focus").font(.headline)
-                            Spacer()
-                            Button("Done") { focusTuning = false }
-                        }
-                        HStack { Text("Blur strength"); Spacer(); Text(focusStrength, format: .percent.precision(.fractionLength(0))).monospacedDigit() }
-                        Slider(value: $focusStrength, in: 0...1).accessibilityLabel("Blur strength")
-                        Text("Gradual falloff")
-                        Slider(value: $focusFeather, in: 12...240).accessibilityLabel("Gradual falloff")
-                        Text("Drag the upper and lower handles to position the blur.").font(.caption).foregroundStyle(.secondary)
-                        Button("Reset") {
-                            focusStrength = 0.55
-                            focusFeather = 90
-                            focusAboveGap = 0
-                            focusBelowGap = 0
-                        }
-                    } else {
-                        Button { focusTuning = true } label: {
-                            Image(systemName: "slider.horizontal.3")
-                        }
-                        .help("Tune torrent focus")
-                        .accessibilityLabel("Tune torrent focus")
-                    }
-                }
-                .padding(focusTuning ? 12 : 6)
-                .frame(width: focusTuning ? 230 : nil)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                .padding(12)
-            }
-        }
         .overlay {
             if records.isEmpty {
                 emptyState
             }
         }
+    }
+
+    private func raisedSurface(selected: Bool) -> some View {
+        RoundedRectangle(cornerRadius: 12, style: .continuous)
+            .fill(selected ? (colorScheme == .dark ? Color(white: 0.21) : .white) : .clear)
+            .overlay {
+                if selected {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(colorScheme == .dark ? .white.opacity(colorContrast == .increased ? 0.45 : 0.10) : .black.opacity(colorContrast == .increased ? 0.35 : 0.045), lineWidth: 1)
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 3)
+            .animation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25), value: selected)
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> TorrentListLiveRow {
