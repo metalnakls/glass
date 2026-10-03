@@ -1,3 +1,4 @@
+import CoreTransferable
 import GlassRemoteCore
 import GlassRemoteServices
 import SwiftUI
@@ -11,6 +12,8 @@ public struct GlassRootView: View {
     @Environment(\.scenePhase) private var scenePhase
     @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = true
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
+    @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
+    @State private var isTorrentDropTargeted = false
     @State private var selectedTorrentID: String?
     @State private var presentation = TorrentListPresentationModel()
     @State private var openURLRegistrationID: UUID?
@@ -49,8 +52,6 @@ public struct GlassRootView: View {
                 rename: beginRename,
                 remove: scheduleRemoval,
                 removeSelected: removeSelectedTorrent,
-                openURLs: openURLs,
-                openMagnet: { activeSheet = .addMagnet($0) },
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
@@ -65,6 +66,37 @@ public struct GlassRootView: View {
             )
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
 
+        }
+        .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
+        .animation(dropAnimation, value: isTorrentDropTargeted)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .dropDestination(for: TorrentWindowDropItem.self) { items, _ in
+            let urls = items.compactMap(\.url).filter {
+                magnetLink(from: $0) != nil || $0.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
+            }
+            if !urls.isEmpty { openURLs(urls); return true }
+            if let magnet = items.compactMap(\.text).compactMap({ normalizedMagnetLink(from: $0) }).first {
+                activeSheet = .addMagnet(magnet)
+                return true
+            }
+            return false
+        } isTargeted: { isTorrentDropTargeted = $0 }
+        .overlay {
+            ZStack {
+                RoundedRectangle(cornerRadius: 18)
+                    .stroke(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 3))
+                Label("Drop to Add Torrent", systemImage: "doc.badge.plus")
+                    .font(.headline)
+                    .padding(.horizontal, 18).padding(.vertical, 12)
+                    .glassEffect(.regular, in: .capsule)
+            }
+            .padding(24)
+            .opacity(isTorrentDropTargeted ? 1 : 0)
+            .blur(radius: isTorrentDropTargeted ? 0 : 8)
+            .animation(dropAnimation, value: isTorrentDropTargeted)
+            .allowsHitTesting(false)
+            .accessibilityHidden(!isTorrentDropTargeted)
         }
         .tint(Color.gray)
         .toolbarVisibility(.hidden, for: .windowToolbar)
@@ -458,6 +490,11 @@ public struct GlassRootView: View {
         }
     }
 
+    private var dropAnimation: Animation? {
+        accessibilityReduceMotion ? nil : .timingCurve(1.0 / 3, 0, 2.0 / 3, 1,
+            duration: isTorrentDropTargeted ? 0.25 : 0.30)
+    }
+
     private func motionAnimation(_ animation: Animation) -> Animation? {
         accessibilityReduceMotion ? nil : animation
     }
@@ -467,9 +504,6 @@ private struct TorrentWorkspaceView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
-    @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
-    @State private var isURLDropTargeted = false
-    @State private var isTextDropTargeted = false
     @Binding var selection: String?
     let presentation: TorrentListPresentationModel
     let torrentRevealToken: UUID
@@ -481,8 +515,6 @@ private struct TorrentWorkspaceView: View {
     let rename: (TorrentSummary, UUID) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
-    let openURLs: ([URL]) -> Void
-    let openMagnet: (String) -> Void
     let undoRemovals: () -> Void
     let dismissRemovals: () -> Void
 
@@ -501,42 +533,6 @@ private struct TorrentWorkspaceView: View {
             removeSelected: removeSelected
         )
         .frame(minWidth: 360, idealWidth: 480)
-        .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
-        .animation(.easeInOut(duration: 0.2), value: isTorrentDropTargeted)
-        .dropDestination(for: URL.self) { urls, _ in
-            let supportedURLs = urls.filter(isSupportedDropURL)
-            guard !supportedURLs.isEmpty else { return false }
-            openURLs(supportedURLs)
-            return true
-        } isTargeted: { setDropTargeted($0, kind: .url) }
-        .dropDestination(for: String.self) { strings, _ in
-            for string in strings {
-                if let magnet = normalizedMagnetLink(from: string) {
-                    openMagnet(magnet)
-                    return true
-                }
-            }
-            return false
-        } isTargeted: { setDropTargeted($0, kind: .text) }
-        .overlay {
-            if isTorrentDropTargeted {
-                ZStack {
-                    DropCorners()
-                        .stroke(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 3, lineCap: .round))
-
-                    Label("Drop to Add Torrent", systemImage: "doc.badge.plus")
-                        .font(.headline)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .glassEffect(.regular, in: .capsule)
-                }
-                .padding(.horizontal, 24)
-                .padding(.top, 88)
-                .padding(.bottom, 24)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-            }
-        }
         .overlay(alignment: .bottom) {
             if !pendingRemovals.isEmpty {
                 RemovalUndoToast(
@@ -556,29 +552,6 @@ private struct TorrentWorkspaceView: View {
         }
     }
 
-    private func isSupportedDropURL(_ url: URL) -> Bool {
-        magnetLink(from: url) != nil || url.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
-    }
-
-    private var isTorrentDropTargeted: Bool {
-        isURLDropTargeted || isTextDropTargeted
-    }
-
-    private func setDropTargeted(_ isTargeted: Bool, kind: DropKind) {
-        withAnimation(.easeOut(duration: 0.16)) {
-            switch kind {
-            case .url:
-                isURLDropTargeted = isTargeted
-            case .text:
-                isTextDropTargeted = isTargeted
-            }
-        }
-    }
-
-    private enum DropKind {
-        case url
-        case text
-    }
 }
 
 private struct TorrentListContent: View {
@@ -736,5 +709,15 @@ private extension TorrentSummary {
             queuePosition: queuePosition,
             fileCount: fileCount
         )
+    }
+}
+
+/// One transferable destination avoids URL/text hover callbacks competing.
+private struct TorrentWindowDropItem: Transferable, Sendable {
+    let url: URL?
+    let text: String?
+    static var transferRepresentation: some TransferRepresentation {
+        ProxyRepresentation(importing: { (url: URL) in Self(url: url, text: nil) })
+        ProxyRepresentation(importing: { (text: String) in Self(url: nil, text: text) })
     }
 }
