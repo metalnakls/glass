@@ -4,20 +4,14 @@ import SwiftUI
 
 struct TorrentInspectorView: View {
     let model: RemoteAppModel
+    let platformIntegration: any GlassPlatformIntegrating
     let sourceID: UUID
     let selectedTorrentHash: String?
     let selectedTorrentGroup: TorrentNameSequenceGroup?
-    @AppStorage("GlassInspector.infoExpanded") private var isInfoExpanded = false
-    @AppStorage("GlassInspector.filesExpanded") private var isFilesExpanded = false
-    @AppStorage("GlassInspector.peersExpanded") private var isPeersExpanded = false
-    @AppStorage("GlassInspector.trackersExpanded") private var isTrackersExpanded = false
-    @AppStorage("GlassInspector.piecesExpanded") private var isPiecesExpanded = false
-    @AppStorage("GlassInspector.settingsExpanded") private var isSettingsExpanded = false
     @State private var fileSearchText = ""
     @State private var groupDetails: [String: TorrentDetails] = [:]
     @State private var groupDetailsError: String?
     @State private var isLoadingGroupDetails = false
-    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
 
     private func thumbnailInput(for entry: TorrentFileBrowserEntry, details: TorrentDetails) -> TorrentThumbnailInput? {
         guard let directory = details.downloadDir,
@@ -55,10 +49,11 @@ struct TorrentInspectorView: View {
                     VStack(alignment: .leading, spacing: 14) {
                         torrentSection
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 14)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 12)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .scrollEdgeEffectHidden(true, for: .top)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -85,7 +80,7 @@ struct TorrentInspectorView: View {
             isLoadingGroupDetails = groupDetails.isEmpty
             groupDetailsError = nil
             do {
-                let sections: Set<TorrentDetailSection> = isFilesExpanded ? [.files] : []
+                let sections: Set<TorrentDetailSection> = [.files]
                 let details = try await model.fetchDetails(
                     for: selectedTorrentGroup.torrents,
                     including: sections,
@@ -115,12 +110,7 @@ struct TorrentInspectorView: View {
             sourceID: sourceID,
             hashString: selectedTorrentHash,
             detailsID: model.selectedTorrentDetails?.id,
-            sections: [
-                isFilesExpanded ? .files : nil,
-                isPeersExpanded ? .peers : nil,
-                isTrackersExpanded ? .trackers : nil,
-                isPiecesExpanded ? .pieces : nil
-            ].compactMap { $0 }
+            sections: [.files]
         )
     }
 
@@ -129,7 +119,7 @@ struct TorrentInspectorView: View {
             sourceID: sourceID,
             groupID: selectedTorrentGroup?.id,
             torrents: selectedTorrentGroup?.torrents ?? [],
-            loadsFiles: isFilesExpanded
+            loadsFiles: true
         )
     }
 
@@ -138,217 +128,79 @@ struct TorrentInspectorView: View {
         if let group = selectedTorrentGroup {
             groupSection(group)
         } else if let details = model.selectedTorrentDetails {
-            VStack(alignment: .leading, spacing: 14) {
-                Text(details.name)
-                    .font(.title3.bold())
-                    .lineLimit(3)
-
-                DisclosureGroup(isExpanded: animatedBinding($isInfoExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        InspectorField("Status", details.status.map(formatStatus) ?? "Unavailable")
-                        InspectorField("Progress", details.percentDone.map(formatPercent) ?? "Unavailable")
-                        InspectorField("Size", formatBytes(details.sizeWhenDone ?? details.totalSize))
-                        InspectorField("Left", formatBytes(details.leftUntilDone))
-                        InspectorField("Ratio", formatRatio(details.uploadRatio))
-                        InspectorField("Download Dir", details.downloadDir ?? "Unavailable")
-                        InspectorField("Added", formatTimestamp(details.addedDate))
-                        InspectorField("Active", formatTimestamp(details.activityDate))
-                        InspectorField("Downloaded", formatBytes(details.downloadedEver))
-                        InspectorField("Uploaded", formatBytes(details.uploadedEver))
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Info")
-                }
-
-                DisclosureGroup(isExpanded: animatedBinding($isFilesExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if model.loadingTorrentDetailSections.contains(.files), details.files.isEmpty {
-                            detailLoadingView("Loading files")
-                        } else if let error = model.torrentDetailSectionErrors[.files], details.files.isEmpty {
-                            detailErrorView(error)
-                        } else {
-                            TorrentFilesBrowser(
-                                entries: fileEntries(for: details),
-                                searchText: $fileSearchText,
-                                onSetWanted: { index, wanted in
-                                    setFileWanted(in: details, index: index, wanted: wanted)
-                                },
-                                onSetPriority: { index, priority in
-                                    setFilePriority(in: details, index: index, priority: priority)
-                                },
-                                onSetAllWanted: { wanted in
-                                    setAllFiles(in: details, wanted: wanted)
-                                },
-                                thumbnailInput: { thumbnailInput(for: $0, details: details) }
-                            )
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Files")
-                }
-
-                DisclosureGroup(isExpanded: animatedBinding($isPeersExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if model.loadingTorrentDetailSections.contains(.peers) {
-                            detailLoadingView("Loading peers")
-                        } else if let error = model.torrentDetailSectionErrors[.peers] {
-                            detailErrorView(error)
-                        } else if details.peers.isEmpty {
-                            Text("No peers")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(Array(details.peers.enumerated()), id: \.offset) { _, peer in
-                                InspectorField(
-                                    peer.address ?? "Peer",
-                                    "\(formatRate(peer.rateToClient ?? 0)) down, \(formatRate(peer.rateToPeer ?? 0)) up"
-                                )
-                            }
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Peers")
-                }
-
-                DisclosureGroup(isExpanded: animatedBinding($isTrackersExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if model.loadingTorrentDetailSections.contains(.trackers) {
-                            detailLoadingView("Loading trackers")
-                        } else if let error = model.torrentDetailSectionErrors[.trackers] {
-                            detailErrorView(error)
-                        } else if details.trackerStats.isEmpty {
-                            Text("No trackers")
-                                .foregroundStyle(.secondary)
-                        } else {
-                            ForEach(details.trackerStats) { tracker in
-                                InspectorField(
-                                    tracker.host ?? tracker.announce ?? "Tracker",
-                                    tracker.lastAnnounceResult?.isEmpty == false
-                                        ? tracker.lastAnnounceResult! : "Ready"
-                                )
-                            }
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Trackers")
-                }
-
-                DisclosureGroup(isExpanded: animatedBinding($isPiecesExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if model.loadingTorrentDetailSections.contains(.pieces) {
-                            detailLoadingView("Loading pieces")
-                        } else if let error = model.torrentDetailSectionErrors[.pieces] {
-                            detailErrorView(error)
-                        } else {
-                            InspectorField("Pieces", details.pieceCount.map(String.init) ?? "Unavailable")
-                            InspectorField("Piece Size", formatBytes(details.pieceSize))
-                            if let pieceCount = details.pieceCount, let pieces = details.pieces {
-                                InspectorField(
-                                    "Complete",
-                                    "\(completedPieceCount(from: pieces, total: pieceCount)) of \(pieceCount)")
-                            }
-                        }
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Pieces")
-                }
-
-                DisclosureGroup(isExpanded: animatedBinding($isSettingsExpanded)) {
-                    VStack(alignment: .leading, spacing: 8) {
-                        InspectorField(
-                            "Download Limit",
-                            limitText(limit: details.downloadLimit, enabled: details.downloadLimited))
-                        InspectorField(
-                            "Upload Limit", limitText(limit: details.uploadLimit, enabled: details.uploadLimited))
-                        InspectorField(
-                            "Seed Ratio",
-                            details.seedRatioLimit.map { $0.formatted(.number.precision(.fractionLength(2))) }
-                                ?? "Unavailable")
-                        InspectorField("Priority", formatPriority(details.bandwidthPriority))
-                        InspectorField("Queue", details.queuePosition.map { "#\($0 + 1)" } ?? "Unavailable")
-                        InspectorField("Private", formatBool(details.isPrivate))
-                    }
-                    .padding(.top, 8)
-                } label: {
-                    Text("Settings")
+            VStack(alignment: .leading, spacing: 12) {
+                downloadLocation(details)
+                Divider()
+                Text("Files")
+                    .font(.headline)
+                if model.loadingTorrentDetailSections.contains(.files), details.files.isEmpty {
+                    detailLoadingView("Loading files")
+                } else if let error = model.torrentDetailSectionErrors[.files], details.files.isEmpty {
+                    detailErrorView(error)
+                } else {
+                    filesBrowser(details)
                 }
             }
         } else if selectedTorrentHash != nil {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Details Unavailable")
-                    .font(.title3.bold())
-                Text("Select the torrent again to load details.")
-                    .foregroundStyle(.secondary)
-            }
+            Text("Details unavailable. Select the torrent again to load files.")
+                .foregroundStyle(.secondary)
         }
     }
 
     private func groupSection(_ group: TorrentNameSequenceGroup) -> some View {
-        let summary = group.summary
-        return VStack(alignment: .leading, spacing: 14) {
-            Text(group.displayName)
-                .font(.title3.bold())
-                .lineLimit(3)
-
-            DisclosureGroup(isExpanded: animatedBinding($isInfoExpanded)) {
-                VStack(alignment: .leading, spacing: 8) {
-                    InspectorField("Torrents", String(group.torrents.count))
-                    InspectorField("Progress", formatPercent(summary.percentDone))
-                    InspectorField("Size", formatBytes(summary.sizeWhenDone))
-                    InspectorField("Left", formatBytes(summary.leftUntilDone))
-                    InspectorField("Download", formatRate(summary.rateDownload))
-                    InspectorField("Upload", formatRate(summary.rateUpload))
-                }
-                .padding(.top, 8)
-            } label: {
-                Text("Info")
+        VStack(alignment: .leading, spacing: 12) {
+            if let details = group.torrents.first.flatMap({ groupDetails[$0.hashString] }) {
+                downloadLocation(details)
+                Divider()
             }
-
-            DisclosureGroup(isExpanded: animatedBinding($isFilesExpanded)) {
-                VStack(alignment: .leading, spacing: 12) {
-                    TorrentFilesBrowserControls(
-                        searchText: $fileSearchText,
-                        onSetAllWanted: setAllGroupFiles
-                    )
-                    if isLoadingGroupDetails, groupDetails.isEmpty {
-                        detailLoadingView("Loading files")
-                    } else if let groupDetailsError, groupDetails.isEmpty {
-                        detailErrorView(groupDetailsError)
-                    } else {
-                        ForEach(group.torrents, id: \.hashString) { torrent in
-                            if let details = groupDetails[torrent.hashString] {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(groupMemberName(torrent, group: group))
-                                        .font(.headline)
-                                    TorrentFilesBrowser(
-                                        entries: fileEntries(for: details),
-                                        searchText: $fileSearchText,
-                                        onSetWanted: { index, wanted in
-                                            setFileWanted(in: details, index: index, wanted: wanted)
-                                        },
-                                        onSetPriority: { index, priority in
-                                            setFilePriority(in: details, index: index, priority: priority)
-                                        },
-                                        onSetAllWanted: { wanted in
-                                            setAllFiles(in: details, wanted: wanted)
-                                        },
-                                        showsControls: false,
-                                        thumbnailInput: { thumbnailInput(for: $0, details: details) }
-                                    )
-                                }
+            Text("Files")
+                .font(.headline)
+            TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
+            if isLoadingGroupDetails, groupDetails.isEmpty {
+                detailLoadingView("Loading files")
+            } else if let groupDetailsError, groupDetails.isEmpty {
+                detailErrorView(groupDetailsError)
+            } else {
+                ForEach(group.torrents, id: \.hashString) { torrent in
+                    if let details = groupDetails[torrent.hashString] {
+                        VStack(alignment: .leading, spacing: 8) {
+                            // Distinguish members of a multi-torrent selection without repeating its title.
+                            Text(groupMemberName(torrent, group: group))
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(2)
+                            if details.downloadDir != group.torrents.first.flatMap({ groupDetails[$0.hashString]?.downloadDir }) {
+                                downloadLocation(details)
                             }
+                            filesBrowser(details, showsControls: false)
                         }
                     }
                 }
-                .padding(.top, 8)
-            } label: {
-                Text("Files")
             }
         }
+    }
+
+    private func downloadLocation(_ details: TorrentDetails) -> some View {
+        TorrentDownloadLocationView(
+            directory: details.downloadDir,
+            itemPath: details.files.first?.name.split(separator: "/").first.map(String.init) ?? details.name,
+            sourceID: sourceID,
+            isLocal: sourceID == model.localSourceID,
+            localName: model.localSourceName,
+            platformIntegration: platformIntegration
+        )
+    }
+
+    private func filesBrowser(_ details: TorrentDetails, showsControls: Bool = true) -> some View {
+        TorrentFilesBrowser(
+            entries: fileEntries(for: details),
+            searchText: $fileSearchText,
+            onSetWanted: { index, wanted in setFileWanted(in: details, index: index, wanted: wanted) },
+            onSetPriority: { index, priority in setFilePriority(in: details, index: index, priority: priority) },
+            onSetAllWanted: { wanted in setAllFiles(in: details, wanted: wanted) },
+            showsControls: showsControls,
+            isCompact: true,
+            thumbnailInput: { thumbnailInput(for: $0, details: details) }
+        )
     }
 
     private func groupMemberName(_ torrent: TorrentSummary, group: TorrentNameSequenceGroup) -> String {
@@ -372,22 +224,6 @@ struct TorrentInspectorView: View {
                 await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
             }
         }
-    }
-
-    private func limitText(limit: Int?, enabled: Bool?) -> String {
-        guard enabled == true, let limit else { return "Unlimited" }
-        return "\(limit) KB/s"
-    }
-
-    private func animatedBinding(_ binding: Binding<Bool>) -> Binding<Bool> {
-        Binding(
-            get: { binding.wrappedValue },
-            set: { isExpanded in
-                withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.2)) {
-                    binding.wrappedValue = isExpanded
-                }
-            }
-        )
     }
 
     private func detailLoadingView(_ label: LocalizedStringKey) -> some View {
@@ -461,31 +297,6 @@ private struct TorrentGroupInspectorLoadInput: Equatable {
     let groupID: String?
     let torrents: [TorrentSummary]
     let loadsFiles: Bool
-}
-
-private struct InspectorField: View {
-    let label: String
-    let value: String
-
-    init(_ label: String, _ value: String) {
-        self.label = label
-        self.value = value
-    }
-
-    var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 0) {
-            GridRow(alignment: .top) {
-                Text(label)
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 86, alignment: .leading)
-                Text(value)
-                    .textSelection(.enabled)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-            }
-        }
-        .font(.callout)
-    }
 }
 
 extension TorrentDetails {

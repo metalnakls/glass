@@ -391,6 +391,8 @@ private struct TorrentListLiveRow: View {
         }
 
         Divider()
+        Text("Date added: \(formatTimestamp(torrent.addedDate))")
+        Divider()
         Button("Delete Torrent") {
             remove(torrent, row.sourceID, false)
         }
@@ -429,7 +431,8 @@ extension TorrentSummary {
             downloadDir: downloadDir,
             bandwidthPriority: bandwidthPriority,
             queuePosition: queuePosition,
-            fileCount: fileCount
+            fileCount: fileCount,
+            addedDate: addedDate
         )
     }
 }

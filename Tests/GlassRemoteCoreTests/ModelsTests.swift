@@ -4,6 +4,18 @@ import Testing
 
 @Suite("Core models")
 struct ModelsTests {
+    @Test("date added survives summary coding and older caches remain readable")
+    func dateAddedCoding() throws {
+        let encoded = try JSONEncoder().encode(makeTorrent())
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object["addedDate"] = 1_700_000_000
+        let dated = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(dated.addedDate == 1_700_000_000)
+        object.removeValue(forKey: "addedDate")
+        let legacy = try JSONDecoder().decode(TorrentSummary.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(legacy.addedDate == nil)
+    }
+
     @Test("maps Transmission torrent statuses")
     func mapsTransmissionTorrentStatuses() {
         #expect(TransmissionTorrentStatus(rawValue: 0) == .stopped)

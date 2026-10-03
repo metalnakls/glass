@@ -295,6 +295,7 @@ struct TransmissionRPCClientTests {
         }
         #expect(values.contains(.string("queuePosition")))
         #expect(values.contains(.string("metadataPercentComplete")))
+        #expect(values.contains(.string("addedDate")))
     }
 
     @Test("recent torrent request uses Transmission delta selector and decodes removals")
@@ -312,6 +313,11 @@ struct TransmissionRPCClientTests {
 
         let body = try #require(transport.recordedRequestBodies.first ?? nil)
         let rpcRequest = try JSONDecoder().decode(RecordedRPCRequest.self, from: body)
+        if case let .array(fields) = rpcRequest.arguments["fields"] {
+            #expect(fields.contains(.string("addedDate")))
+        } else {
+            Issue.record("Missing summary fields")
+        }
         #expect(rpcRequest.method == "torrent-get")
         #expect(rpcRequest.arguments["ids"] == .string("recently-active"))
         guard case let .delta(changed, removedIDs) = update else {
