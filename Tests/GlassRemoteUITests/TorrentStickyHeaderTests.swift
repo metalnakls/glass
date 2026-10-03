@@ -85,12 +85,13 @@ struct TorrentStickyHeaderTests {
         #expect(handoff.titles[0].frame.minX == 8)
         #expect(handoff.titles[0].frame.minY == 0)
     }
-    @Test("outgoing title leaves before the final section rows reach the top")
+    @Test("outgoing title moves upward earlier without immediately disappearing")
     func earlyRelease() throws {
-        let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(130), topInset: 20, releasePoints: [126, 500]))
+        let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(130), topInset: 20, releasePoints: [162, 500]))
         let outgoing = try #require(layout.titles.first { $0.index == 0 })
-        #expect(outgoing.retiring)
-        #expect(outgoing.frame.maxY <= 0)
+        #expect(!outgoing.retiring)
+        #expect(outgoing.frame.minY == -16)
+        #expect(outgoing.frame.maxY == 32)
         #expect(layout.titles.first { $0.index == 1 }?.frame.minY == 56)
     }
     @Test("reversing scroll reproduces the same geometry and respects horizontal origin")

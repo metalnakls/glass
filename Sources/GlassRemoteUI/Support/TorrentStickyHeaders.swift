@@ -37,7 +37,7 @@ enum TorrentStickyHeaderGeometry {
         var pinned = original.offsetBy(dx: -viewport.minX, dy: -viewport.minY)
         let end = releasePoints?[index] ?? next?.minY ?? .greatestFiniteMagnitude
         pinned.origin.y = min(topInset, end - viewport.minY - original.height)
-        var titles = [Placement(index: index, frame: pinned, retiring: pinned.minY < topInset)]
+        var titles = [Placement(index: index, frame: pinned, retiring: pinned.maxY <= original.height / 2)]
         let height = topInset + original.height + feather
         if let next, next.minY - viewport.minY < height {
             titles.append(Placement(index: index + 1, frame: next.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
@@ -199,11 +199,9 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        let releases = ordered.enumerated().map { offset, header -> CGFloat in
-            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            if appearance.releaseRows == 0 { return offset + 1 < frames.count ? frames[offset + 1].minY : table.rect(ofRow: endIndex - 1).maxY }
-            let row = max(header.index + 1, endIndex - appearance.releaseRows)
-            return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY
+        let releases = ordered.enumerated().map { offset, _ -> CGFloat in
+            let end = offset + 1 < frames.count ? frames[offset + 1].minY : table.rect(ofRow: table.numberOfRows - 1).maxY
+            return end - appearance.pushLead
         }
         guard let layout = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases) else {
             overlay.dismiss()

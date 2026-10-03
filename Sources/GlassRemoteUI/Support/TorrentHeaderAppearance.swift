@@ -7,7 +7,7 @@ struct TorrentHeaderAppearance: Equatable {
     var backgroundOut = 0.28
     var titleIn = 0.18
     var titleOut = 0.22
-    var releaseRows = 2
+    var pushLead: CGFloat = 24
     var color = NSColor.white
 }
 

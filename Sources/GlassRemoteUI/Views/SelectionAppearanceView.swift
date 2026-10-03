@@ -31,7 +31,7 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
     @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
-    @AppStorage("GlassList.headerReleaseRows") private var headerReleaseRows = 2
+    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 24.0
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerColor: Binding<Color> {
@@ -71,7 +71,7 @@ public struct SelectionAppearanceView: View {
                 durationSlider("Background fade out", value: $headerBackgroundOut)
                 durationSlider("Title ease in", value: $headerTitleIn)
                 durationSlider("Title ease out", value: $headerTitleOut)
-                Stepper("Release before last \(headerReleaseRows) rows", value: $headerReleaseRows, in: 0...6)
+                shadowSlider("Header push lead", value: $headerPushLead, range: 0...120)
                 Divider()
                 Text("State Button").font(.subheadline.weight(.semibold))
                 shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
@@ -96,7 +96,7 @@ public struct SelectionAppearanceView: View {
                 Button("Reset") {
                     headerFadeStrength = 0.75; headerFadeReach = 48
                     headerBackgroundIn = 0.22; headerBackgroundOut = 0.28
-                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerReleaseRows = 2
+                    headerTitleIn = 0.18; headerTitleOut = 0.22; headerPushLead = 24
                     headerFadeColorLight = "FFFFFF"; headerFadeColorDark = "0C0C0C"
                     stateGap = 8; progressGlowBlur = 3; progressGlowStrength = 0.8; progressLineWidth = 2; progressFilled = false
                     sidePadding = 18

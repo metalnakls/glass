@@ -38,13 +38,13 @@ struct TorrentListView: View {
     @AppStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
     @AppStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
-    @AppStorage("GlassList.headerReleaseRows") private var headerReleaseRows = 2
+    @AppStorage("GlassList.headerPushLead") private var headerPushLead = 24.0
     @AppStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
     @AppStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private var headerAppearance: TorrentHeaderAppearance {
         TorrentHeaderAppearance(strength: headerFadeStrength, reach: headerFadeReach,
             backgroundIn: headerBackgroundIn, backgroundOut: headerBackgroundOut,
-            titleIn: headerTitleIn, titleOut: headerTitleOut, releaseRows: headerReleaseRows,
+            titleIn: headerTitleIn, titleOut: headerTitleOut, pushLead: headerPushLead,
             color: HeaderFadeColor.decode(colorScheme == .dark ? headerFadeColorDark : headerFadeColorLight))
     }
     @State private var elevationController = TorrentListElevationController()
