@@ -42,11 +42,9 @@ struct GlassApp: App {
         .commands {
             GlassCommands(updaterController: updaterController)
             InspectorCommands()
+            CommandGroup(replacing: .appSettings) {}
         }
 
-        Settings {
-            PreferencesView(model: model, platformIntegration: platformIntegration)
-        }
     }
 
     private static func makeModel() -> RemoteAppModel {
@@ -106,14 +104,6 @@ private struct GlassCommands: Commands {
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("Add Server...") {
-                actions?.addServer()
-            }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
-            .disabled(actions == nil)
-
-            Divider()
-
             Button("Add Magnet...") {
                 actions?.addMagnet()
             }

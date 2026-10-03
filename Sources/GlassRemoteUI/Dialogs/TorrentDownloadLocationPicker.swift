@@ -12,6 +12,9 @@ struct TorrentDownloadLocationPicker: View {
     @Binding var errorMessage: String?
     var isDisabled = false
 
+    @State private var isEditingServer = false
+    @State private var editingProfile: RemoteProfile?
+    @State private var previousProfileIDs = Set<UUID>()
     @State private var isChoosingFolder = false
     @State private var isEnteringServerPath = false
     @State private var pathSourceID: UUID?
@@ -23,6 +26,12 @@ struct TorrentDownloadLocationPicker: View {
                 sourceMenu(model.localSourceID, image: model.localSourceSystemImage)
                 ForEach(model.profiles) { profile in
                     sourceMenu(profile.id, image: "server.rack")
+                }
+                Divider()
+                Button("Add Server…", systemImage: "plus") {
+                    previousProfileIDs = Set(model.profiles.map(\.id))
+                    editingProfile = nil
+                    isEditingServer = true
                 }
                 if let currentDirectory {
                     Divider()
@@ -56,6 +65,16 @@ struct TorrentDownloadLocationPicker: View {
                 .padding(16)
                 .frame(width: 320)
             }
+        }
+        .sheet(isPresented: $isEditingServer, onDismiss: {
+            if let added = model.profiles.first(where: { !previousProfileIDs.contains($0.id) }) {
+                select(added.id, directory: nil)
+            }
+        }) {
+            NavigationStack {
+                ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: editingProfile)
+            }
+            .toolbarVisibility(.visible, for: .windowToolbar)
         }
         .task(id: sourceID) {
             let requestedSourceID = sourceID
@@ -96,6 +115,11 @@ struct TorrentDownloadLocationPicker: View {
                     Task { await chooseMacFolder() }
                 }
             } else {
+                Button("Edit Server…", systemImage: "pencil") {
+                    previousProfileIDs = Set(model.profiles.map(\.id))
+                    editingProfile = model.profiles.first { $0.id == id }
+                    isEditingServer = true
+                }
                 Button("Enter Server Path…", systemImage: "folder.badge.plus") {
                     pathSourceID = id
                     serverPath = sourceID == id ? (currentDirectory ?? "") : ""
