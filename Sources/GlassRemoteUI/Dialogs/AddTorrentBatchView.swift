@@ -77,6 +77,11 @@ struct AddTorrentBatchView: View {
 
     var body: some View {
         VStack(spacing: 16) {
+            if let group = groups.first(where: { $0.id == selectedGroupID }) {
+                TextField("Torrent name", text: titleBinding(for: group))
+                    .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading).disabled(isAdding)
+            }
             Form {
                 TorrentDownloadLocationPicker(
                     model: model,
@@ -134,6 +139,12 @@ struct AddTorrentBatchView: View {
             .background(.ultraThinMaterial)
         }
         .frame(width: 540, height: 460)
+    }
+
+    private func titleBinding(for group: TorrentBatchGroup) -> Binding<String> {
+        if group.isSeasonGroup { return groupNameBinding(for: group) }
+        guard let index = group.itemIndices.first else { return .constant("") }
+        return Binding(get: { optionHeld ? items[index].draft.preview.name : items[index].name }, set: { items[index].name = $0 })
     }
 
     private var canAdd: Bool {
@@ -281,15 +292,13 @@ private struct TorrentBatchGroupEditor: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            if group.isSeasonGroup {
-                TextField("Torrent name", text: $groupName)
-                    .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
-            } else if let index = group.itemIndices.first {
-                TextField("Torrent name", text: Binding(
-                    get: { smartNamesEnabled ? items[index].name : items[index].draft.preview.name },
-                    set: { items[index].name = $0 }
-                ))
-                .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
+            HStack(spacing: 8) {
+                Toggle("Select all files", isOn: Binding(get: {
+                    group.itemIndices.allSatisfy { items[$0].selectedFileIndices.count == items[$0].draft.preview.files.count }
+                }, set: { value in
+                    for index in group.itemIndices where !items[index].wasAdded { items[index].setAllFilesWanted(value) }
+                })).labelsHidden().toggleStyle(.checkbox)
+                TextField("Search Files", text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
             }
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
@@ -303,7 +312,7 @@ private struct TorrentBatchGroupEditor: View {
                             onSetWanted: { item.setFileWanted($0, $1) },
                             onSetPriority: { item.filePriorities[$0] = $1 },
                             onSetAllWanted: { item.setAllFilesWanted($0) },
-                            showsControls: true, isCompact: true
+                            showsControls: false, isCompact: true
                         )
                         .disabled(item.wasAdded)
                     }
