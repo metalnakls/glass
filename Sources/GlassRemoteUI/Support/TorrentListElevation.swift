@@ -96,6 +96,8 @@ final class TorrentListElevationController: NSObject {
 private final class ElevationOverlay: NSView {
     private let top = CALayer()
     private let bottom = CALayer()
+    private var displayedRect: CGRect?
+    private var departing: CALayer?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     init() {
@@ -124,6 +126,11 @@ private final class ElevationOverlay: NSView {
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
         defer { CATransaction.commit() }
         guard let rect, rect.intersects(bounds) else { layer.opacity = 0; return }
+        let moving = animated && displayedRect != nil && displayedRect != rect
+        if moving && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            fadePreviousRow(in: layer)
+        }
+        displayedRect = rect
         layer.opacity = 1
         top.shadowOpacity = Float(min(max(settings.topStrength, 0), 1))
         top.shadowRadius = max(settings.topSoftness, 0)
@@ -146,12 +153,55 @@ private final class ElevationOverlay: NSView {
         mask.fillRule = .evenOdd
         layer.mask = mask
         if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-            let fade = CABasicAnimation(keyPath: "opacity")
-            fade.fromValue = 0
-            fade.toValue = 1
-            fade.duration = 0.25
-            fade.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-            layer.add(fade, forKey: "elevation")
+            for shadow in [top, bottom] {
+                animate(shadow, key: "shadowOpacity", from: 0, to: Double(shadow.shadowOpacity), duration: 0.25)
+                animate(shadow, key: "shadowRadius", from: shadow.shadowRadius + 12, to: shadow.shadowRadius, duration: 0.25)
+            }
         }
+    }
+
+    private func fadePreviousRow(in parent: CALayer) {
+        guard let displayedRect else { return }
+        departing?.removeFromSuperlayer()
+        let ghost = CALayer()
+        ghost.frame = bounds
+        for original in [top, bottom] {
+            let current = original.presentation() ?? original
+            let shadow = CALayer()
+            shadow.frame = original.frame
+            shadow.shadowPath = original.shadowPath
+            shadow.shadowColor = original.shadowColor
+            shadow.shadowOffset = original.shadowOffset
+            shadow.shadowOpacity = current.shadowOpacity
+            shadow.shadowRadius = current.shadowRadius + 12
+            ghost.addSublayer(shadow)
+            animate(shadow, key: "shadowRadius", from: current.shadowRadius, to: shadow.shadowRadius, duration: 0.30)
+        }
+        let cutout = CGMutablePath()
+        cutout.addRect(bounds)
+        cutout.addRoundedRect(in: displayedRect, cornerWidth: 12, cornerHeight: 12)
+        let mask = CAShapeLayer()
+        mask.frame = bounds
+        mask.path = cutout
+        mask.fillRule = .evenOdd
+        ghost.mask = mask
+        ghost.opacity = 0
+        parent.addSublayer(ghost)
+        animate(ghost, key: "opacity", from: 1, to: 0, duration: 0.30)
+        departing = ghost
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.31) { ghost.removeFromSuperlayer() }
+    }
+
+    // Yina OSC's smoothstep dissolve: 0.25s in, 0.30s out. Core Animation
+    // interpolates these samples; no per-frame Swift work or rendering timer.
+    private func animate(_ layer: CALayer, key: String, from: Double, to: Double, duration: Double) {
+        let animation = CAKeyframeAnimation(keyPath: key)
+        animation.values = (0...120).map { index in
+            let t = Double(index) / 120
+            return from + (to - from) * t * t * (3 - 2 * t)
+        }
+        animation.duration = duration
+        animation.calculationMode = .linear
+        layer.add(animation, forKey: key)
     }
 }

@@ -29,6 +29,9 @@ struct TorrentListView: View {
     @State private var columnWidth: CGFloat = 0
     @State private var elevationController = TorrentListElevationController()
     @State private var shadowTuning = false
+    @AppStorage("GlassList.selectedHDRWhite") private var selectedHDRWhite = 0.0
+    @AppStorage("GlassList.columnLightBrightness") private var columnLightBrightness = 0.955
+    @AppStorage("GlassList.columnDarkBrightness") private var columnDarkBrightness = 0.105
     @AppStorage("GlassList.shadowTopStrength") private var shadowTopStrength = 0.12
     @AppStorage("GlassList.shadowTopSoftness") private var shadowTopSoftness = 8.0
     @AppStorage("GlassList.shadowTopLift") private var shadowTopLift = 4.0
@@ -43,7 +46,19 @@ struct TorrentListView: View {
     @Environment(\.colorSchemeContrast) private var colorContrast
 
     private var listSurface: Color {
-        colorScheme == .dark ? Color(white: 0.105) : Color(white: 0.955)
+        Color(white: colorScheme == .dark ? columnDarkBrightness : columnLightBrightness)
+    }
+
+    private var selectedSurface: Color {
+        let base = colorScheme == .dark ? pow((0.21 + 0.055) / 1.055, 2.4) : 1.0
+        let white = base + min(max(selectedHDRWhite, 0), 3)
+        return Color(.sRGBLinear, white: white).headroom(max(1, white))
+    }
+
+    private var columnBrightness: Binding<Double> {
+        Binding(get: { colorScheme == .dark ? columnDarkBrightness : columnLightBrightness }, set: {
+            if colorScheme == .dark { columnDarkBrightness = $0 } else { columnLightBrightness = $0 }
+        })
     }
 
     private var density: TorrentRowDensity {
@@ -134,8 +149,8 @@ struct TorrentListView: View {
                 Button { shadowTuning = true } label: {
                     Image(systemName: "slider.horizontal.3")
                 }
-                .help("Tune selection shadows")
-                .accessibilityLabel("Tune selection shadows")
+                .help("Tune selection appearance")
+                .accessibilityLabel("Tune selection appearance")
                 .padding(8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                 .padding(12)
@@ -151,7 +166,8 @@ struct TorrentListView: View {
 
     private func raisedSurface(selected: Bool) -> some View {
         RoundedRectangle(cornerRadius: 12, style: .circular)
-            .fill(selected ? (colorScheme == .dark ? Color(white: 0.21) : .white) : .clear)
+            .fill(selected ? selectedSurface : .clear)
+            .allowedDynamicRange(.high)
             .overlay {
                 if selected && colorContrast == .increased {
                     RoundedRectangle(cornerRadius: 12, style: .circular)
@@ -165,12 +181,22 @@ struct TorrentListView: View {
     }
 
     private var shadowControls: some View {
+        ScrollView {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Selection Shadows").font(.headline)
+                Text("Selection Appearance").font(.headline)
                 Spacer()
                 Button("Done") { shadowTuning = false }
             }
+            HStack {
+                Text("HDR white")
+                Spacer()
+                Text(selectedHDRWhite, format: .number.precision(.fractionLength(2)))
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }.font(.caption)
+            Slider(value: $selectedHDRWhite, in: 0...3).accessibilityLabel("HDR white")
+            shadowSlider("Column brightness", value: columnBrightness, range: 0...1, percent: true)
+            Divider()
             Text("Above").font(.subheadline.weight(.semibold))
             shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
             shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
@@ -181,12 +207,15 @@ struct TorrentListView: View {
             shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
             shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
             Button("Reset") {
+                selectedHDRWhite = 0
+                if colorScheme == .dark { columnDarkBrightness = 0.105 } else { columnLightBrightness = 0.955 }
                 shadowTopStrength = 0.12; shadowTopSoftness = 8; shadowTopLift = 4
                 shadowBottomStrength = 0.22; shadowBottomSoftness = 12; shadowBottomLift = 7
             }
         }
         .padding(16)
-        .frame(width: 280)
+        }
+        .frame(width: 280, height: 530)
     }
 
     private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
