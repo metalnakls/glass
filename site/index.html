@@ -8,70 +8,37 @@
   :root { color-scheme: light dark; }
   body {
     margin: 0;
-    padding: 4rem 1.5rem;
-    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif;
-    max-width: 42rem;
-    margin-inline: auto;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    background: #fff;
   }
-  h1 { font-size: 2rem; margin: 0 0 .25rem; letter-spacing: -.02em; }
-  .sub { color: #8a8a8e; margin: 0 0 2.5rem; }
-  h2 { font-size: 1rem; margin: 2.5rem 0 .75rem; letter-spacing: -.01em; }
-  p { margin: 0 0 1rem; }
-  ul { padding-left: 1.1rem; }
-  li { margin: .35rem 0; }
-  a.button {
+  @media (prefers-color-scheme: dark) { body { background: #000; } }
+  .button {
     display: inline-block;
-    padding: .6rem 1.1rem;
+    padding: .7rem 1.6rem;
     border-radius: 8px;
-    background: #0071e3;
+    background: #000;
     color: #fff;
     text-decoration: none;
-    font-weight: 500;
+    font: 500 16px/1 -apple-system, BlinkMacSystemFont, sans-serif;
   }
-  a.button:hover { background: #0077ed; }
-  code {
-    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-    background: rgba(127,127,127,.15);
-    padding: .15rem .35rem;
-    border-radius: 4px;
+  @media (prefers-color-scheme: dark) {
+    .button { background: #fff; color: #000; }
   }
   pre {
-    background: rgba(127,127,127,.15);
-    padding: .9rem 1rem;
-    border-radius: 8px;
-    overflow-x: auto;
+    margin: 0;
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+    color: #888;
   }
-  pre code { background: none; padding: 0; }
-  footer { margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid rgba(127,127,127,.25); color: #8a8a8e; font-size: .875rem; }
-  @media (prefers-color-scheme: dark) {
-    a.button { background: #0a84ff; }
-  }
+  @media (prefers-color-scheme: dark) { pre { color: #666; } }
 </style>
 </head>
 <body>
-  <h1>Glass</h1>
-  <p class="sub">A quiet torrent client for macOS.</p>
-
-  <p><a class="button" href="https://github.com/metalnakls/glass/releases/latest">Download the latest release</a></p>
-
-  <h2>Install</h2>
-  <p>Glass requires macOS 27 or later.</p>
-  <p>Releases are not signed with a Developer ID certificate, so macOS quarantines the
-     download the first time. To open it:</p>
-  <ul>
-    <li>Drag <strong>Glass.app</strong> into Applications, then right-click it and choose <strong>Open</strong>, or</li>
-    <li>Remove the quarantine flag from a terminal:
-      <pre><code>xattr -cr /Applications/Glass.app</code></pre>
-    </li>
-  </ul>
-  <p>After the first launch, Glass updates itself.</p>
-
-  <h2>Updates</h2>
-  <p>Updates arrive automatically through Sparkle. Check manually from the app menu with
-     <strong>Check for Updates…</strong>.</p>
-
-  <footer>
-    <p>Source: <a href="https://github.com/metalnakls/glass">github.com/metalnakls/glass</a></p>
-  </footer>
+  <a class="button" href="https://github.com/metalnakls/glass/releases/latest">Download</a>
+  <pre>xattr -cr /Applications/Glass.app</pre>
 </body>
 </html>
