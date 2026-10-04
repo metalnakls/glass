@@ -37,6 +37,14 @@ enum TorrentStickyHeaderGeometry {
         let titles: [Placement]
         let backdropHeight: CGFloat
     }
+    static func displayLayout(frames: [CGRect], viewport: CGRect, sticky: Layout?) -> Layout {
+        var titles = sticky?.titles ?? []
+        let placed = Set(titles.map(\.index))
+        for (index, frame) in frames.enumerated() where !placed.contains(index) && frame.intersects(viewport) {
+            titles.append(Placement(index: index, frame: frame.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
+        }
+        return Layout(titles: titles, backdropHeight: sticky?.backdropHeight ?? 0)
+    }
     static func layout(frames: [CGRect], viewport: CGRect, feather: CGFloat = 48, topInset: CGFloat = 0, releasePoints: [CGFloat]? = nil, stickyAllowed: [Bool]? = nil) -> Layout? {
         guard let index = frames.indices.last(where: { frames[$0].minY < viewport.minY + topInset }) else { return nil }
         guard stickyAllowed?[index] != false else { return nil }
@@ -95,29 +103,19 @@ private struct HeaderAnchor: NSViewRepresentable {
         init(titleHost: TitleHost) {
             self.titleHost = titleHost
             super.init(frame: .zero)
-            titleHost.inlineContainer = self
-            if !titleHost.isPinned { addSubview(titleHost) }
+            // This row reserves space only. Its title stays in the overlay,
+            // so pinning never removes content from a native List cell.
         }
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func layout() {
             super.layout()
-            if titleHost.superview === self { titleHost.frame = bounds }
             connect()
         }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
         func connect() {
             guard !titleHost.isRetiring, window != nil, bounds.width > 0, bounds.height > 0 else { return }
-            titleHost.inlineContainer = self
-            if !titleHost.isPinned, titleHost.superview !== self {
-                addSubview(titleHost)
-                titleHost.isHidden = false
-                titleHost.restoreVisibility()
-                titleHost.frame = bounds
-                titleHost.needsLayout = true
-                titleHost.layoutSubtreeIfNeeded()
-            }
             var parent = superview
             while let view = parent {
                 if let table = view as? NSTableView {
@@ -236,14 +234,15 @@ final class TorrentStickyHeaders: NSObject {
             let row = max(header.index + 1, endIndex - 2)
             return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
         }
-        guard let layout = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed) else {
-            overlay.dismiss()
-            return
-        }
-        // Clip at the viewport, never at the moving title's own edge.
-        overlay.frame = scroll.convert(clip.bounds, from: clip)
+        let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
+        let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
+        // The overlay owns inline and pinned titles alike. Scroll changes only
+        // their presentation coordinates; no List cell is reparented or resized.
+        let frame = scroll.convert(clip.bounds, from: clip)
+        if overlay.frame != frame { overlay.frame = frame }
         overlay.isHidden = false
-        overlay.present(layout: layout, headers: ordered, hosts: titleHosts)
+        overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
+                        backdropActive: sticky?.titles.contains { !$0.retiring } == true)
     }
     isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview() }
 }
@@ -266,7 +265,6 @@ final class HeaderBackdrop: NSView {
         titles[id] = nil
         guard host.window != nil else { return }
         let position = convert(host.bounds, from: host)
-        host.inlineContainer = nil
         host.isRetiring = true
         host.isPinned = true
         addSubview(host)
@@ -283,7 +281,7 @@ final class HeaderBackdrop: NSView {
     }
 
     func dismiss() {
-        restoreInlineTitles()
+        hideTitles()
         setBackdropActive(false)
     }
     private func setBackdropActive(_ active: Bool) {
@@ -300,21 +298,10 @@ final class HeaderBackdrop: NSView {
             effect.animator().alphaValue = active ? settings.strength : 0
         }
     }
-    func restoreInlineTitles(except retained: Set<String> = []) {
+    func hideTitles(except retained: Set<String> = []) {
         for (id, host) in titles where !retained.contains(id) {
             host.isPinned = false
-            host.layer?.removeAnimation(forKey: "pinSettle")
-            host.restoreVisibility()
-            if let inline = host.inlineContainer, inline.window != nil {
-                inline.addSubview(host)
-                host.isHidden = false
-                host.frame = inline.bounds
-                host.needsLayout = true
-                host.layoutSubtreeIfNeeded()
-                host.needsDisplay = true
-                host.displayIfNeeded()
-            } else { host.removeFromSuperview() }
-            titles[id] = nil
+            host.isHidden = true
         }
     }
     private var backdropSize = CGSize.zero
@@ -336,23 +323,25 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost]) {
-        setBackdropActive(layout.titles.contains { !$0.retiring })
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true) {
+        setBackdropActive(backdropActive)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        effect.frame = CGRect(x: 0, y: 0, width: bounds.width, height: layout.backdropHeight)
+        // Keep the last backdrop extent while its time-based fade finishes.
+        let effectHeight = layout.backdropHeight > 0 ? layout.backdropHeight : effect.frame.height
+        let effectFrame = CGRect(x: 0, y: 0, width: bounds.width, height: effectHeight)
+        if effect.frame != effectFrame { effect.frame = effectFrame }
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
             fadeMask.frame = effect.bounds
         }
         CATransaction.commit()
         let visible = Set(layout.titles.map { headers[$0.index].id })
-        restoreInlineTitles(except: visible)
+        hideTitles(except: visible)
         for placement in layout.titles {
             let header = headers[placement.index]
             guard let host = hosts[header.id] else { continue }
             let reparented = host.superview !== self
-            let previousOrigin = reparented && host.window != nil ? convert(host.bounds, from: host).origin : nil
             if reparented { addSubview(host) }
             host.isPinned = true
             host.isHidden = false
@@ -365,31 +354,13 @@ final class HeaderBackdrop: NSView {
             host.setFrameOrigin(placement.frame.origin)
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
-            if reparented, let previousOrigin, settings.titleIn > 0,
-               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-                // An additive settling offset keeps subsequent scroll positions
-                // exact while easing the handoff from the inline title.
-                let settle = CABasicAnimation(keyPath: "position")
-                settle.isAdditive = true
-                settle.fromValue = NSValue(point: CGPoint(
-                    x: previousOrigin.x - placement.frame.minX,
-                    y: previousOrigin.y - placement.frame.minY))
-                settle.toValue = NSValue(point: .zero)
-                settle.duration = settings.titleIn
-                settle.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-                host.layer?.add(settle, forKey: "pinSettle")
-            }
-            if reparented {
-                host.needsLayout = true
-                host.layoutSubtreeIfNeeded()
-                host.displayIfNeeded()
-            }
+            // Position is tied directly to the scroll transaction. Fade and
+            // blur animate inside this overlay without invalidating row heights.
         }
     }
 }
 
 final class TitleHost: NSView {
-    weak var inlineContainer: NSView?
     var isPinned = false
     var isRetiring = false
     private var exitProgress: CGFloat = 0
@@ -405,11 +376,6 @@ final class TitleHost: NSView {
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
             animator().alphaValue = 1 - progress
         }
-    }
-    func restoreVisibility() {
-        exitProgress = 0
-        alphaValue = 1
-        hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset)
     }
     private let hosting: NSHostingController<StickyTitleLabel>
     private var titleKey = ""
@@ -434,23 +400,29 @@ final class TitleHost: NSView {
         titleKey = "\(title):\(inset)"
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+    private var measuredWidth: CGFloat?
+    private var measuredHeight: CGFloat = 0
     func fittingSize(width: CGFloat) -> CGSize {
-        let fitted = hosting.sizeThatFits(in: CGSize(width: width, height: 1000))
-        return CGSize(width: width, height: fitted.height)
+        if measuredWidth != width {
+            measuredHeight = hosting.sizeThatFits(in: CGSize(width: width, height: 1000)).height
+            measuredWidth = width
+        }
+        return CGSize(width: width, height: measuredHeight)
     }
     func setTitle(_ title: String, inset: CGFloat) {
         let key = "\(title):\(inset)"
         guard titleKey != key else { return }
         titleKey = key
+        measuredWidth = nil
         currentTitle = title; currentInset = inset
         hosting.rootView = StickyTitleLabel(title: title, inset: inset, exitBlur: Double(exitProgress) * 8)
     }
     override func setFrameSize(_ size: NSSize) {
         super.setFrameSize(size)
-        hosting.view.frame = bounds
+        if hosting.view.frame != bounds { hosting.view.frame = bounds }
     }
     override func layout() {
         super.layout()
-        hosting.view.frame = bounds
+        if hosting.view.frame != bounds { hosting.view.frame = bounds }
     }
 }

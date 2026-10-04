@@ -9,7 +9,7 @@ struct TorrentStickyHeaderTests {
     let frames = [CGRect(x: 8, y: 6, width: 480, height: 48), CGRect(x: 8, y: 186, width: 480, height: 48)]
     func viewport(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 500, height: 600) }
 
-    @MainActor @Test("each section owns one native label through pin, push and restoration")
+    @MainActor @Test("pin and push never reparent titles into the list or change its slots")
     func singleNativeOwner() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
@@ -19,9 +19,7 @@ struct TorrentStickyHeaderTests {
         let secondInline = NSView(frame: frames[1])
         let first = TitleHost(title: "Downloading", inset: 40)
         let second = TitleHost(title: "Finished", inset: 40)
-        first.inlineContainer = firstInline; second.inlineContainer = secondInline
         first.isHidden = true; second.isHidden = true
-        firstInline.addSubview(first); secondInline.addSubview(second)
         root.addSubview(firstInline); root.addSubview(secondInline)
         let backdrop = HeaderBackdrop(frame: root.bounds)
         root.addSubview(backdrop)
@@ -45,14 +43,41 @@ struct TorrentStickyHeaderTests {
                 #expect(backdrop.subviews.filter { $0 === host }.count == 1)
             }
         }
-        #expect(first.superview === firstInline)
+        #expect(first.superview === backdrop)
         backdrop.dismiss()
         #expect(!backdrop.backdropIsActive)
-        #expect(first.superview === firstInline)
-        #expect(second.superview === secondInline)
-        #expect(first.frame == firstInline.bounds)
-        #expect(second.frame == secondInline.bounds)
+        #expect(first.superview === backdrop)
+        #expect(second.superview === backdrop)
+        #expect(first.isHidden && second.isHidden)
+        #expect(firstInline.subviews.isEmpty && secondInline.subviews.isEmpty)
+        #expect(firstInline.frame == frames[0] && secondInline.frame == frames[1])
         window.close()
+    }
+
+    @Test("visible inline titles share the overlay without duplicate pinned copies")
+    func stableInlineSlots() throws {
+        let inline = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport(0), sticky: nil)
+        #expect(inline.titles.map(\.index) == [0, 1])
+        #expect(inline.titles[0].frame == frames[0])
+        #expect(inline.backdropHeight == 0)
+        let sticky = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(150)))
+        let display = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport(150), sticky: sticky)
+        #expect(display.titles.map(\.index) == [0, 1])
+        #expect(display.titles[0].frame == sticky.titles[0].frame)
+        let short = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport(60), sticky: nil)
+        #expect(short.titles.map(\.index) == [1])
+        #expect(short.titles[0].frame.minY == frames[1].minY - 60)
+    }
+
+    @MainActor @Test("title fade and blur do not change the reserved header height")
+    func stableHeaderHeight() {
+        let host = TitleHost(title: "Completed", inset: 40)
+        let size = host.fittingSize(width: 500)
+        host.setExitProgress(0.8, duration: 0)
+        #expect(host.fittingSize(width: 500) == size)
+        host.setExitProgress(0, duration: 0)
+        #expect(host.fittingSize(width: 500) == size)
+        #expect(host.fittingSize(width: 600).width == 600)
     }
 
     @Test("inline-to-pinned handoff preserves the actual frame and padding")
