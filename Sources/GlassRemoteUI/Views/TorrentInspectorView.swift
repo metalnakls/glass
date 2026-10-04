@@ -52,6 +52,7 @@ struct TorrentInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .tint(.accentColor)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if editSession.hasSelection || editSession.hasChanges {
                 VStack(spacing: 8) {
@@ -218,7 +219,7 @@ private struct TorrentInspectorContent: View {
                     for details in groupDetails.values {
                         for index in details.files.indices { editSession.wanted[details.hashString, default: [:]][index] = value }
                     }
-                })).labelsHidden().toggleStyle(.checkbox)
+                })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                 TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
             }
             ForEach(group.torrents, id: \.hashString) { torrent in

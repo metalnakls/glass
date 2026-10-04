@@ -52,7 +52,7 @@ struct TorrentFilesBrowser: View {
                         get: { !entries.isEmpty && entries.allSatisfy(wanted) },
                         set: { value in for entry in entries { setWanted(entry.index, value) } }
                     ))
-                    .labelsHidden().toggleStyle(.checkbox)
+                    .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                     TextField("Search Files", text: $searchText)
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
@@ -64,19 +64,12 @@ struct TorrentFilesBrowser: View {
                 selection = Set(rows.filter { ids.contains($0.id) }.flatMap(\.indices))
             })) {
                 ForEach(rows) { row in
-                    TorrentSwipeRow(selected: !selection.isDisjoint(with: row.indices), remove: { higher in
-                        let grouped = Dictionary(grouping: row.indices) { index in
-                            min(1, max(-1, (byIndex[index]?.priority ?? 0) + (higher ? 1 : -1)))
-                        }
-                        for (priority, indices) in grouped { applyPriority(indices, priority) }
-                    }, presentationChanged: { _ in }, compactActions: true,
-                    leading: .init(name: "Lower priority", symbol: "arrow.down", color: .gray),
-                    trailing: .init(name: "Raise priority", symbol: "arrow.up", color: .accentColor)) {
-                        HStack(spacing: 8) {
-                            Toggle("Download \(row.name)", isOn: Binding(
-                                get: { row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
-                                set: { value in for index in row.indices { setWanted(index, value) } }
-                            )).labelsHidden().toggleStyle(.checkbox).controlSize(.small)
+                    HStack(spacing: 8) {
+                        Toggle("Download \(row.name)", isOn: Binding(
+                            get: { row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
+                            set: { value in for index in row.indices { setWanted(index, value) } }
+                        )).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
+                        HStack(spacing: 4) {
                             if row.isFolder {
                                 Button {
                                     if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
@@ -88,22 +81,32 @@ struct TorrentFilesBrowser: View {
                             Text(displayName(row))
                                 .lineLimit(1).truncationMode(.middle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                            VStack(alignment: .trailing, spacing: 2) {
-                                Text(formatBytes(row.size))
-                                Text(formatPercent(progress(row, byIndex: byIndex)))
-                                    .foregroundStyle(.secondary)
-                            }
-                            .font(.caption).monospacedDigit()
                         }
                         .padding(.leading, CGFloat(row.depth) * 12)
-                        .frame(minHeight: 32)
-                        .contentShape(Rectangle())
-                        .simultaneousGesture(TapGesture().onEnded {
-                            if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
-                        })
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(formatBytes(row.size))
+                            Text(formatPercent(progress(row, byIndex: byIndex)))
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.caption).monospacedDigit()
+                    }
+                    .frame(minHeight: 32)
+                    .contentShape(Rectangle())
+                    .simultaneousGesture(TapGesture().onEnded {
+                        if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
+                    })
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
+                            Label("Raise priority", systemImage: "arrow.up")
+                        }.tint(.accentColor)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button { adjustPriority(row, byIndex: byIndex, higher: false) } label: {
+                            Label("Lower priority", systemImage: "arrow.down")
+                        }.tint(.gray)
                     }
                     .tag(row.id)
-                    .listRowInsets(EdgeInsets(top: 3, leading: 4, bottom: 3, trailing: 4))
+                    .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
                     .contextMenu {
                         Button("High Priority", systemImage: "star.fill") { setPriority(row, 1) }
                         Button("Normal Priority", systemImage: "minus") { setPriority(row, 0) }
@@ -126,12 +129,15 @@ struct TorrentFilesBrowser: View {
                 onFileAction(row, .preview); return .handled
             }
             .listStyle(.plain)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
+            .contentMargins(.vertical, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .scrollDisabled(true)
             .environment(\.defaultMinListRowHeight, 38)
             .font(.system(size: 12))
             .frame(height: CGFloat(max(rows.count, 1)) * 38)
         }
+        .tint(.accentColor)
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
                 HStack(spacing: 8) {
@@ -179,6 +185,13 @@ struct TorrentFilesBrowser: View {
         let indices = selection.contains(row.indices.first ?? -1) ? Array(selection) : row.indices
         applyPriority(indices, value)
     }
+    private func adjustPriority(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry], higher: Bool) {
+        let grouped = Dictionary(grouping: row.indices) { index in
+            min(1, max(-1, (byIndex[index]?.priority ?? 0) + (higher ? 1 : -1)))
+        }
+        for (priority, indices) in grouped { applyPriority(indices, priority) }
+    }
+
     private func applyPriority(_ indices: [Int], _ value: Int) {
         if let onSetPriorities { onSetPriorities(indices, value) }
         else { for index in indices { onSetPriority(index, value) } }
