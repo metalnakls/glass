@@ -2,11 +2,15 @@
 
 For build/install changes, follow the global `app-build-install-scripts` and `macos-app-signing` skills. The project workflow is implemented in [Scripts/build-mac-app.sh](Scripts/build-mac-app.sh).
 
+Run `Scripts/build-mac-app.sh` outside the sandbox (escalated). Sandboxed runs cannot read the login keychain, so `security find-identity` falsely reports `0 valid identities` and the script aborts with "No Apple Development signing identity was found". The identities do exist; do not re-investigate or re-derive them. Escalate the build instead.
+
 ## Git delivery
 
 When a turn changes project files and all required validation succeeds, commit only that turn's files. Choose a concise commit name automatically, then ask whether the user wants it changed; amend only when renaming is requested and before pushing. Preserve unrelated work, never force-push or rewrite published history, and stop to report if validation fails.
 
 Never push without an explicit yes in the conversation. Commit locally, then ask. `Scripts/build-mac-app.sh` prints a push reminder after four build/install runs without a push, and repeats it every three runs after that; when that reminder appears, ask the user whether to push and list the unpushed commits. A user request not to push for a specific turn always takes precedence.
+
+When a turn changes repository files, finish that turn with a local commit. Do not defer versioning to a later cleanup session. Stage only the files belonging to the active task and preserve unrelated dirty-worktree changes. Never commit secrets or machine-local configuration.
 
 ## Local build and install
 
