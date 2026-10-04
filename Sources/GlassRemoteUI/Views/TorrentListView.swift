@@ -203,10 +203,6 @@ struct TorrentListView: View {
             for (key, value) in [("GlassList.leftPadding", leftPadding), ("GlassList.rightPadding", rightPadding)] where UserDefaults.standard.object(forKey: key) == nil {
                 UserDefaults.standard.set(value, forKey: key)
             }
-            elevationController.dragSelectionChanged = { id in
-                guard presentation.rows.contains(where: { $0.id == id }) else { return }
-                if selection != id { selection = id }
-            }
             synchronizePresentation(animated: false)
         }
         .onDisappear { elevationController.detach(); folderMotion.detach() }

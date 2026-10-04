@@ -103,10 +103,6 @@ final class TorrentListElevationController: NSObject {
             self.update(animated: false)
         }
     }
-    var dragSelectionChanged: ((String) -> Void)?
-    private var dragMonitor: Any?
-    private var dragStartedInTable = false
-    private var dragPoint: NSPoint?
     private var movementViews: [NSView] = []
     func configure(_ settings: TorrentShadowSettings) {
         self.settings = settings
@@ -129,10 +125,6 @@ final class TorrentListElevationController: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(rowGeometryChanged), name: NSView.frameDidChangeNotification, object: table)
         table.addSubview(separators, positioned: .below, relativeTo: nil)
         table.addSubview(surface, positioned: .above, relativeTo: separators)
-        dragMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] event in
-            self?.trackSelectionDrag(event)
-            return event
-        }
         scroll.addSubview(overlay, positioned: .above, relativeTo: scroll.contentView)
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
@@ -187,9 +179,6 @@ final class TorrentListElevationController: NSObject {
         refreshTask = nil
         separatorGeometry = nil
         lastSurfaceSettings = nil
-        if let dragMonitor { NSEvent.removeMonitor(dragMonitor) }
-        dragMonitor = nil
-        dragStartedInTable = false
         NotificationCenter.default.removeObserver(self)
         movementViews.removeAll()
         overlay.removeFromSuperview()
@@ -203,38 +192,9 @@ final class TorrentListElevationController: NSObject {
     }
     @objc private func rowGeometryChanged() { scheduleRefresh() }
     @objc private func scrolled() {
-        if !dragStartedInTable {
-            surface.layer?.removeAnimation(forKey: "glide")
-            overlay.cancelMotion()
-        }
+        surface.layer?.removeAnimation(forKey: "glide")
+        overlay.cancelMotion()
         update(animated: false)
-    }
-    private func trackSelectionDrag(_ event: NSEvent) {
-        guard let table, event.window === table.window else { return }
-        let point = table.convert(event.locationInWindow, from: nil)
-        let row = table.row(at: point)
-        if event.type == .leftMouseDown {
-            dragStartedInTable = row >= 0 && table.visibleRect.contains(point)
-            // Leave native controls in charge of their own press/drag gestures.
-            var hit = table.hitTest(table.superview?.convert(event.locationInWindow, from: nil) ?? point)
-            while let view = hit, view !== table {
-                if view is NSControl { dragStartedInTable = false; break }
-                hit = view.superview
-            }
-        } else if event.type == .leftMouseUp {
-            dragStartedInTable = false
-            dragPoint = nil
-            update(animated: true)
-        } else if dragStartedInTable, row >= 0, table.visibleRect.contains(point) {
-            for anchor in anchors.objectEnumerator()?.allObjects as? [TorrentListElevationAnchor.Anchor] ?? [] {
-                guard anchor.window === table.window,
-                      table.convert(anchor.bounds, from: anchor).contains(point) else { continue }
-                dragPoint = point
-                dragSelectionChanged?(anchor.rowID)
-                update(animated: false)
-                break
-            }
-        }
     }
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
@@ -255,10 +215,6 @@ final class TorrentListElevationController: NSObject {
             // its row hosts. Only an active swipe can change horizontal origin.
             if swipingID != selectedID { surfaceRect.origin.x = geometry.leading }
             surfaceRect.size.width = max(0, table.bounds.width - geometry.leading - geometry.trailing)
-        }
-        if let dragPoint, dragStartedInTable {
-            // Follow 78% of cursor travel, retaining a gentle attraction to the row.
-            surfaceRect.origin.y += (dragPoint.y - surfaceRect.midY) * 0.78
         }
         let rect = overlay.convert(surfaceRect, from: table)
         let visible = rect.intersects(overlay.bounds)
@@ -284,8 +240,7 @@ final class TorrentListElevationController: NSObject {
         }
         lastSurfaceSettings = settings
         CATransaction.commit()
-        if dragStartedInTable { surface.layer?.removeAnimation(forKey: "glide") }
-        if visible, animateMovement, wasVisible, !dragStartedInTable, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if visible, animateMovement, wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             surface.layer?.removeAnimation(forKey: "appear")
             animateFrame(surface.layer, from: previous, fromPosition: previousPosition, to: surfaceRect, duration: settings.easeIn)
         } else if visible, !wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
