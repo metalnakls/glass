@@ -8,6 +8,8 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.funScale") private var funScale = 1.5
     @AppearanceStorage("GlassList.funTilt") private var funTilt = 9.0
     @AppearanceStorage("GlassList.posterColoredShadows") private var coloredShadows = true
+    @AppStorage("GlassList.enableIconView") private var enableIconView = false
+    @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
     @State private var saveStatus: String?
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -67,6 +69,8 @@ public struct SelectionAppearanceView: View {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Selection Appearance").font(.headline)
                 Button("Test Torrents…") { TorrentTestWindow.show() }
+                Toggle("Enable icon view (⌘1)", isOn: $enableIconView)
+                Toggle("Enable compact list", isOn: $enableCompactView)
                 Toggle("Lowercase section titles", isOn: $lowercaseTitles)
                 Toggle("Fun mode", isOn: $funMode)
                 if funMode {

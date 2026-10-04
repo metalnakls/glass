@@ -94,6 +94,8 @@ private struct GlassCommands: Commands {
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @AppStorage("GlassList.grid") private var grid = false
     @AppStorage("GlassList.density") private var density = 1
+    @AppStorage("GlassList.enableIconView") private var enableIconView = false
+    @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
@@ -109,9 +111,11 @@ private struct GlassCommands: Commands {
 
         CommandGroup(after: .toolbar) {
             Button("Icon View") { grid = true }.keyboardShortcut("1", modifiers: .command)
+                .disabled(!enableIconView)
             Button("List View") { grid = false }.keyboardShortcut("2", modifiers: .command)
             Divider()
-            Button("Make Smaller") { density = max(0, density - 1) }.keyboardShortcut("-", modifiers: .command)
+            Button("Make Smaller") { density = max(enableCompactView ? 0 : 1, density - 1) }.keyboardShortcut("-", modifiers: .command)
+                .disabled(density <= (enableCompactView ? 0 : 1))
             Button("Make Larger") { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
             Divider()
             Toggle("Show Extensions", isOn: $showExtensions)

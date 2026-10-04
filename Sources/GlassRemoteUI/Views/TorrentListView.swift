@@ -31,8 +31,12 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
-    @AppStorage("GlassList.grid") private var grid = false
-    @AppStorage("GlassList.density") private var densityLevel = 1
+    @AppStorage("GlassList.grid") private var storedGrid = false
+    @AppStorage("GlassList.density") private var storedDensityLevel = 1
+    @AppStorage("GlassList.enableIconView") private var enableIconView = false
+    @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
+    private var grid: Bool { enableIconView && storedGrid }
+    private var densityLevel: Int { enableCompactView ? storedDensityLevel : max(1, storedDensityLevel) }
     @State private var columnWidth: CGFloat = 0
     @State private var stickyHeaders = TorrentStickyHeaders()
     @AppearanceStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
@@ -109,7 +113,7 @@ struct TorrentListView: View {
     }
 
     private var density: TorrentRowDensity {
-        densityLevel == 0 ? .compact : (columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
+        densityLevel == 0 ? .compact : (enableCompactView && columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
     }
     private var listRowHeight: CGFloat {
         max(0, (densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
