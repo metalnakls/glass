@@ -13,7 +13,6 @@ struct TorrentNativeSwipeRow<Content: View>: View {
     var body: some View {
         if enabled {
             content()
-                .swipeActionsContainer()
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                     swipeButtons
                 } onPresentationChanged: { presentationChanged($0) }
