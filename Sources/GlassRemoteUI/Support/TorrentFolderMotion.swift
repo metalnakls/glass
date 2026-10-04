@@ -63,7 +63,7 @@ final class TorrentFolderMotion {
             layer.contents = Self.image
             layer.contentsGravity = .resizeAspect
             let scale = poses[sourceID]?.scale ?? 1
-            if scale > 1 {
+            if AppearancePreferences.shared.value(for: "GlassList.funMode", fallback: false) {
                 layer.shadowOpacity = 0.10
                 layer.shadowRadius = 3 * scale
                 layer.shadowOffset = CGSize(width: 0, height: 2 * scale)
@@ -162,11 +162,43 @@ final class TorrentFolderMotion {
             }
             try? await Task.sleep(for: .milliseconds(320))
             guard !Task.isCancelled, self.generation == token else { return }
+            // A host can finish layout after the nominal tail. Do not hand off
+            // to a different position, angle or size: settle there first.
+            for _ in 0..<3 {
+                var adjusted = false
+                for (slot, id) in self.members.enumerated() {
+                    guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
+                    let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
+                    let current = layer.presentation() ?? layer
+                    let angle = current.value(forKeyPath: "transform.rotation.z") as? Double ?? 0
+                    guard hypot(current.position.x - target.center.x, current.position.y - target.center.y) > 0.25
+                        || abs(current.bounds.width - target.size.width) > 0.25 || abs(angle - target.angle) > 0.005 else { continue }
+                    let position = CABasicAnimation(keyPath: "position")
+                    position.fromValue = current.position; position.toValue = target.center
+                    let size = CABasicAnimation(keyPath: "bounds.size")
+                    size.fromValue = current.bounds.size; size.toValue = target.size
+                    let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
+                    rotation.fromValue = angle; rotation.toValue = target.angle
+                    CATransaction.begin(); CATransaction.setDisableActions(true)
+                    layer.position = target.center; layer.bounds.size = target.size
+                    layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
+                    CATransaction.commit()
+                    let landing = CAAnimationGroup()
+                    landing.animations = [position, size, rotation]; landing.duration = 0.16
+                    landing.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
+                    layer.add(landing, forKey: "folderFlight")
+                    adjusted = true
+                }
+                if !adjusted { break }
+                try? await Task.sleep(for: .milliseconds(160))
+                guard !Task.isCancelled, self.generation == token else { return }
+            }
             // SwiftUI can need more than one frame to redraw opacity. Keep the
             // native image present and dissolve it, rather than exposing a gap.
             self.flyingIDs = []
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.16)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
             for layer in self.layers.values { layer.opacity = 0 }
             CATransaction.commit()
             try? await Task.sleep(for: .milliseconds(180))

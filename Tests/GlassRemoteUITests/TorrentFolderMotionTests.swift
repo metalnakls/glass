@@ -63,6 +63,18 @@ struct TorrentFolderMotionTests {
         }
         #expect(tail != nil)
         #expect(motion.flyingIDs.count == 2)
+        // A late host movement must get a final landing, not a snap on reveal.
+        landing.setFrameOrigin(CGPoint(x: landing.frame.minX + 26, y: landing.frame.minY))
+        var finalLanding: CAAnimation?
+        for _ in 0..<50 {
+            try await Task.sleep(for: .milliseconds(10))
+            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.16 {
+                finalLanding = candidate; break
+            }
+        }
+        #expect(finalLanding != nil)
+        #expect(motion.flyingIDs.count == 2)
+        #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
         motion.cancel()
         #expect(motion.flyingIDs.isEmpty)
         #expect(flights.allSatisfy { $0.superlayer == nil })

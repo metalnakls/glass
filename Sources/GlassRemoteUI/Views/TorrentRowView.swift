@@ -64,17 +64,12 @@ struct TorrentRowView: View, Equatable {
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true))
+                interactiveLeadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true))
                     .background {
                         if let folderMotion, groupIsExpanded != nil || folderID != nil {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
                         }
                     }
-                    .gesture(TapGesture(count: 2).onEnded { fileAction?(.open) },
-                             including: groupIsExpanded == nil ? .all : .subviews)
-                    .simultaneousGesture(TapGesture().onEnded {
-                        if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
-                    }, including: groupIsExpanded == nil ? .all : .subviews)
                     .padding(.trailing, 12)
             }
 
@@ -106,6 +101,19 @@ struct TorrentRowView: View, Equatable {
     }
 
     @ViewBuilder
+    private var interactiveLeadingIcon: some View {
+        if groupIsExpanded != nil {
+            leadingIcon
+        } else {
+            leadingIcon
+                .onTapGesture(count: 2) { fileAction?(.open) }
+                .simultaneousGesture(TapGesture().onEnded {
+                    if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                })
+        }
+    }
+
+    @ViewBuilder
     private var leadingIcon: some View {
         if let groupIsExpanded {
             Button {
@@ -115,15 +123,15 @@ struct TorrentRowView: View, Equatable {
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
                         .frame(width: 36, height: 48)
-                        .contentShape(Rectangle())
+                        .contentShape(Rectangle().inset(by: -12))
                         .contentTransition(.symbolEffect(.replace))
-                        .offset(x: grid ? 0 : TorrentIconPose.forRole(.fan, position: iconPosition).x)
                 } else {
                     GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
                         .frame(width: 36, height: 42)
                 }
             }
             .buttonStyle(.plain)
+            .offset(x: groupIsExpanded && !grid ? TorrentIconPose.forRole(.fan, position: iconPosition).x : 0)
             .help(groupIsExpanded ? "Hide Torrents" : "Show Torrents")
             .accessibilityLabel(groupIsExpanded ? "Collapse Group" : "Expand Group")
         } else if showsActivityIcon {
@@ -131,7 +139,7 @@ struct TorrentRowView: View, Equatable {
         } else if let folderID, let folderMotion {
             TorrentFileIcon(fileName: "", isFolder: true)
                 .opacity(folderMotion.flyingIDs.contains(folderID) ? 0 : 1)
-                .transaction { $0.animation = nil }
+                .animation(folderMotion.flyingIDs.contains(folderID) ? nil : .easeOut(duration: 0.16), value: folderMotion.flyingIDs.contains(folderID))
                 .transition(.identity)
                 .frame(width: 36, height: 42)
         } else {
@@ -358,7 +366,7 @@ private struct GroupFolderFanIcon: View {
         if let controller, ids.indices.contains(index) {
             fanIcon(index)
                 .opacity(controller.flyingIDs.contains(ids[index]) ? 0 : 1)
-                .transaction { $0.animation = nil }
+                .animation(controller.flyingIDs.contains(ids[index]) ? nil : .easeOut(duration: 0.16), value: controller.flyingIDs.contains(ids[index]))
                 .transition(.identity)
         } else { fanIcon(index) }
     }
