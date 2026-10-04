@@ -169,6 +169,8 @@ struct TorrentListView: View {
                             .moveDisabled(rowIsAdding(row))
                     }
                 }.reorderable()
+                    .listRowSeparator(.hidden)
+                    .listRowSeparatorTint(.clear)
             }
             .reorderContainer(for: TorrentListEntry.self) { difference in
                 let destination: TorrentListReorderPlan.Destination
