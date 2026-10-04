@@ -131,6 +131,7 @@ struct TorrentRowView: View, Equatable {
                 } else {
                     GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
                         .frame(width: 36, height: 42)
+                        .contentShape(Rectangle().inset(by: -12))
                 }
             }
             .buttonStyle(.plain)
