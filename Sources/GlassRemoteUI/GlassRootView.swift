@@ -75,6 +75,7 @@ public struct GlassRootView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         .dropDestination(for: TorrentWindowDropItem.self) { items, _ in
+            isTorrentDropTargeted = false
             let urls = items.compactMap(\.url).filter {
                 magnetLink(from: $0) != nil || $0.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
             }
@@ -85,6 +86,7 @@ public struct GlassRootView: View {
             }
             return false
         } isTargeted: { isTorrentDropTargeted = $0 }
+        .onDisappear { isTorrentDropTargeted = false }
         .overlay {
             ZStack {
                 RoundedRectangle(cornerRadius: 18)

@@ -272,9 +272,9 @@ struct TorrentListView: View {
             remove: remove,
             toggleTransfers: { await toggleTransfers(for: row) }
         )
-        .draggable(row.id)
-        .dropDestination(for: String.self) { ids, _ in
-            guard let id = ids.first, id != row.id,
+        .draggable(TorrentReorderItem(id: row.id))
+        .dropDestination(for: TorrentReorderItem.self) { items, _ in
+            guard let id = items.first?.id, id != row.id,
                   let dragged = presentation.rows.first(where: { $0.id == id }), dragged.sourceID == row.sourceID else { return false }
             @MainActor func hashes(_ item: TorrentListRowPresentation) -> [String] {
                 switch item.kind {
@@ -450,7 +450,6 @@ struct TorrentListView: View {
                 Text("Torrent files or magnet links").font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .overlay { DropCorners().stroke(.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 2, lineCap: .round)) }
             .padding(28)
             .allowsHitTesting(false)
         }

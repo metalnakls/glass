@@ -93,5 +93,16 @@
 			</dict>
 		</dict>
 	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>com.glass.torrent-reorder</string>
+			<key>UTTypeDescription</key>
+			<string>Glass internal torrent order</string>
+			<key>UTTypeConformsTo</key>
+			<array><string>public.data</string></array>
+		</dict>
+	</array>
 </dict>
 </plist>
