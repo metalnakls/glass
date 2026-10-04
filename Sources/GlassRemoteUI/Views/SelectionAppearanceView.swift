@@ -17,6 +17,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
     @AppearanceStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
+    @AppearanceStorage("GlassList.highlightWidth") private var highlightWidth = 0.0
     @AppearanceStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
     @AppearanceStorage("GlassList.selectedHDRWhiteLight") private var selectedHDRWhiteLight = UserDefaults.standard.object(forKey: "GlassList.selectedHDRWhite") as? Double ?? 0.0
     @AppearanceStorage("GlassList.selectedHDRWhiteDark") private var selectedHDRWhiteDark = 0.0
@@ -75,6 +76,7 @@ public struct SelectionAppearanceView: View {
                 }
                 ColorPicker("Highlight · light", selection: highlightColor(dark: false), supportsOpacity: false)
                 ColorPicker("Highlight · dark", selection: highlightColor(dark: true), supportsOpacity: false)
+                shadowSlider("Highlight width", value: $highlightWidth, range: -80...160)
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)

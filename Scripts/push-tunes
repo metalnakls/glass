@@ -28,7 +28,7 @@ def main():
             raise ValueError('Config must contain appearance settings only')
         if isinstance(value, bool):
             continue
-        if isinstance(value, (int, float)) and math.isfinite(value) and -10 <= value <= 240:
+        if isinstance(value, (int, float)) and math.isfinite(value) and (-80 if key == "GlassList.highlightWidth" else -10) <= value <= 240:
             continue
         if isinstance(value, str) and len(value) == 6 and all(c in '0123456789abcdefABCDEF' for c in value):
             continue

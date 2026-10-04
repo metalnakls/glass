@@ -17,6 +17,7 @@ struct TorrentShadowSettings: Equatable {
     var highlightColorLight = "FFFFFF"
     var highlightColorDark = "1F1F1F"
     var increasedContrast = false
+    var highlightWidth = 0.0
 }
 
 struct TorrentCardGeometry: Equatable {
@@ -196,6 +197,10 @@ final class TorrentListElevationController: NSObject {
         overlay.cancelMotion()
         update(animated: false)
     }
+    static func resizedHighlight(_ rect: CGRect, adjustment: Double) -> CGRect {
+        let width = max(1, rect.width + adjustment)
+        return CGRect(x: rect.midX - width / 2, y: rect.minY, width: width, height: rect.height)
+    }
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         if overlay.frame != clip.frame { overlay.frame = clip.frame }
@@ -216,6 +221,7 @@ final class TorrentListElevationController: NSObject {
             if swipingID != selectedID { surfaceRect.origin.x = geometry.leading }
             surfaceRect.size.width = max(0, table.bounds.width - geometry.leading - geometry.trailing)
         }
+        surfaceRect = Self.resizedHighlight(surfaceRect, adjustment: settings.highlightWidth)
         let rect = overlay.convert(surfaceRect, from: table)
         let visible = rect.intersects(overlay.bounds)
         let previous = surface.layer?.presentation()?.frame ?? surface.frame

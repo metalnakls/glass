@@ -56,6 +56,7 @@ struct TorrentListView: View {
     @State private var swipingRowID: String?
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
+    @AppearanceStorage("GlassList.highlightWidth") private var highlightWidth = 0.0
     @AppearanceStorage("GlassList.highlightColorLight") private var highlightColorLight = "FFFFFF"
     @AppearanceStorage("GlassList.highlightColorDark") private var highlightColorDark = "1F1F1F"
     @AppearanceStorage("GlassList.selectedHDRWhiteLight") private var selectedHDRWhiteLight = UserDefaults.standard.object(forKey: "GlassList.selectedHDRWhite") as? Double ?? 0.0
@@ -72,7 +73,7 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     private var shadowSettings: TorrentShadowSettings {
-        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: colorScheme == .dark ? selectedHDRWhiteDark : selectedHDRWhiteLight, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, highlightColorLight: highlightColorLight, highlightColorDark: highlightColorDark, increasedContrast: colorContrast == .increased)
+        TorrentShadowSettings(topStrength: shadowTopStrength, topSoftness: shadowTopSoftness, topLift: shadowTopLift, bottomStrength: shadowBottomStrength, bottomSoftness: shadowBottomSoftness, bottomLift: shadowBottomLift, easeIn: selectionEaseIn, easeOut: selectionEaseOut, hdrWhite: colorScheme == .dark ? selectedHDRWhiteDark : selectedHDRWhiteLight, hdrSoftness: selectedHDRSoftness, hdrSpread: selectedHDRSpread, isDark: colorScheme == .dark, highlightColorLight: highlightColorLight, highlightColorDark: highlightColorDark, increasedContrast: colorContrast == .increased, highlightWidth: highlightWidth)
     }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast

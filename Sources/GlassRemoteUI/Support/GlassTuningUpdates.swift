@@ -62,6 +62,7 @@ public final class GlassTuningUpdates {
         case "selectedHDRWhiteLight", "selectedHDRWhiteDark": return 0...3
         case "progressGlowStrength": return 0...2
         case "progressLineWidth": return 0.5...5
+        case "highlightWidth": return -80...160
         case "itemVerticalPadding": return -10...30
         case "leftPadding", "rightPadding": return 0...160
         case "headerPushLead": return 0...120
