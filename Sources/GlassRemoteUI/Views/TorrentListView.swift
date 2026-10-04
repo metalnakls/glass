@@ -54,6 +54,7 @@ struct TorrentListView: View {
     @State private var elevationController = TorrentListElevationController()
     @State private var folderMotion = TorrentFolderMotion()
     @State private var artworkPreloader = TorrentArtworkPreloader()
+    @State private var reorderingIDs: Set<String> = []
     @State private var swipingRowID: String?
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -125,7 +126,8 @@ struct TorrentListView: View {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
-                                    }
+                                            .moveDisabled(rowIsAdding(row))
+                                    }.reorderable(collectionID: section.id)
                                 }
                             } header: {
                                 Text(section.title).font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).background(listSurface)
@@ -133,6 +135,14 @@ struct TorrentListView: View {
                         }
                     }.padding(.leading, leftPadding + 16).padding(.trailing, rightPadding + 16)
                 }.background(listSurface)
+                .reorderContainer(for: TorrentListRowPresentation.self, in: String.self) { difference in
+                    let destination: TorrentListReorderPlan.Destination
+                    switch difference.destination.position {
+                    case let .before(id): destination = .before(id)
+                    case .end: destination = .end
+                    }
+                    applyNativeMove(sources: difference.sources, destination: destination)
+                }
             } else {
             List(selection: $selection) {
                 ForEach(TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles)) { entry in
@@ -140,6 +150,7 @@ struct TorrentListView: View {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
                             .selectionDisabled()
+                            .moveDisabled(true)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
@@ -151,8 +162,17 @@ struct TorrentListView: View {
                             .listItemTint(.monochrome)
                             .tag(row.id)
                             .accessibilityElement(children: .contain)
+                            .moveDisabled(rowIsAdding(row))
                     }
+                }.reorderable()
+            }
+            .reorderContainer(for: TorrentListEntry.self) { difference in
+                let destination: TorrentListReorderPlan.Destination
+                switch difference.destination.position {
+                case let .before(id): destination = .before(id)
+                case .end: destination = .end
                 }
+                applyNativeMove(sources: difference.sources, destination: destination)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
@@ -209,7 +229,18 @@ struct TorrentListView: View {
             }
             synchronizePresentation(animated: false)
         }
-        .onDisappear { elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() }
+        .onDragSessionUpdated { session in
+            switch session.phase {
+            case .initial, .active:
+                reorderingIDs = Set(session.draggedItemIDs(for: String.self))
+                elevationController.setReordering(!reorderingIDs.isEmpty)
+            case .ended, .dataTransferCompleted:
+                reorderingIDs = []
+                elevationController.setReordering(false)
+            @unknown default: break
+            }
+        }
+        .onDisappear { reorderingIDs = []; elevationController.setReordering(false); elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() }
         .onChange(of: grid) { _, value in if value { elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() } }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
@@ -247,11 +278,27 @@ struct TorrentListView: View {
         }
     }
 
+    private func rowIsAdding(_ row: TorrentListRowPresentation) -> Bool {
+        switch row.kind {
+        case let .torrent(record, _): record.isAdding
+        case let .group(records, _, _): records.contains { $0.isAdding }
+        }
+    }
+
+    private func applyNativeMove(sources: [String], destination: TorrentListReorderPlan.Destination) {
+        guard let plan = TorrentListReorderPlan(sources: sources, destination: destination, rows: presentation.rows) else { return }
+        // SwiftUI already animates the move. Update the presentation immediately,
+        // then send the same move to the server without another drag animation.
+        presentation.applyNativeMove(plan.orderedRows)
+        Task { await model.reorder(plan.hashes, before: plan.beforeHashes, sourceID: plan.sourceID) }
+    }
+
     private func liveRow(for row: TorrentListRowPresentation) -> some View {
         TorrentListLiveRow(
             row: row,
             iconPosition: presentation.rows.firstIndex(where: { $0.id == row.id }) ?? 0,
             isSelected: selection == row.id,
+            isReordering: reorderingIDs.contains(row.id),
             leftPadding: grid ? 0 : leftPadding,
             rightPadding: grid ? 0 : rightPadding,
             grid: grid,
@@ -280,27 +327,7 @@ struct TorrentListView: View {
                   let index = TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).firstIndex(where: { $0.id == row.id }) else { return }
             artworkPreloader.prefetchAround(index)
         }
-        .draggable(TorrentReorderItem(id: row.id))
-        .dropDestination(for: TorrentReorderItem.self) { items, _ in
-            guard let id = items.first?.id, id != row.id,
-                  let dragged = presentation.rows.first(where: { $0.id == id }), dragged.sourceID == row.sourceID else { return false }
-            switch dragged.kind {
-            case let .torrent(record, _): if record.isAdding { return false }
-            case let .group(records, _, _): if records.contains(where: { $0.isAdding }) { return false }
-            }
-            switch row.kind {
-            case let .torrent(record, _): if record.isAdding { return false }
-            case let .group(records, _, _): if records.contains(where: { $0.isAdding }) { return false }
-            }
-            @MainActor func hashes(_ item: TorrentListRowPresentation) -> [String] {
-                switch item.kind {
-                case let .torrent(record, _): return [record.hashString]
-                case let .group(records, _, _): return records.map(\.hashString)
-                }
-            }
-            Task { await model.reorder(hashes(dragged), before: hashes(row), sourceID: row.sourceID) }
-            return true
-        }
+
     }
 
     private var artworkInputs: [TorrentThumbnailInput?] {
@@ -490,6 +517,7 @@ private struct TorrentListLiveRow: View {
     let row: TorrentListRowPresentation
     let iconPosition: Int
     let isSelected: Bool
+    let isReordering: Bool
     let leftPadding: CGFloat
     let rightPadding: CGFloat
     let grid: Bool
@@ -538,6 +566,12 @@ private struct TorrentListLiveRow: View {
         .allowsHitTesting(!isAdding)
         .frame(minHeight: grid ? 164 : rowHeight)
         .background {
+            if isReordering {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color(nsColor: .controlBackgroundColor))
+                    .padding(.leading, -14 - artworkOverflow).padding(.trailing, -14)
+                    .shadow(color: .black.opacity(0.1), radius: 8, y: 3)
+            }
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
             if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: (density.showsIcon ? 62 : 14) + artworkOverflow)

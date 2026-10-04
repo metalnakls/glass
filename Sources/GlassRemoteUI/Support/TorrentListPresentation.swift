@@ -149,6 +149,12 @@ final class TorrentListPresentationModel {
         return updatedRows
     }
 
+    func applyNativeMove(_ updatedRows: [TorrentListRowPresentation]) {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { rows = updatedRows }
+    }
+
     private func setRows(
         _ updatedRows: [TorrentListRowPresentation],
         animated: Bool,

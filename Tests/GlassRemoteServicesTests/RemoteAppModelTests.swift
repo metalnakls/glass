@@ -49,6 +49,47 @@ struct RemoteAppModelTests {
         #expect(model.errorMessage != nil)
     }
 
+    @Test("native reorder updates immediately and can move to the queue end")
+    func optimisticReorder() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh(sourceID: profile.id)
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        await client.setRecentlyActiveUpdate(.delta(changed: [second], removedIDs: []))
+        await model.refresh(sourceID: profile.id)
+        await client.holdQueuePosition(error: nil)
+        let task = Task { await model.reorder(["hash-1"], before: [], sourceID: profile.id) }
+        await client.waitForQueuePositionCall()
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        await client.releaseQueuePosition()
+        await task.value
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+    }
+
+    @Test("a rejected native reorder restores the previous source order")
+    func rejectedReorder() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh(sourceID: profile.id)
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        await client.setRecentlyActiveUpdate(.delta(changed: [second], removedIDs: []))
+        await model.refresh(sourceID: profile.id)
+        await client.holdQueuePosition(error: TestError.failed)
+        let task = Task { await model.reorder(["hash-2"], before: ["hash-1"], sourceID: profile.id) }
+        await client.waitForQueuePositionCall()
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        await client.releaseQueuePosition()
+        await task.value
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-1", "hash-2"])
+        #expect(model.errorMessage != nil)
+    }
+
     @Test("all sources retain separate identities and source-scoped deltas")
     func allSourcesKeepSeparateRecords() async throws {
         let first = makeProfile()
@@ -798,6 +839,34 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var inspectorPercentDone = 0.5
     private var inspectorFileBytesCompleted: UInt64 = 50
     private var recentlyActiveUpdate: TorrentCollectionUpdate?
+    private var holdingQueuePosition = false
+    private var queuePositionError: (any Error)?
+    private var queuePositionContinuation: CheckedContinuation<Void, Never>?
+    private var queuePositionWaiter: CheckedContinuation<Void, Never>?
+    private var didRequestQueuePosition = false
+
+    func holdQueuePosition(error: (any Error)?) {
+        holdingQueuePosition = true
+        queuePositionError = error
+        didRequestQueuePosition = false
+    }
+    func waitForQueuePositionCall() async {
+        if didRequestQueuePosition { return }
+        await withCheckedContinuation { queuePositionWaiter = $0 }
+    }
+    func releaseQueuePosition() {
+        holdingQueuePosition = false
+        queuePositionContinuation?.resume()
+        queuePositionContinuation = nil
+    }
+    func setQueuePosition(ids: [String], position: Int) async throws {
+        didRequestQueuePosition = true
+        queuePositionWaiter?.resume()
+        queuePositionWaiter = nil
+        if holdingQueuePosition { await withCheckedContinuation { queuePositionContinuation = $0 } }
+        if let queuePositionError { throw queuePositionError }
+    }
+
     private var addTorrentWasDuplicate = false
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0

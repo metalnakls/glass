@@ -81,6 +81,8 @@ final class TorrentListElevationController: NSObject {
     private let anchors = NSMapTable<NSString, TorrentListElevationAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     private var settings = TorrentShadowSettings()
     private var cardGeometry: TorrentCardGeometry?
+    private var isReordering = false
+    func setReordering(_ active: Bool) { isReordering = active; update(animated: false) }
     private var swipingID: String?
     func configureGeometry(_ geometry: TorrentCardGeometry) {
         cardGeometry = geometry
@@ -205,7 +207,7 @@ final class TorrentListElevationController: NSObject {
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         if overlay.frame != clip.frame { overlay.frame = clip.frame }
-        guard let selectedID, table.numberOfRows == rowIDs.count,
+        guard !isReordering, let selectedID, table.numberOfRows == rowIDs.count,
               let rowIndex = rowIDs.firstIndex(where: { $0 == selectedID }) else {
             surface.layer?.removeAnimation(forKey: "glide")
             surface.layer?.removeAnimation(forKey: "appear")

@@ -1049,11 +1049,27 @@ public final class RemoteAppModel {
     }
 
     /// Moves a card (including all grouped members) before another card in the same source.
+    private var reorderGenerations: [UUID: Int] = [:]
+
     public func reorder(_ hashes: [String], before targetHashes: [String], sourceID: UUID) async {
-        let ordered = sourceState(for: sourceID).records
+        let state = sourceState(for: sourceID)
+        let ordered = state.records
         let moving = ordered.filter { hashes.contains($0.hashString) }
         let remaining = ordered.filter { !hashes.contains($0.hashString) }
-        guard !moving.isEmpty, let target = remaining.firstIndex(where: { targetHashes.contains($0.hashString) }) else { return }
+        guard !moving.isEmpty else { return }
+        let target: Int
+        if targetHashes.isEmpty { target = remaining.count }
+        else {
+            guard let index = remaining.firstIndex(where: { targetHashes.contains($0.hashString) }) else { return }
+            target = index
+        }
+        var optimistic = remaining
+        optimistic.insert(contentsOf: moving, at: target)
+        guard optimistic.map(\.id) != ordered.map(\.id) else { return }
+        let generation = (reorderGenerations[sourceID] ?? 0) &+ 1
+        reorderGenerations[sourceID] = generation
+        state.records = optimistic
+        state.structureRevision &+= 1
         let placements = moving.enumerated().map { ($0.element.hashString, target + $0.offset) }
         let movingDown = (ordered.firstIndex { hashes.contains($0.hashString) } ?? 0) < target
         let succeeded = await performProviderAction(sourceID: sourceID, showsActivity: false) { provider in
@@ -1061,17 +1077,14 @@ public final class RemoteAppModel {
                 try await provider.setQueuePosition(ids: [hash], position: position)
             }
         }
-        if succeeded {
-            let state = sourceState(for: sourceID)
-            let currentMoving = state.records.filter { hashes.contains($0.hashString) }
-            var current = state.records.filter { !hashes.contains($0.hashString) }
-            if let index = current.firstIndex(where: { targetHashes.contains($0.hashString) }) {
-                current.insert(contentsOf: currentMoving, at: index)
-                state.records = current
-                state.structureRevision &+= 1
-                scheduleTorrentCachePersistence()
-            }
-        }
+        guard reorderGenerations[sourceID] == generation else { return }
+        if !succeeded {
+            // Preserve incoming updates/additions/removals while restoring old order.
+            let current = Dictionary(uniqueKeysWithValues: state.records.map { ($0.id, $0) })
+            let oldIDs = Set(ordered.map(\.id))
+            state.records = ordered.compactMap { current[$0.id] } + state.records.filter { !oldIDs.contains($0.id) }
+            state.structureRevision &+= 1
+        } else { scheduleTorrentCachePersistence() }
     }
 
     public func moveInQueue(_ torrents: [TorrentSummary], direction: TorrentQueueMove, sourceID requestedSourceID: UUID? = nil) async {
