@@ -318,8 +318,7 @@ struct TorrentRowView: View, Equatable {
 
     private var isFolderLike: Bool {
         if thumbnailInput != nil { return false }
-        if let count = torrent.fileCount { return count > 1 }
-        return URL(fileURLWithPath: torrent.name).pathExtension.isEmpty
+        return TorrentArtworkKind.isFolder(name: torrent.name, fileCount: torrent.fileCount)
     }
 
     private func displayName(_ name: String) -> String {
@@ -491,5 +490,12 @@ private struct ProgressDisc: Shape {
                     startAngle: .degrees(-90), endAngle: .degrees(-90 + progress * 360), clockwise: false)
         path.closeSubpath()
         return path
+    }
+}
+
+/// A multi-file root remains a folder even if only one file is wanted/downloaded.
+enum TorrentArtworkKind {
+    static func isFolder(name: String, fileCount: Int?) -> Bool {
+        (fileCount ?? 0) > 1 || URL(fileURLWithPath: name).pathExtension.isEmpty
     }
 }
