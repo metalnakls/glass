@@ -184,7 +184,7 @@ public enum SelectionAppearanceWindow {
     }
 
     public static func show() {
-        guard ProcessInfo.processInfo.arguments.contains("--tune-appearance") else { return }
+        guard ProcessInfo.processInfo.arguments.contains("--tune") else { return }
         if window == nil {
             let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 640),
                                  styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
