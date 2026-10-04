@@ -35,3 +35,9 @@ fastlane/test_output
 
 # Private development notes
 /LocalNotes/
+
+# Private planning belongs in LocalNotes, never public project docs.
+/Docs/2.0.md
+/Docs/2.1-QUEUE.md
+/Docs/FUN.md
+/animation-plans/
