@@ -88,6 +88,14 @@ struct TorrentFilesBrowser: View {
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("High priority")
                                     .help("High priority")
+                            } else if row.indices.contains(where: { (byIndex[$0]?.priority ?? 0) < 0 }) {
+                                Text(":(")
+                                    .font(.system(size: 10))
+                                    .rotationEffect(.degrees(90))
+                                    .frame(width: 12, height: 12)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("Low priority")
+                                    .help("Low priority")
                             }
                         }
                         .padding(.leading, CGFloat(row.depth) * 12)

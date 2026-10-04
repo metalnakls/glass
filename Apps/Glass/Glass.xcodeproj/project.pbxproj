@@ -16,6 +16,7 @@
 		10100000000000000000000A /* Transmission.icon in Resources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000A /* Transmission.icon */; };
 		10100000000000000000000B /* GlassRemoteServices in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000004 /* GlassRemoteServices */; };
 		10100000000000000000000F /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = 10B000000000000000000005 /* Sparkle */; };
+		101000000000000000000010 /* Appearance.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000010 /* Appearance.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 		102000000000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		102000000000000000000009 /* Glass.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Glass.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		10200000000000000000000A /* Transmission.icon */ = {isa = PBXFileReference; lastKnownFileType = folder.iconcomposer.icon; path = Transmission.icon; sourceTree = "<group>"; };
+		102000000000000000000010 /* Appearance.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Appearance.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -70,6 +72,7 @@
 				10200000000000000000000B /* Glass-Bridging-Header.h */,
 				102000000000000000000008 /* Info.plist */,
 				10200000000000000000000A /* Transmission.icon */,
+				102000000000000000000010 /* Appearance.xcassets */,
 				104000000000000000000004 /* Shared Core */,
 				104000000000000000000005 /* Shared UI */,
 			);
@@ -174,6 +177,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				10100000000000000000000A /* Transmission.icon in Resources */,
+				101000000000000000000010 /* Appearance.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -336,6 +340,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = Transmission;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ../../Resources/Glass.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
@@ -391,6 +396,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = Transmission;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ../../Resources/Glass.entitlements;
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
