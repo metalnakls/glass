@@ -33,6 +33,9 @@ struct TorrentNativeSwipeRow<Content: View>: View {
             Button { commit(false) } label: { Label("Delete Torrent", systemImage: "xmark") }
                 .tint(.yellow)
         }
+        .labelStyle(.iconOnly)
+        .font(.system(size: 13, weight: .semibold))
+        .controlSize(.small)
     }
 
     private func commit(_ data: Bool) {
