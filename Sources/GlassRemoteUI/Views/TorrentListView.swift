@@ -428,6 +428,7 @@ struct TorrentListView: View {
     private func toggleTransfers(for row: TorrentListRowPresentation) async -> Bool {
         switch row.kind {
         case let .torrent(record, _):
+            guard !record.isAdding else { return false }
             let torrent = record.summary
             if torrent.canStopTransfer {
                 return await model.stop(torrent, sourceID: record.sourceID)
