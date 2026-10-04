@@ -103,7 +103,6 @@ public struct GlassRootView: View {
             .allowsHitTesting(false)
             .accessibilityHidden(!isTorrentDropTargeted)
         }
-        .tint(Color.gray)
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)

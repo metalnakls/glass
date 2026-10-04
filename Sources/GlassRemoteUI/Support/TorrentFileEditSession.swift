@@ -14,6 +14,12 @@ final class TorrentFileEditSession {
             for index in indices { wanted[hash, default: [:]][index] = value }
         }
     }
+    func stageAll(_ value: Bool, current: [Int: Bool], for hash: String) {
+        selections = [:]
+        wanted[hash] = current.reduce(into: [:]) { changes, entry in
+            if entry.value != value { changes[entry.key] = value }
+        }
+    }
     func confirm(_ values: [Int: Bool], for hash: String) {
         for (index, value) in values where wanted[hash]?[index] == value { wanted[hash]?[index] = nil }
     }

@@ -52,21 +52,19 @@ struct TorrentInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .tint(.accentColor)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if editSession.hasSelection || editSession.hasChanges {
                 VStack(spacing: 8) {
                     if editSession.hasSelection {
                         HStack(spacing: 8) {
-                            Button { editSession.stageSelection(true) } label: {
+                            Button { Task { await applyFileEdits(selectionWanted: true) } } label: {
                                 Text("Download").frame(maxWidth: .infinity)
-                            }.buttonStyle(.borderedProminent).tint(.accentColor)
-                            Button { editSession.stageSelection(false) } label: {
+                            }.buttonStyle(.borderedProminent)
+                            Button { Task { await applyFileEdits(selectionWanted: false) } } label: {
                                 Text("Skip").frame(maxWidth: .infinity)
                             }.buttonStyle(.borderedProminent).tint(.red)
                         }
-                    }
-                    if editSession.hasChanges {
+                    } else if editSession.hasChanges {
                         Button { Task { await applyFileEdits() } } label: {
                             Text("Apply").frame(maxWidth: .infinity)
                         }.buttonStyle(.borderedProminent)
@@ -116,9 +114,14 @@ struct TorrentInspectorView: View {
         .onDisappear { fileSearchText = "" }
     }
 
-    private func applyFileEdits() async {
+    private func applyFileEdits(selectionWanted: Bool? = nil) async {
         guard let snapshot, snapshot.selectionKey == selectionKey else { return }
-        let changes = editSession.wanted
+        let changes: [String: [Int: Bool]]
+        if let selectionWanted {
+            changes = editSession.selections.mapValues { indices in
+                Dictionary(uniqueKeysWithValues: indices.map { ($0, selectionWanted) })
+            }
+        } else { changes = editSession.wanted }
         let details = snapshot.details.map { [$0] } ?? Array(snapshot.groupDetails.values)
         editSession.isApplying = true
         defer { editSession.isApplying = false }
@@ -129,9 +132,10 @@ struct TorrentInspectorView: View {
                 guard !indices.isEmpty else { continue }
                 await model.setFileWanted(detail.summaryFallback, fileIndices: indices, wanted: value, sourceID: snapshot.sourceID)
                 guard model.errorMessage == nil else { return }
-
+                for index in indices { editSession.wanted[detail.hashString]?[index] = nil }
             }
         }
+        if selectionWanted != nil { editSession.selections = [:] }
     }
 
     private func confirmFileEdits(_ details: TorrentDetails) {
@@ -217,7 +221,10 @@ private struct TorrentInspectorContent: View {
                     }
                 }, set: { value in
                     for details in groupDetails.values {
-                        for index in details.files.indices { editSession.wanted[details.hashString, default: [:]][index] = value }
+                        let current = Dictionary(uniqueKeysWithValues: details.files.indices.map { index in
+                            (index, details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true)
+                        })
+                        editSession.stageAll(value, current: current, for: details.hashString)
                     }
                 })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                 TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)

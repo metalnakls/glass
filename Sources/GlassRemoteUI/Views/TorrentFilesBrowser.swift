@@ -50,7 +50,7 @@ struct TorrentFilesBrowser: View {
                 HStack(spacing: 8) {
                     Toggle("Download all files", isOn: Binding(
                         get: { !entries.isEmpty && entries.allSatisfy(wanted) },
-                        set: { value in for entry in entries { setWanted(entry.index, value) } }
+                        set: { value in setAllWanted(value) }
                     ))
                     .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                     TextField("Search Files", text: $searchText)
@@ -98,12 +98,12 @@ struct TorrentFilesBrowser: View {
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
                             Label("Raise priority", systemImage: "arrow.up")
-                        }.tint(.accentColor)
+                        }
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: false) } label: {
                             Label("Lower priority", systemImage: "arrow.down")
-                        }.tint(.gray)
+                        }
                     }
                     .tag(row.id)
                     .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
@@ -128,6 +128,10 @@ struct TorrentFilesBrowser: View {
                 guard let onFileAction, let row = rows.first(where: { nativeSelection.contains($0.id) }) else { return .ignored }
                 onFileAction(row, .preview); return .handled
             }
+            .onChange(of: selection) { _, selected in
+                guard stagesChanges else { return }
+                nativeSelection = Set(rows.filter { !$0.indices.isEmpty && $0.indices.allSatisfy(selected.contains) }.map(\.id))
+            }
             .listStyle(.plain)
             .contentMargins(.horizontal, 0, for: .scrollContent)
             .contentMargins(.vertical, 0, for: .scrollContent)
@@ -137,7 +141,6 @@ struct TorrentFilesBrowser: View {
             .font(.system(size: 12))
             .frame(height: CGFloat(max(rows.count, 1)) * 38)
         }
-        .tint(.accentColor)
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
                 HStack(spacing: 8) {
@@ -177,9 +180,20 @@ struct TorrentFilesBrowser: View {
         if selected { selection.formUnion(indices) }
         else { selection.subtract(indices) }
     }
+    private func setAllWanted(_ value: Bool) {
+        if stagesChanges {
+            if let editSession {
+                editSession.stageAll(value, current: Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0.isWanted) }), for: editID)
+            } else {
+                selection = []
+                pendingWanted = Dictionary(uniqueKeysWithValues: entries.filter { $0.isWanted != value }.map { ($0.index, value) })
+            }
+        } else { onSetAllWanted(value) }
+    }
+
     private func setWanted(_ index: Int, _ value: Bool) {
-        if stagesChanges { pendingWanted[index] = value }
-        else { onSetWanted(index, value) }
+        pendingWanted[index] = nil
+        onSetWanted(index, value)
     }
     private func setPriority(_ row: TorrentFileTreeRow, _ value: Int) {
         let indices = selection.contains(row.indices.first ?? -1) ? Array(selection) : row.indices

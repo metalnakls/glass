@@ -307,7 +307,7 @@ private struct TorrentBatchGroupEditor: View {
                     group.itemIndices.allSatisfy { items[$0].selectedFileIndices.count == items[$0].draft.preview.files.count }
                 }, set: { value in
                     for index in group.itemIndices where !items[index].wasAdded { items[index].setAllFilesWanted(value) }
-                })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular).tint(.accentColor)
+                })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                 TextField("Search Files", text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
             }
             ScrollView {

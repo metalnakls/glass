@@ -23,6 +23,22 @@ struct TorrentFileTreeTests {
         #expect(!session.hasChanges && !session.hasSelection)
     }
 
+    @Test("bulk apply contains only differences and reverting removes the action")
+    func bulkChanges() {
+        let session = TorrentFileEditSession()
+        let current = [0: true, 1: true]
+        #expect(!session.hasChanges)
+        session.stageAll(true, current: current, for: "one")
+        #expect(!session.hasChanges)
+        session.stageAll(false, current: current, for: "one")
+        #expect(session.wanted["one"] == [0: false, 1: false])
+        session.stageAll(true, current: current, for: "one")
+        #expect(!session.hasChanges)
+        session.selections = ["one": [0, 1]]
+        session.stageAll(false, current: current, for: "one")
+        #expect(!session.hasSelection)
+    }
+
     @Test("renamed torrent roots do not repeat the series above seasons")
     func renamedRoot() {
         let paths = ["Fargo.original/Season 1/S01E01.mkv", "Fargo.original/Season 2/S02E01.mkv"]
