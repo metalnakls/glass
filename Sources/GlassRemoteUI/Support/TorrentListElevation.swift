@@ -58,6 +58,7 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
                 if let table = view as? NSTableView {
                     table.selectionHighlightStyle = .none
                     table.focusRingType = .none
+                    table.gridStyleMask = []
                     controller?.attach(table)
                     controller?.register(self)
                     return
@@ -132,6 +133,7 @@ final class TorrentListElevationController: NSObject {
         self.table = table
         tableAttached?(table)
         table.floatsGroupRows = false
+        table.gridStyleMask = []
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(rowGeometryChanged), name: NSView.frameDidChangeNotification, object: table)
         table.addSubview(separators, positioned: .below, relativeTo: nil)

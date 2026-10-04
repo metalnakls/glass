@@ -25,7 +25,9 @@ struct TorrentListElevationTests {
         window.contentView?.addSubview(scroll); scroll.documentView = table; table.reloadData()
         let controller = TorrentListElevationController()
         controller.setRows([nil, "a", "b", "c", nil, "d", "e"])
+        table.gridStyleMask = [.solidHorizontalGridLineMask]
         controller.attach(table)
+        #expect(table.gridStyleMask.isEmpty)
         defer { controller.detach(); window.close() }
         func anchor(_ id: String, _ index: Int) -> TorrentListElevationAnchor.Anchor {
             let row = table.rect(ofRow: index)
