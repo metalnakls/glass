@@ -12,6 +12,7 @@ struct RemovalUndoToast: View {
     @State private var countdownProgress = 1.0
     @State private var countdownTask: Task<Void, Never>?
     @GestureState private var dragTranslation: CGFloat = 0
+    @State private var trackpadTranslation: CGFloat = 0
 
     var body: some View {
         Group {
@@ -32,12 +33,13 @@ struct RemovalUndoToast: View {
         }
         .font(.callout)
         .frame(maxWidth: 520)
-        .offset(x: dragTranslation)
+        .offset(x: dragTranslation + trackpadTranslation)
         .opacity(dragOpacity)
         .padding(.bottom, 14)
         .zIndex(1)
         .onAppear(perform: restartCountdown)
         .onChange(of: resetToken) { _, _ in
+            trackpadTranslation = 0
             restartCountdown()
         }
         .onDisappear {
@@ -49,6 +51,23 @@ struct RemovalUndoToast: View {
         toastSurface
             .contentShape(Capsule())
             .highPriorityGesture(dismissGesture, including: .all)
+            .background {
+                ToastTrackpadSwipe(resetToken: resetToken) { offset, ended, shouldDismiss in
+                    if ended {
+                        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
+                            if shouldDismiss {
+                                trackpadTranslation = offset
+                                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                                dismiss()
+                            } else { trackpadTranslation = 0 }
+                        }
+                    } else {
+                        var transaction = Transaction()
+                        transaction.disablesAnimations = true
+                        withTransaction(transaction) { trackpadTranslation = offset }
+                    }
+                }
+            }
     }
 
     private var toastSurface: some View {
@@ -118,7 +137,7 @@ struct RemovalUndoToast: View {
     }
 
     private var dragOpacity: Double {
-        let distance = min(160, abs(dragTranslation))
+        let distance = min(160, abs(dragTranslation + trackpadTranslation))
         return 1 - Double(distance / 260)
     }
 
