@@ -82,6 +82,13 @@ struct TorrentFilesBrowser: View {
                             Text(displayName(row))
                                 .lineLimit(1).truncationMode(.middle)
                                 .frame(maxWidth: .infinity, alignment: .leading)
+                            if row.indices.contains(where: { (byIndex[$0]?.priority ?? 0) > 0 }) {
+                                Image(systemName: "star.fill")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .accessibilityLabel("High priority")
+                                    .help("High priority")
+                            }
                         }
                         .padding(.leading, CGFloat(row.depth) * 12)
                         VStack(alignment: .trailing, spacing: 2) {
