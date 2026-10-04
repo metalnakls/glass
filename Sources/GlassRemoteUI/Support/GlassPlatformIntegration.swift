@@ -4,6 +4,7 @@ import SwiftUI
 @MainActor
 public protocol GlassPlatformIntegrating: AnyObject {
     func chooseLocalDownloadDirectory(startingAt path: String?) async throws -> String?
+    func prepareLocalDownloadDirectory(_ path: String) async throws -> String?
     func chooseThumbnailDirectory() async throws -> URL?
     func canRevealDownloadedItem(for torrent: TorrentSummary) -> Bool
     func revealDownloadedItem(for torrent: TorrentSummary)
@@ -12,6 +13,8 @@ public protocol GlassPlatformIntegrating: AnyObject {
 }
 
 public extension GlassPlatformIntegrating {
+    func prepareLocalDownloadDirectory(_ path: String) async throws -> String? { path }
+
     func chooseThumbnailDirectory() async throws -> URL? {
         try await chooseLocalDownloadDirectory(startingAt: nil).map { URL(fileURLWithPath: $0, isDirectory: true) }
     }

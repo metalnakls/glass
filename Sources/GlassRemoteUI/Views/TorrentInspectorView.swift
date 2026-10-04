@@ -229,6 +229,7 @@ private struct TorrentInspectorContent: View {
                 })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                 TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
             }
+            .padding(.horizontal, 8)
             ForEach(group.torrents, id: \.hashString) { torrent in
                 if let details = groupDetails[torrent.hashString] {
                     VStack(alignment: .leading, spacing: 8) {

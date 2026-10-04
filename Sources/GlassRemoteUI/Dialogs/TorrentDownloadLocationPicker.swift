@@ -134,7 +134,9 @@ struct TorrentDownloadLocationPicker: View {
 
     private func locationButton(_ path: String, source id: UUID) -> some View {
         Button(path, systemImage: sourceID == id && currentDirectory == path ? "checkmark" : "folder") {
-            select(id, directory: path)
+            if id == model.localSourceID {
+                Task { await prepareMacFolder(path) }
+            } else { select(id, directory: path) }
         }
     }
 
@@ -168,6 +170,16 @@ struct TorrentDownloadLocationPicker: View {
         guard isServerPathValid, let pathSourceID else { return }
         select(pathSourceID, directory: normalizedServerPath)
         isEnteringServerPath = false
+    }
+
+    private func prepareMacFolder(_ path: String) async {
+        isChoosingFolder = true
+        defer { isChoosingFolder = false }
+        do {
+            if let authorized = try await platformIntegration.prepareLocalDownloadDirectory(path) {
+                select(model.localSourceID, directory: authorized)
+            }
+        } catch { errorMessage = error.localizedDescription }
     }
 
     private func chooseMacFolder() async {

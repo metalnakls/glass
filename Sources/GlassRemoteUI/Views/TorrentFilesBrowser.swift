@@ -57,6 +57,7 @@ struct TorrentFilesBrowser: View {
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
                 }
+                .padding(.horizontal, 8)
                 .padding(.bottom, 6)
             }
             List(selection: Binding<Set<String>>(get: { nativeSelection }, set: { ids in

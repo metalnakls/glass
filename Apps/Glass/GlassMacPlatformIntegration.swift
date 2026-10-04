@@ -21,6 +21,11 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
         try await chooseDirectory(startingAt: path, forThumbnails: false)?.path
     }
 
+    func prepareLocalDownloadDirectory(_ path: String) async throws -> String? {
+        if FileManager.default.isWritableFile(atPath: path) { return path }
+        return try await chooseLocalDownloadDirectory(startingAt: path)
+    }
+
     func chooseThumbnailDirectory() async throws -> URL? {
         try await chooseDirectory(startingAt: nil, forThumbnails: true)
     }
@@ -135,20 +140,22 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
     }
 
     private func retainSecurityScopedAccess(to url: URL) throws {
-        let standardizedURL = url
-        let bookmarkData = try standardizedURL.bookmarkData(
+        let bookmarkData = try url.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
             relativeTo: nil
         )
-
-        var bookmarks = storedBookmarks
-        bookmarks[standardizedURL.path] = bookmarkData.base64EncodedString()
-        defaults.set(bookmarks, forKey: Self.bookmarkDefaultsKey)
-        startAccessingIfNeeded(standardizedURL)
-        guard FileManager.default.isWritableFile(atPath: standardizedURL.path) else {
-            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: standardizedURL.path])
+        var isStale = false
+        let retainedURL = try URL(resolvingBookmarkData: bookmarkData,
+            options: [.withSecurityScope, .withoutUI], relativeTo: nil, bookmarkDataIsStale: &isStale)
+        // Keep the resolved scope alive for libtransmission’s asynchronous writes.
+        startAccessingIfNeeded(retainedURL)
+        guard FileManager.default.isWritableFile(atPath: retainedURL.path) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: retainedURL.path])
         }
+        var bookmarks = storedBookmarks
+        bookmarks[retainedURL.path] = bookmarkData.base64EncodedString()
+        defaults.set(bookmarks, forKey: Self.bookmarkDefaultsKey)
     }
 
     private func restoreSecurityScopedDirectoryAccess() {
@@ -180,7 +187,9 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
                     refreshedBookmarks[url.path] = refreshedData.base64EncodedString()
                 }
             } catch {
-                refreshedBookmarks[storedPath] = nil
+                // A temporarily unavailable volume must not erase the user’s grant.
+                // Selecting this saved folder will offer the native picker again.
+                continue
             }
         }
 

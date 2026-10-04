@@ -310,6 +310,7 @@ private struct TorrentBatchGroupEditor: View {
                 })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                 TextField("Search Files", text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
             }
+            .padding(.horizontal, 8)
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
