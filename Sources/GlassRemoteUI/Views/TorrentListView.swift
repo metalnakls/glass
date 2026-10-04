@@ -77,6 +77,21 @@ struct TorrentListView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast
 
+    private var cardGeometry: TorrentCardGeometry {
+        let overflow = density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0
+        return TorrentCardGeometry(leading: leftPadding + 2 - overflow, trailing: rightPadding + 2,
+                                   separatorInset: (density.showsIcon ? 62 : 14) + overflow)
+    }
+
+    private var elevationRows: [String?] {
+        TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map { entry in
+            switch entry {
+            case .header: nil
+            case let .torrent(row): row.id
+            }
+        }
+    }
+
     private var listSurface: Color {
         Color(white: colorScheme == .dark ? columnDarkBrightness : columnLightBrightness)
     }
@@ -161,6 +176,7 @@ struct TorrentListView: View {
             }
         }
         .onAppear {
+            elevationController.setRows(elevationRows)
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
             elevationController.observeTable { table in
                 stickyHeaders.attach(table)
@@ -171,6 +187,7 @@ struct TorrentListView: View {
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map(\.id)) { _, _ in
+            elevationController.setRows(elevationRows)
             stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
@@ -197,6 +214,8 @@ struct TorrentListView: View {
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
+        .onChange(of: cardGeometry, initial: true) { _, geometry in elevationController.configureGeometry(geometry) }
+        .onChange(of: swipingRowID) { _, id in elevationController.setSwiping(id) }
         .onChange(of: selection, initial: true) { _, value in
             elevationController.setSelection(value)
         }
@@ -458,8 +477,10 @@ private struct TorrentListLiveRow: View {
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let toggleTransfers: () async -> Bool
 
+    private var artworkOverflow: CGFloat { density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0 }
+
     var body: some View {
-        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : leftPadding + 2, foregroundTrailingInset: grid ? 0 : rightPadding + 2) {
+        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : leftPadding + 2 - artworkOverflow, foregroundTrailingInset: grid ? 0 : rightPadding + 2) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
@@ -484,8 +505,9 @@ private struct TorrentListLiveRow: View {
         .background {
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
-            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: density.showsIcon ? 62 : 14)
-                .padding(.horizontal, -14)
+            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: (density.showsIcon ? 62 : 14) + artworkOverflow)
+                .padding(.leading, -14 - artworkOverflow)
+                .padding(.trailing, -14)
                 .padding(.vertical, 3) }
         }
         .glassContextMenu(select: select) { contextMenuContent }

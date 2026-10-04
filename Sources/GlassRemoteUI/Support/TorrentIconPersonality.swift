@@ -8,6 +8,17 @@ struct TorrentIconPose {
     var scale: CGFloat = 1
     var angle: Double = 0
     var x: CGFloat = 0
+    /// A shared envelope keeps every card wide enough for the tuned artwork,
+    /// without changing its width as differently tilted rows are selected.
+    @MainActor static var leadingOverflow: CGFloat {
+        let preferences = AppearancePreferences.shared
+        guard preferences.value(for: "GlassList.funMode", fallback: false) else { return 0 }
+        let scale = preferences.value(for: "GlassList.funScale", fallback: 1.5)
+        let angle = preferences.value(for: "GlassList.funTilt", fallback: 9.0) * 0.6 * .pi / 180
+        let extent = scale * (18 * abs(cos(angle)) + 21 * abs(sin(angle)))
+        return max(0, 2 * (extent - 18) + 4)
+    }
+
     @MainActor static func forRole(_ role: TorrentIconRole, position: Int = 0) -> Self {
         let preferences = AppearancePreferences.shared
         guard preferences.value(for: "GlassList.funMode", fallback: false) else { return Self() }
