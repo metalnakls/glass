@@ -217,7 +217,9 @@ struct TorrentListView: View {
                 artworkPreloader.attach(table)
             }
         }
-        .onChange(of: artworkInputs(for: entries), initial: true) { _, inputs in artworkPreloader.setInputs(inputs) }
+        .background {
+            TorrentArtworkPrefetchObserver(entries: entries, localSourceID: model.localSourceID, preloader: artworkPreloader)
+        }
         .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
@@ -341,13 +343,6 @@ struct TorrentListView: View {
 
     }
 
-    private func artworkInputs(for entries: [TorrentListEntry]) -> [TorrentThumbnailInput?] {
-        entries.map { entry in
-            guard case let .torrent(row) = entry, let record = row.torrentRecord else { return nil }
-            return TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID)
-        }
-    }
-
     private func performFileAction(for row: TorrentListRowPresentation, action: TorrentFileActions.Action) {
         switch row.kind {
         case let .torrent(record, _): if record.isAdding { return }
@@ -382,7 +377,7 @@ struct TorrentListView: View {
             revision: structureRevision,
             recordIDs: records.map(\.id),
             pendingRenameNames: pendingRenameNames,
-            unfinishedIDs: records.filter { $0.summary.isUnfinished }.map(\.id)
+            unfinishedIDs: records.filter { $0.isUnfinished }.map(\.id)
         )
     }
 
@@ -732,5 +727,24 @@ extension TorrentSummary {
             errorString: errorString,
             doneDate: doneDate
         )
+    }
+}
+
+/// Preview metadata changes update this invisible observer, not the whole library.
+private struct TorrentArtworkPrefetchObserver: View {
+    let entries: [TorrentListEntry]
+    let localSourceID: UUID
+    let preloader: TorrentArtworkPreloader
+
+    var body: some View {
+        let inputs = entries.map { entry -> TorrentThumbnailInput? in
+            guard case let .torrent(row) = entry, let record = row.torrentRecord else { return nil }
+            return TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID,
+                isLocal: record.sourceID == localSourceID)
+        }
+        Color.clear
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .onChange(of: inputs, initial: true) { _, inputs in preloader.setInputs(inputs) }
     }
 }

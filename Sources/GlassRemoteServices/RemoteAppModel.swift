@@ -36,6 +36,7 @@ public final class TorrentRecord: Identifiable {
     public private(set) var displayName: String?
     public private(set) var isDownloading: Bool
     public private(set) var isCompleted: Bool
+    public private(set) var isUnfinished: Bool
 
     init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil, isAdding: Bool = false) {
         self.isAdding = isAdding
@@ -49,6 +50,7 @@ public final class TorrentRecord: Identifiable {
         self.season = season
         isDownloading = summary.isDownloading
         isCompleted = summary.isCompleted
+        isUnfinished = summary.isUnfinished
     }
 
     public static func identity(sourceID: UUID, hashString: String, torrentID: Int = 0) -> String {
@@ -73,6 +75,9 @@ public final class TorrentRecord: Identifiable {
         }
         if isCompleted != updatedSummary.isCompleted {
             isCompleted = updatedSummary.isCompleted
+        }
+        if isUnfinished != updatedSummary.isUnfinished {
+            isUnfinished = updatedSummary.isUnfinished
         }
         summary = updatedSummary
         return structureChanged

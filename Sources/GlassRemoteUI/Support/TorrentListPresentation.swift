@@ -25,8 +25,8 @@ enum TorrentLibraryFilter {
             case let .group(records, _, _): members = records
             }
             let matches = group == .downloading
-                ? members.contains { $0.summary.isUnfinished }
-                : members.allSatisfy { !$0.summary.isUnfinished }
+                ? members.contains { $0.isUnfinished }
+                : members.allSatisfy { !$0.isUnfinished }
             if matches { included.formUnion(members.map(\.id)) }
         }
         return records.filter { included.contains($0.id) }
@@ -42,7 +42,7 @@ struct TorrentListSection: Identifiable {
     static func sections(for rows: [TorrentListRowPresentation], lowercase: Bool = false) -> [Self] {
         let unfinishedMembers = Set(rows.flatMap { row -> [String] in
             guard case let .group(members, _, _) = row.kind,
-                  members.contains(where: { $0.summary.isUnfinished }) else { return [] }
+                  members.contains(where: { $0.isUnfinished }) else { return [] }
             return members.map(\.id)
         })
         var unfinished: [TorrentListRowPresentation] = []
@@ -51,9 +51,9 @@ struct TorrentListSection: Identifiable {
             let isUnfinished: Bool
             switch row.kind {
             case let .torrent(record, _):
-                isUnfinished = record.summary.isUnfinished || unfinishedMembers.contains(record.id)
+                isUnfinished = record.isUnfinished || unfinishedMembers.contains(record.id)
             case let .group(members, _, _):
-                isUnfinished = members.contains { $0.summary.isUnfinished }
+                isUnfinished = members.contains { $0.isUnfinished }
             }
             if isUnfinished { unfinished.append(row) } else { finished.append(row) }
         }

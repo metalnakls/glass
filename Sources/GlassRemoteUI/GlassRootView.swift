@@ -222,7 +222,7 @@ public struct GlassRootView: View {
             openMagnet: { activeSheet = .addMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
-            canRemoveSelectedTorrent: (selectedRecord != nil || selectedGroup != nil) && activeSheet == nil && activeAlert == nil,
+            canRemoveSelectedTorrent: (selectedRecord != nil || presentation.rows.contains { $0.id == selectedTorrentID && !$0.isTorrent }) && activeSheet == nil && activeAlert == nil,
             removeSelectedTorrent: removeSelectedTorrent
         )
     }

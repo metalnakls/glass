@@ -453,6 +453,28 @@ struct RemoteAppModelTests {
         #expect(invalidated.value == false)
     }
 
+    @Test("section observation ignores progress telemetry but follows completion and metadata")
+    func sectionObservation() {
+        func summary(progress: Double, metadata: Double = 1) -> TorrentSummary {
+            TorrentSummary(id: 1, hashString: "section-observation", name: "Movie", status: 4,
+                percentDone: progress, metadataPercentComplete: metadata, rateDownload: 1, rateUpload: 0,
+                sizeWhenDone: 100, leftUntilDone: progress == 1 ? 0 : 50, eta: 60,
+                uploadRatio: 0, peersConnected: 1, downloadDir: "/downloads")
+        }
+        let record = TorrentRecord(summary(progress: 0.5), sourceID: UUID())
+        let changed = LockedFlag()
+        withObservationTracking {
+            _ = record.isUnfinished
+        } onChange: { changed.set() }
+        record.apply(summary(progress: 0.75))
+        #expect(!changed.value)
+        record.apply(summary(progress: 1))
+        #expect(changed.value)
+        #expect(!record.isUnfinished)
+        record.apply(summary(progress: 1, metadata: 0.5))
+        #expect(record.isUnfinished)
+    }
+
     @Test("telemetry refresh mutates one stable torrent record without republishing structure")
     func telemetryRefreshKeepsStableRecord() async throws {
         let profile = makeProfile()
