@@ -576,19 +576,29 @@ private final class ElevationOverlay: NSView {
 
 @MainActor
 private final class SelectionSeparatorCanvas: NSView {
-    struct Row {
+    struct Row: Equatable {
         let id: String
         let rect: CGRect
         let leadingInset: CGFloat
         let nextID: String?
     }
     private var lines: [String: CALayer] = [:]
+    private var lastRows: [Row] = []
+    private var lastSelectedID: String?
+    private var lastSettings: TorrentShadowSettings?
+    private var lastScale: CGFloat?
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func update(_ rows: [Row], selectedID: String?, settings: TorrentShadowSettings) {
+        let scale = window?.backingScaleFactor ?? 2
+        guard rows != lastRows || selectedID != lastSelectedID || settings != lastSettings || scale != lastScale else { return }
+        lastRows = rows
+        lastSelectedID = selectedID
+        lastSettings = settings
+        lastScale = scale
         let ids = Set(rows.map(\.id))
         for id in Array(lines.keys) where !ids.contains(id) {
             lines.removeValue(forKey: id)?.removeFromSuperlayer()
