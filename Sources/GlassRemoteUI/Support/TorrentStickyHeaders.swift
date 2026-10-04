@@ -303,6 +303,7 @@ final class HeaderBackdrop: NSView {
     func restoreInlineTitles(except retained: Set<String> = []) {
         for (id, host) in titles where !retained.contains(id) {
             host.isPinned = false
+            host.layer?.removeAnimation(forKey: "pinSettle")
             host.restoreVisibility()
             if let inline = host.inlineContainer, inline.window != nil {
                 inline.addSubview(host)
@@ -351,6 +352,7 @@ final class HeaderBackdrop: NSView {
             let header = headers[placement.index]
             guard let host = hosts[header.id] else { continue }
             let reparented = host.superview !== self
+            let previousOrigin = reparented && host.window != nil ? convert(host.bounds, from: host).origin : nil
             if reparented { addSubview(host) }
             host.isPinned = true
             host.isHidden = false
@@ -363,6 +365,20 @@ final class HeaderBackdrop: NSView {
             host.setFrameOrigin(placement.frame.origin)
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
+            if reparented, let previousOrigin, settings.titleIn > 0,
+               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                // An additive settling offset keeps subsequent scroll positions
+                // exact while easing the handoff from the inline title.
+                let settle = CABasicAnimation(keyPath: "position")
+                settle.isAdditive = true
+                settle.fromValue = NSValue(point: CGPoint(
+                    x: previousOrigin.x - placement.frame.minX,
+                    y: previousOrigin.y - placement.frame.minY))
+                settle.toValue = NSValue(point: .zero)
+                settle.duration = settings.titleIn
+                settle.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+                host.layer?.add(settle, forKey: "pinSettle")
+            }
             if reparented {
                 host.needsLayout = true
                 host.layoutSubtreeIfNeeded()
