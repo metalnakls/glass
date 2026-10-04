@@ -46,6 +46,8 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
         var selected = false
         var rowID = ""
         var separatorLeadingInset: CGFloat = 62
+        fileprivate weak var registeredController: TorrentListElevationController?
+        fileprivate var registeredID: String?
         override func layout() { super.layout(); connect() }
         override func setFrameSize(_ newSize: NSSize) { super.setFrameSize(newSize); connect() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
@@ -90,11 +92,17 @@ final class TorrentListElevationController: NSObject {
     }
     func setSwiping(_ id: String?) { swipingID = id; scheduleRefresh() }
     private var rowIDs: [String?] = []
+    private var rowIndices: [String: Int] = [:]
     private var refreshTask: Task<Void, Never>?
     private var lastSurfaceSettings: TorrentShadowSettings?
     private var separatorGeometry: (x: CGFloat, width: CGFloat, inset: CGFloat)?
     func setRows(_ ids: [String?]) {
+        guard rowIDs != ids else { return }
         rowIDs = ids
+        rowIndices.removeAll(keepingCapacity: true)
+        for (index, id) in ids.enumerated() {
+            if let id { rowIndices[id] = index }
+        }
         scheduleRefresh()
     }
     private func scheduleRefresh() {
@@ -156,12 +164,17 @@ final class TorrentListElevationController: NSObject {
         update(animated: changed)
     }
     func register(_ anchor: TorrentListElevationAnchor.Anchor) {
-        for key in anchors.keyEnumerator().allObjects as? [NSString] ?? [] {
-            if anchors.object(forKey: key) === anchor, key as String != anchor.rowID {
-                anchors.removeObject(forKey: key)
-            }
+        // A recycled host knows its previous identity; no scan of every host
+        // is needed for each registration or layout callback.
+        if anchor.registeredController === self, let oldID = anchor.registeredID,
+           oldID != anchor.rowID, anchors.object(forKey: oldID as NSString) === anchor {
+            anchors.removeObject(forKey: oldID as NSString)
         }
-        anchors.setObject(anchor, forKey: anchor.rowID as NSString)
+        if anchors.object(forKey: anchor.rowID as NSString) !== anchor {
+            anchors.setObject(anchor, forKey: anchor.rowID as NSString)
+        }
+        anchor.registeredController = self
+        anchor.registeredID = anchor.rowID
         scheduleRefresh()
         guard anchor.rowID == selectedID else { return }
         if selectedAnchor !== anchor || selectedAnchorID != anchor.rowID { select(anchor) }
@@ -208,7 +221,7 @@ final class TorrentListElevationController: NSObject {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         if overlay.frame != clip.frame { overlay.frame = clip.frame }
         guard !isReordering, let selectedID, table.numberOfRows == rowIDs.count,
-              let rowIndex = rowIDs.firstIndex(where: { $0 == selectedID }) else {
+              let rowIndex = rowIndices[selectedID] else {
             surface.layer?.removeAnimation(forKey: "glide")
             surface.layer?.removeAnimation(forKey: "appear")
             surface.layer?.opacity = 0
@@ -292,10 +305,15 @@ final class TorrentListElevationController: NSObject {
         }
         guard let geometry = separatorGeometry else { return }
         separators.frame = table.bounds
-        let rows = rowIDs.enumerated().compactMap { index, id -> SelectionSeparatorCanvas.Row? in
-            guard let id else { return nil }
+        let visibleRows = table.rows(in: table.visibleRect.insetBy(dx: 0, dy: -60))
+        guard visibleRows.location != NSNotFound else {
+            separators.update([], selectedID: highlightID, settings: settings)
+            return
+        }
+        let end = min(rowIDs.count, NSMaxRange(visibleRows))
+        let rows = (min(visibleRows.location, end)..<end).compactMap { index -> SelectionSeparatorCanvas.Row? in
+            guard let id = rowIDs[index] else { return nil }
             let nativeRect = table.rect(ofRow: index)
-            guard nativeRect.intersects(table.visibleRect.insetBy(dx: 0, dy: -60)) else { return nil }
             let nextID = index + 1 < rowIDs.count ? rowIDs[index + 1] : nil
             let rect = CGRect(x: geometry.x, y: nativeRect.minY + 3,
                               width: geometry.width, height: max(0, nativeRect.height - 6))
