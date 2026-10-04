@@ -69,6 +69,14 @@ struct TorrentListElevationTests {
         #expect(surface.frame.width == table.bounds.width - 40)
     }
 
+    @Test("swipe actions remain behind transparent artwork rather than a rectangular cutoff")
+    func artworkSwipeBoundary() {
+        let path = SwipeRevealMask(offset: 40, inset: 76, trailingInset: 24)
+            .path(in: CGRect(x: 0, y: 0, width: 400, height: 48))
+        #expect(path.contains(CGPoint(x: 70, y: 24), eoFill: true))
+        #expect(!path.contains(CGPoint(x: 180, y: 24), eoFill: true))
+    }
+
     @MainActor @Test("the shared card envelope contains every tuned icon pose")
     func artworkEnvelope() {
         for role in [TorrentIconRole.folder, .fan, .artwork, .document] {

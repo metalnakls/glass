@@ -1,7 +1,8 @@
 import AppKit
 import SwiftUI
 
-/// Native trackpad deltas move the foreground; actions are cut out behind its rounded frame.
+/// Trackpad deltas move the foreground. The text/control body masks actions;
+/// artwork stays transparent and occludes them with its own actual silhouette.
 struct TorrentSwipeRow<Content: View>: View {
     struct Action {
         let name: String
@@ -18,6 +19,7 @@ struct TorrentSwipeRow<Content: View>: View {
     var commitsOnRelease: Bool
     var foregroundInset: CGFloat
     var foregroundTrailingInset: CGFloat
+    var artworkWidth: CGFloat
     @State private var offset: CGFloat = 0
     @State private var width: CGFloat = 300
     @State private var committed = false
@@ -25,7 +27,7 @@ struct TorrentSwipeRow<Content: View>: View {
     @Environment(\.colorScheme) private var colorScheme
 
     init(selected: Bool, remove: @escaping (Bool) -> Void, presentationChanged: @escaping (Bool) -> Void,
-         commitsOnRelease: Bool = false, compactActions: Bool = false, foregroundInset: CGFloat = 0, foregroundTrailingInset: CGFloat? = nil,
+         commitsOnRelease: Bool = false, compactActions: Bool = false, foregroundInset: CGFloat = 0, foregroundTrailingInset: CGFloat? = nil, artworkWidth: CGFloat = 0,
          leading: Action = Action(name: "Delete Torrent", symbol: "xmark", color: .yellow),
          trailing: Action = Action(name: "Delete Torrent + Data", symbol: "trash", color: .red),
          @ViewBuilder content: () -> Content) {
@@ -34,6 +36,7 @@ struct TorrentSwipeRow<Content: View>: View {
         self.remove = remove; self.presentationChanged = presentationChanged
         self.commitsOnRelease = commitsOnRelease; self.foregroundInset = foregroundInset
         self.foregroundTrailingInset = foregroundTrailingInset ?? foregroundInset
+        self.artworkWidth = artworkWidth
         self.content = content()
     }
 
@@ -48,7 +51,7 @@ struct TorrentSwipeRow<Content: View>: View {
             .opacity(min(abs(offset) / 36, 1))
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: offset > 0 ? .leading : .trailing)
             .mask {
-                SwipeRevealMask(offset: offset, inset: foregroundInset, trailingInset: foregroundTrailingInset)
+                SwipeRevealMask(offset: offset, inset: foregroundInset + artworkWidth, trailingInset: foregroundTrailingInset)
                     .fill(style: FillStyle(eoFill: true))
             }
             .allowsHitTesting(abs(offset) > 40 && !committed)
@@ -57,7 +60,7 @@ struct TorrentSwipeRow<Content: View>: View {
                     if abs(offset) > 0.5 && !(commitsOnRelease && selected) {
                         RoundedRectangle(cornerRadius: 12)
                             .fill(Color(white: colorScheme == .dark ? 0.12 : 1))
-                            .padding(.leading, foregroundInset).padding(.trailing, foregroundTrailingInset).padding(.vertical, 3)
+                            .padding(.leading, foregroundInset + artworkWidth).padding(.trailing, foregroundTrailingInset).padding(.vertical, 3)
                     }
                 }
                 .offset(x: offset)
@@ -106,7 +109,7 @@ struct TorrentSwipeRow<Content: View>: View {
     }
 }
 
-private struct SwipeRevealMask: Shape {
+struct SwipeRevealMask: Shape {
     var offset: CGFloat
     var inset: CGFloat
     var trailingInset: CGFloat

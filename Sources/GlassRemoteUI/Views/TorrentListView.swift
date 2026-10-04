@@ -480,7 +480,7 @@ private struct TorrentListLiveRow: View {
     private var artworkOverflow: CGFloat { density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0 }
 
     var body: some View {
-        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : leftPadding + 2 - artworkOverflow, foregroundTrailingInset: grid ? 0 : rightPadding + 2) {
+        TorrentSwipeRow(selected: isSelected, remove: removeRow, presentationChanged: swipePresentationChanged, commitsOnRelease: true, foregroundInset: grid ? 0 : leftPadding + 2 - artworkOverflow, foregroundTrailingInset: grid ? 0 : rightPadding + 2, artworkWidth: density.showsIcon && !grid ? 50 + artworkOverflow : 0) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
