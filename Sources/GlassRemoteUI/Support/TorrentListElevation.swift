@@ -134,10 +134,11 @@ final class TorrentListElevationController: NSObject {
     }
     func select(_ anchor: NSView) {
         let id = (anchor as? TorrentListElevationAnchor.Anchor)?.rowID
-        let changed = selectedAnchor !== anchor || selectedAnchorID != id
+        let changed = selectedAnchorID != id
+        let anchorChanged = selectedAnchor !== anchor
         selectedAnchor = anchor
         selectedAnchorID = id
-        if changed {
+        if changed || anchorChanged {
             for view in movementViews { NotificationCenter.default.removeObserver(self, name: NSView.frameDidChangeNotification, object: view); NotificationCenter.default.removeObserver(self, name: NSView.boundsDidChangeNotification, object: view) }
             movementViews.removeAll()
             var ancestor: NSView? = anchor
@@ -204,22 +205,31 @@ final class TorrentListElevationController: NSObject {
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         if overlay.frame != clip.frame { overlay.frame = clip.frame }
-        guard let selectedAnchor = selectedAnchor as? TorrentListElevationAnchor.Anchor,
-              selectedAnchor.rowID == selectedID, selectedAnchor.window === table.window else {
+        guard let selectedID, table.numberOfRows == rowIDs.count,
+              let rowIndex = rowIDs.firstIndex(where: { $0 == selectedID }) else {
+            surface.layer?.removeAnimation(forKey: "glide")
+            surface.layer?.removeAnimation(forKey: "appear")
             surface.layer?.opacity = 0
             surfaceVisible = false
             updateSeparators(highlightID: nil)
             overlay.show(nil, settings: settings, animated: animated)
             return
         }
-        // The anchor fills the actual SwiftUI card background. Its bounds are
-        // the single source of truth for the card, outline, cutout and shadows.
-        var surfaceRect = table.convert(selectedAnchor.bounds, from: selectedAnchor)
+        // Selection is an identity, not the last frame reported by a recycled
+        // SwiftUI host. Native row bounds also keep expansion and resizing in sync.
+        let nativeRow = table.rect(ofRow: rowIndex)
+        guard !nativeRow.isEmpty else { return }
+        var surfaceRect = nativeRow.insetBy(dx: 0, dy: 3)
         if let geometry = cardGeometry {
-            // The column determines width even while SwiftUI is still laying out
-            // its row hosts. Only an active swipe can change horizontal origin.
-            if swipingID != selectedID { surfaceRect.origin.x = geometry.leading }
+            surfaceRect.origin.x = geometry.leading
             surfaceRect.size.width = max(0, table.bounds.width - geometry.leading - geometry.trailing)
+        }
+        // Swiping moves the foreground horizontally, while row placement stays native.
+        if swipingID == selectedID,
+           let anchor = anchors.object(forKey: selectedID as NSString),
+           anchor.rowID == selectedID, anchor.window === table.window {
+            let anchorRect = table.convert(anchor.bounds, from: anchor)
+            surfaceRect.origin.x = anchorRect.minX
         }
         surfaceRect = Self.resizedHighlight(surfaceRect, adjustment: settings.highlightWidth)
         let rect = overlay.convert(surfaceRect, from: table)
