@@ -2,7 +2,14 @@ import Foundation
 
 /// A suffix is hidden only when every file in the torrent uses the same media type.
 enum TorrentExtensionPolicy {
-    static let mediaExtensions: Set<String> = ["mkv", "mov", "mp4", "wav", "flac", "mp3"]
+    /// Playable media containers only. Subtitles, artwork, disc images and archives are never hidden.
+    ///
+    /// Video entries mirror `TorrentNameCleaner.mediaExtensions`; `divx` and `xvid` cover the
+    /// legacy peers of `avi`, and `wav`/`flac`/`mp3` cover audio.
+    static let mediaExtensions: Set<String> = [
+        "avi", "divx", "flac", "m2ts", "m4v", "mkv", "mov", "mp3", "mp4",
+        "mpeg", "mpg", "ts", "wav", "webm", "xvid"
+    ]
 
     static func hiddenExtension(paths: [String]) -> String? {
         guard let first = paths.first else { return nil }
