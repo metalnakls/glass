@@ -416,11 +416,11 @@ struct TorrentFileIcon: View {
                 .frame(width: size, height: size)
                 .shadow(color: .black.opacity(funMode ? 0.10 : 0), radius: 3, y: 2)
         } else {
-        Image(nsImage: thumbnail ?? nativeIcon)
+        Image(nsImage: displayedThumbnail ?? nativeIcon)
             .resizable()
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)
-            .shadow(color: (coloredShadows && thumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
+            .shadow(color: (coloredShadows && displayedThumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
             .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
             .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
                 if sampleArtwork {
@@ -432,13 +432,16 @@ struct TorrentFileIcon: View {
                 guard isVisible else { return }
                 thumbnail = TorrentThumbnailService.shared.cachedImage(for: input)
                 if let thumbnail { artworkTint = TorrentArtworkTint.color(thumbnail) }
-                do { try await Task.sleep(for: .milliseconds(250)) } catch { return }
                 let image = await TorrentThumbnailService.shared.image(for: input)
                 guard !Task.isCancelled else { return }
                 thumbnail = image
                 if let image { artworkTint = TorrentArtworkTint.color(image) }
             }
         }
+    }
+
+    private var displayedThumbnail: NSImage? {
+        thumbnail ?? thumbnailInput.flatMap { TorrentThumbnailService.shared.cachedImage(for: $0) }
     }
 
     private var nativeIcon: NSImage {

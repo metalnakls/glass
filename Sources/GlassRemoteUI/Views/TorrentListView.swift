@@ -53,6 +53,7 @@ struct TorrentListView: View {
     }
     @State private var elevationController = TorrentListElevationController()
     @State private var folderMotion = TorrentFolderMotion()
+    @State private var artworkPreloader = TorrentArtworkPreloader()
     @State private var swipingRowID: String?
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -182,8 +183,10 @@ struct TorrentListView: View {
             elevationController.observeTable { table in
                 stickyHeaders.attach(table)
                 folderMotion.attach(table)
+                artworkPreloader.attach(table)
             }
         }
+        .onChange(of: artworkInputs, initial: true) { _, inputs in artworkPreloader.setInputs(inputs) }
         .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
@@ -206,8 +209,8 @@ struct TorrentListView: View {
             }
             synchronizePresentation(animated: false)
         }
-        .onDisappear { elevationController.detach(); folderMotion.detach() }
-        .onChange(of: grid) { _, value in if value { elevationController.detach(); folderMotion.detach() } }
+        .onDisappear { elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() }
+        .onChange(of: grid) { _, value in if value { elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() } }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
@@ -272,6 +275,11 @@ struct TorrentListView: View {
             remove: remove,
             toggleTransfers: { await toggleTransfers(for: row) }
         )
+        .onScrollVisibilityChange(threshold: 0.1) { visible in
+            guard grid, visible,
+                  let index = TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).firstIndex(where: { $0.id == row.id }) else { return }
+            artworkPreloader.prefetchAround(index)
+        }
         .draggable(TorrentReorderItem(id: row.id))
         .dropDestination(for: TorrentReorderItem.self) { items, _ in
             guard let id = items.first?.id, id != row.id,
@@ -284,6 +292,13 @@ struct TorrentListView: View {
             }
             Task { await model.reorder(hashes(dragged), before: hashes(row), sourceID: row.sourceID) }
             return true
+        }
+    }
+
+    private var artworkInputs: [TorrentThumbnailInput?] {
+        TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map { entry in
+            guard case let .torrent(row) = entry, let record = row.torrentRecord else { return nil }
+            return TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID)
         }
     }
 
