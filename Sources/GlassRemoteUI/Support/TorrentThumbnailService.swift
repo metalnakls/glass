@@ -79,6 +79,8 @@ final class TorrentThumbnailService {
     @ObservationIgnored private let defaults: UserDefaults
     @ObservationIgnored private let diskDirectory: URL
     @ObservationIgnored private let images = NSCache<NSString, CachedThumbnail>()
+    // Stable keys avoid repeating SHA-256 and hex formatting during row updates.
+    @ObservationIgnored private var lookupKeys: [TorrentThumbnailInput: String] = [:]
     @ObservationIgnored private var failures: [String: Date] = [:]
     @ObservationIgnored private var pending: [String: Work] = [:]
     @ObservationIgnored private var queue: [String] = []
@@ -206,6 +208,7 @@ final class TorrentThumbnailService {
         updated[sourceID.uuidString] = TorrentThumbnailFolderLink(remoteRoot: remoteRoot, localPath: previous.localPath, bookmark: previous.bookmark)
         defaults.set(try JSONEncoder().encode(updated), forKey: Self.defaultsKey)
         links = updated
+        lookupKeys.removeAll(keepingCapacity: true)
         images.removeAllObjects()
         failures.removeAll()
         cancelAll()
@@ -213,9 +216,14 @@ final class TorrentThumbnailService {
     }
 
     private func cacheKey(_ input: TorrentThumbnailInput) -> String {
+        if let key = lookupKeys[input] { return key }
         let link = link(for: input.sourceID)
         let value = input.key + "|" + (link?.remoteRoot ?? "") + "|" + (link?.localPath ?? "")
-        return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        let key = SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+        // Bound bookkeeping independently of the image cache for long-running libraries.
+        if lookupKeys.count >= 4096 { lookupKeys.removeAll(keepingCapacity: true) }
+        lookupKeys[input] = key
+        return key
     }
 
     func setLink(sourceID: UUID, remoteRoot: String, localURL: URL?) async throws {
@@ -234,6 +242,7 @@ final class TorrentThumbnailService {
         } else { updated[sourceID.uuidString] = nil }
         defaults.set(try JSONEncoder().encode(updated), forKey: Self.defaultsKey)
         links = updated
+        lookupKeys.removeAll(keepingCapacity: true)
         images.removeAllObjects()
         failures.removeAll()
         cancelAll()
