@@ -1,4 +1,6 @@
 {
+  "GlassWindow.defaultWidth" : 760,
+  "GlassWindow.defaultHeight" : 444,
   "GlassList.sectionSpacing" : 16,
   "GlassList.headerBottomPadding" : 0,
   "GlassList.columnDarkBrightness" : 0.10843983208955224,

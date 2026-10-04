@@ -135,6 +135,7 @@ public struct SelectionAppearanceView: View {
                         if try GlassAppearanceDefaults.save() { saveStatus = "Saved. Publish with Scripts/push-tunes." }
                     } catch { saveStatus = error.localizedDescription }
                 }
+                .help("Save appearance tuning and the main window’s current size as defaults.")
                 if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
             }
             .padding(16)

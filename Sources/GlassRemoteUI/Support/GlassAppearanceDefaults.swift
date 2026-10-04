@@ -27,6 +27,15 @@ public enum GlassAppearanceDefaults {
         if defaults === UserDefaults.standard { GlassTuningUpdates.shared.loadCached() }
     }
 
+    /// Saved with the appearance tune so new windows share the chosen dimensions.
+    public static var mainWindowSize: CGSize {
+        let defaults = UserDefaults.standard
+        let width = defaults.double(forKey: "GlassWindow.defaultWidth")
+        let height = defaults.double(forKey: "GlassWindow.defaultHeight")
+        return CGSize(width: width.isFinite && width >= 680 ? width : 760,
+                      height: height.isFinite && height >= 260 ? height : 444)
+    }
+
     static func snapshot(in defaults: UserDefaults = .standard) -> [String: Any] {
         var values = bundled
         for key in values.keys {
@@ -45,6 +54,11 @@ public enum GlassAppearanceDefaults {
         panel.directoryURL = source.deletingLastPathComponent()
         panel.nameFieldStringValue = source.lastPathComponent
         guard panel.runModal() == .OK, let url = panel.url else { return false }
+        if let window = NSApp.windows.first(where: { $0.title == "Glass" && $0.sheetParent == nil }) {
+            let size = window.contentLayoutRect.size
+            UserDefaults.standard.set(size.width, forKey: "GlassWindow.defaultWidth")
+            UserDefaults.standard.set(size.height, forKey: "GlassWindow.defaultHeight")
+        }
         let data = try JSONSerialization.data(withJSONObject: snapshot(), options: [.prettyPrinted, .sortedKeys])
         try data.write(to: url, options: .atomic)
         return true

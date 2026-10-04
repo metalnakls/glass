@@ -43,7 +43,8 @@ struct GlassApp: App {
                 }
         }
         .windowStyle(.hiddenTitleBar)
-        .defaultSize(width: 760, height: 444)
+        .defaultSize(width: GlassAppearanceDefaults.mainWindowSize.width,
+                     height: GlassAppearanceDefaults.mainWindowSize.height)
         .windowResizability(.contentMinSize)
         .commands {
             GlassCommands(updaterController: updaterController)
