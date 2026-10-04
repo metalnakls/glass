@@ -17,6 +17,7 @@
   "GlassList.headerTitleOut": 0.22,
   "GlassList.highlightColorDark": "232323",
   "GlassList.highlightColorLight": "FFFFFF",
+  "GlassList.highlightWidth": 0,
   "GlassList.itemVerticalPadding": 0,
   "GlassList.leftPadding": 23.559701492537307,
   "GlassList.lowercaseTitles": true,
