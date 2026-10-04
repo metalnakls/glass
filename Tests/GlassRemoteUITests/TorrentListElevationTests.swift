@@ -67,6 +67,18 @@ struct TorrentListElevationTests {
         for _ in 0..<4 { await Task.yield() }
         #expect(surface.frame.minX == 20)
         #expect(surface.frame.width == table.bounds.width - 40)
+        // Transient SwiftUI expansion frames must never become selection geometry.
+        b.frame = CGRect(x: 20, y: 230, width: 90, height: 100)
+        controller.register(b)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(surface.frame.minY == table.rect(ofRow: 2).minY + 3)
+        #expect(surface.frame.height == table.rect(ofRow: 2).height - 6)
+        // Even recycling the selected host cannot pin the card to the wrong row.
+        b.rowID = "e"
+        controller.register(b)
+        controller.setRows([nil, "a", "c", "d", nil, "e", "b"])
+        for _ in 0..<4 { await Task.yield() }
+        #expect(surface.frame.minY == table.rect(ofRow: 6).minY + 3)
     }
 
     @Test("swipe actions remain behind transparent artwork rather than a rectangular cutoff")
