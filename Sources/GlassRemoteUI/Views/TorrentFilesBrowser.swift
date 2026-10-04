@@ -106,15 +106,17 @@ struct TorrentFilesBrowser: View {
                         Button("Low Priority", systemImage: "arrow.down") { setPriority(row, -1) }
                         if let onSmartRename { Divider(); Button("Smart Rename", action: onSmartRename) }
                     }
-                }.width(max(50, geometry.size.width - 170))
-                TableColumn("") { row in
-                    Image(systemName: statusSymbol(row, byIndex: byIndex))
-                        .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .center)
-                }.width(18)
+                }.width(min: 80, ideal: 180, max: .infinity)
                 TableColumn("Size") { row in
-                    Text(formatBytes(row.size)).monospacedDigit()
-                        .foregroundStyle(.secondary).frame(maxWidth: .infinity, alignment: .trailing)
-                }.width(68)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Image(systemName: statusSymbol(row, byIndex: byIndex))
+                            .accessibilityLabel(statusLabel(row, byIndex: byIndex))
+                        Text(formatBytes(row.size)).monospacedDigit()
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .trailing)
+                }.width(80)
             }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) {
@@ -134,7 +136,7 @@ struct TorrentFilesBrowser: View {
             .font(.system(size: 12))
             .frame(width: geometry.size.width, height: geometry.size.height)
             }
-            .frame(height: CGFloat(max(rows.count, 1)) * 24 + 28)
+            .frame(height: CGFloat(max(rows.count, 1)) * 36 + 28)
         }
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
@@ -171,6 +173,13 @@ struct TorrentFilesBrowser: View {
     private func applyPriority(_ indices: [Int], _ value: Int) {
         if let onSetPriorities { onSetPriorities(indices, value) }
         else { for index in indices { onSetPriority(index, value) } }
+    }
+    private func statusLabel(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> String {
+        switch statusSymbol(row, byIndex: byIndex) {
+        case "minus.circle": "Skipped"
+        case "checkmark": "Complete"
+        default: "Downloading"
+        }
     }
     private func statusSymbol(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> String {
         let members = row.indices.compactMap { byIndex[$0] }
