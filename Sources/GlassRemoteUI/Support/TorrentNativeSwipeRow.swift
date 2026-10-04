@@ -51,51 +51,17 @@ private struct NativeSwipeReleaseAnchor: NSViewRepresentable {
 
     final class Anchor: NSView {
         var released: ((Bool) -> Void)?
-        private var monitor: Any?
-        private var tracking = false
-        private var vertical = false
-        private var offset: CGFloat = 0
-        private var fullThreshold: CGFloat = 180
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
             stop()
-            guard window != nil else { return }
-            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
-                guard let self, event.window === self.window,
-                      event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
-                      !event.phase.isEmpty else { return event }
-                if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
-                    self.tracking = false; self.vertical = false; self.offset = 0
-                }
-                if !self.tracking {
-                    guard !self.vertical, self.isOverRow(event) else { return event }
-                    if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
-                        self.vertical = true
-                        return event
-                    }
-                    guard abs(event.scrollingDeltaX) > 0 else { return event }
-                    self.tracking = true
-                    self.fullThreshold = max(180, self.bounds.width * 0.55)
-                }
-                self.offset += event.scrollingDeltaX
-                if event.phase.contains(.ended) || event.phase.contains(.cancelled) {
-                    self.tracking = false
-                    if !event.phase.contains(.cancelled), abs(self.offset) >= 56 {
-                        let deleteData = abs(self.offset) >= self.fullThreshold
-                        // Let SwiftUI finish processing the release before changing rows.
-                        Task { @MainActor [weak self] in
-                            await Task.yield()
-                            self?.released?(deleteData)
-                        }
-                    }
-                }
-                return event
-            }
+            if window != nil { NativeSwipeReleaseCoordinator.shared.register(self) }
         }
-        private func isOverRow(_ event: NSEvent) -> Bool {
-            guard bounds.contains(convert(event.locationInWindow, from: nil)),
-                  let window, let hit = window.contentView?.hitTest(window.contentView!.convert(event.locationInWindow, from: nil)) else { return false }
+        fileprivate func isOverRow(_ event: NSEvent) -> Bool {
+            guard event.window === window,
+                  bounds.contains(convert(event.locationInWindow, from: nil)),
+                  let content = window?.contentView,
+                  let hit = content.hitTest(content.convert(event.locationInWindow, from: nil)) else { return false }
             var ancestor = superview
             while let view = ancestor {
                 if let table = view as? NSTableView {
@@ -106,10 +72,67 @@ private struct NativeSwipeReleaseAnchor: NSViewRepresentable {
             }
             return false
         }
-        func stop() {
-            if let monitor { NSEvent.removeMonitor(monitor); self.monitor = nil }
-            tracking = false; vertical = false; offset = 0
+        func stop() { NativeSwipeReleaseCoordinator.shared.unregister(self) }
+        isolated deinit { NativeSwipeReleaseCoordinator.shared.unregister(self) }
+    }
+}
+
+/// One passive event observer serves all realized rows. Native SwiftUI retains
+/// every event; only the gesture's owning row receives a release callback.
+@MainActor private final class NativeSwipeReleaseCoordinator {
+    static let shared = NativeSwipeReleaseCoordinator()
+    private let anchors = NSHashTable<NativeSwipeReleaseAnchor.Anchor>.weakObjects()
+    private var monitor: Any?
+    private weak var active: NativeSwipeReleaseAnchor.Anchor?
+    private var vertical = false
+    private var offset: CGFloat = 0
+    private var fullThreshold: CGFloat = 180
+
+    func register(_ anchor: NativeSwipeReleaseAnchor.Anchor) {
+        anchors.add(anchor)
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+            self?.observe(event)
+            return event
         }
-        isolated deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
+    }
+    func unregister(_ anchor: NativeSwipeReleaseAnchor.Anchor) {
+        anchors.remove(anchor)
+        if active === anchor { active = nil; offset = 0 }
+        if anchors.allObjects.isEmpty, let monitor {
+            NSEvent.removeMonitor(monitor)
+            self.monitor = nil
+        }
+    }
+    private func observe(_ event: NSEvent) {
+        guard event.hasPreciseScrollingDeltas, event.momentumPhase.isEmpty,
+              !event.phase.isEmpty else { return }
+        if event.phase.contains(.began) || event.phase.contains(.mayBegin) {
+            active = nil; vertical = false; offset = 0
+        }
+        if active == nil {
+            guard !vertical else { return }
+            if abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+                vertical = true
+                return
+            }
+            guard abs(event.scrollingDeltaX) > 0,
+                  let anchor = anchors.allObjects.first(where: { $0.isOverRow(event) }) else { return }
+            active = anchor
+            fullThreshold = max(180, anchor.bounds.width * 0.55)
+        }
+        guard let anchor = active, event.window === anchor.window else { return }
+        offset += event.scrollingDeltaX
+        guard event.phase.contains(.ended) || event.phase.contains(.cancelled) else { return }
+        active = nil
+        guard !event.phase.contains(.cancelled), abs(offset) >= 56 else { return }
+        let deleteData = abs(offset) >= fullThreshold
+        // Capture the owning row's callback now. A recycled host must never
+        // dispatch this release to the replacement row after yielding.
+        let released = anchor.released
+        Task { @MainActor in
+            await Task.yield()
+            released?(deleteData)
+        }
     }
 }
