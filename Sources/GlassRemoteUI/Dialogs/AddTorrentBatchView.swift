@@ -170,37 +170,41 @@ struct AddTorrentBatchView: View {
         isAdding = true
         defer { isAdding = false }
 
-        var failures: [String] = []
-        for group in groups {
-            for (offset, itemIndex) in group.itemIndices.enumerated() {
-                let item = items[itemIndex]
-                guard !item.wasAdded else { continue }
-                let result = await submit(
-                    item.draft,
-                    sourceID,
-                    submissionName(for: item, in: group, offset: offset),
-                    downloadDirectory(for: item, in: group),
-                    item.fileSelection,
-                    namingPlan(for: item, in: group, offset: offset)
-                )
-                if result.succeeded {
-                    item.wasAdded = true
-                    if let hashString = result.torrent?.hashString, !hashString.isEmpty {
-                        lastAddedTorrentHash = hashString
-                    }
-                } else {
-                    failures.append("\(item.normalizedName): \(model.errorMessage ?? "Glass couldn’t add this torrent.")")
-                    model.errorMessage = nil
-                }
+        // Snapshot the submission before dismissing: modifier keys and modal state
+        // cannot change the batch while the server processes its members.
+        let jobs = groups.flatMap { group in
+            group.itemIndices.enumerated().compactMap { offset, index -> (TorrentBatchItemState, String, String?, TorrentAddNamingPlan?)? in
+                let item = items[index]
+                guard !item.wasAdded else { return nil }
+                return (item, submissionName(for: item, in: group, offset: offset),
+                        downloadDirectory(for: item, in: group),
+                        namingPlan(for: item, in: group, offset: offset))
             }
         }
-
-        if failures.isEmpty {
-            didFinishAdding(sourceID, lastAddedTorrentHash)
-            dismiss()
-        } else {
-            addErrorMessage = failures.joined(separator: "\n")
+        let destinationSource = sourceID
+        for (item, name, directory, plan) in jobs {
+            model.prepareTorrentAddition(id: item.draft.id, sourceID: destinationSource,
+                name: name, size: item.draft.preview.size, fileCount: item.draft.preview.files.count,
+                downloadDirectory: directory, namingPlan: plan)
         }
+        model.selectedProfileID = destinationSource
+        model.selectedTorrentGroup = .all
+        dismiss()
+
+        var failures: [String] = []
+        var addedHash: String?
+        for (item, name, directory, plan) in jobs {
+            let result = await submit(item.draft, destinationSource, name, directory, item.fileSelection, plan)
+            if result.succeeded {
+                item.wasAdded = true
+                if let hash = result.torrent?.hashString, !hash.isEmpty { addedHash = hash }
+            } else {
+                failures.append("\(item.normalizedName): \(model.errorMessage ?? "Glass couldn’t add this torrent.")")
+                model.errorMessage = nil
+            }
+        }
+        if let addedHash { didFinishAdding(destinationSource, addedHash) }
+        if !failures.isEmpty { model.errorMessage = failures.joined(separator: "\n") }
     }
 
     private var resolvedBaseDownloadDirectory: String? {

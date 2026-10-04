@@ -205,7 +205,7 @@ public struct GlassRootView: View {
 
     private var selectedRecord: TorrentRecord? {
         guard let selectedTorrentID else { return nil }
-        return model.allTorrentRecords.first { $0.id == selectedTorrentID }
+        return model.allTorrentRecords.first { $0.id == selectedTorrentID && !$0.isAdding }
     }
 
     private var selectedGroup: TorrentNameSequenceGroup? {
@@ -371,6 +371,7 @@ public struct GlassRootView: View {
             sourceID: sourceID,
             sourceURL: draft.sourceURL,
             trashSourceOnSuccess: true,
+            pendingAdditionID: draft.id,
             onSuccess: { addedTorrent = $0 }
         )
         return TorrentFileAddSubmissionResult(succeeded: succeeded, torrent: addedTorrent)
@@ -400,7 +401,7 @@ public struct GlassRootView: View {
             await model.loadDetails(for: nil)
             return
         }
-        if let record = model.allTorrentRecords.first(where: { $0.id == selectedTorrentID }) {
+        if let record = model.allTorrentRecords.first(where: { $0.id == selectedTorrentID && !$0.isAdding }) {
             await model.loadDetails(for: record.summary, sourceID: record.sourceID)
             return
         }
@@ -408,7 +409,7 @@ public struct GlassRootView: View {
             await model.loadDetails(for: nil)
             return
         }
-        await model.loadDetails(for: row.torrentRecord?.summary, sourceID: row.sourceID)
+        await model.loadDetails(for: row.torrentRecord.flatMap { $0.isAdding ? nil : $0.summary }, sourceID: row.sourceID)
     }
 
     private func removeSelectedTorrent(deleteData: Bool) {
@@ -417,7 +418,7 @@ public struct GlassRootView: View {
         } else if let row = presentation.rows.first(where: { $0.id == selectedTorrentID }),
                   case let .group(records, _, _) = row.kind {
             selectedTorrentID = nil
-            for record in records { scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData) }
+            for record in records where !record.isAdding { scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData) }
         }
     }
 

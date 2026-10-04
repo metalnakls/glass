@@ -7,6 +7,48 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("adding rows survive stale snapshots and retire when the server row arrives")
+    func pendingAdditionLifecycle() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID()
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "New movie",
+            size: 100, fileCount: 1, downloadDirectory: "/downloads", namingPlan: nil)
+        let pending = try #require(model.allTorrentRecords.first)
+        #expect(pending.isAdding)
+        #expect(pending.summary.isUnfinished)
+        let revision = model.libraryStructureRevision
+        // An unrelated snapshot must not remove an unacknowledged addition.
+        await model.refresh(sourceID: profile.id)
+        #expect(model.allTorrentRecords.contains { $0 === pending })
+        let added = await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
+            sourceID: profile.id, pendingAdditionID: id)
+        #expect(added)
+        #expect(!model.allTorrentRecords.contains { $0.isAdding })
+        #expect(model.libraryStructureRevision > revision)
+        #expect(model.allTorrentRecords.filter { $0.hashString == "hash-1" }.count == 1)
+    }
+
+    @Test("failed additions remove only their own pending row")
+    func failedPendingAddition() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        await client.setAddTorrentError(TestError.failed)
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let first = UUID(), second = UUID()
+        for id in [first, second] {
+            model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "New movie",
+                size: 100, fileCount: 1, downloadDirectory: "/downloads", namingPlan: nil)
+        }
+        let added = await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
+            sourceID: profile.id, pendingAdditionID: first)
+        #expect(!added)
+        #expect(model.allTorrentRecords.count == 1)
+        #expect(model.allTorrentRecords.first?.hashString == "adding:\(second.uuidString)")
+        #expect(model.errorMessage != nil)
+    }
+
     @Test("all sources retain separate identities and source-scoped deltas")
     func allSourcesKeepSeparateRecords() async throws {
         let first = makeProfile()

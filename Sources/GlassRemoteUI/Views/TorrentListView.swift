@@ -284,6 +284,14 @@ struct TorrentListView: View {
         .dropDestination(for: TorrentReorderItem.self) { items, _ in
             guard let id = items.first?.id, id != row.id,
                   let dragged = presentation.rows.first(where: { $0.id == id }), dragged.sourceID == row.sourceID else { return false }
+            switch dragged.kind {
+            case let .torrent(record, _): if record.isAdding { return false }
+            case let .group(records, _, _): if records.contains(where: { $0.isAdding }) { return false }
+            }
+            switch row.kind {
+            case let .torrent(record, _): if record.isAdding { return false }
+            case let .group(records, _, _): if records.contains(where: { $0.isAdding }) { return false }
+            }
             @MainActor func hashes(_ item: TorrentListRowPresentation) -> [String] {
                 switch item.kind {
                 case let .torrent(record, _): return [record.hashString]
@@ -303,6 +311,10 @@ struct TorrentListView: View {
     }
 
     private func performFileAction(for row: TorrentListRowPresentation, action: TorrentFileActions.Action) {
+        switch row.kind {
+        case let .torrent(record, _): if record.isAdding { return }
+        case let .group(records, _, _): if records.contains(where: { $0.isAdding }) { return }
+        }
         let directory: String
         let path: String
         switch row.kind {
@@ -338,7 +350,7 @@ struct TorrentListView: View {
 
     private var selectedTorrent: TorrentSummary? {
         guard let selection else { return nil }
-        return records.first { $0.id == selection }?.summary
+        return records.first { $0.id == selection && !$0.isAdding }?.summary
     }
 
     private func toggleAutoGroup(_ row: TorrentListRowPresentation) {
@@ -423,7 +435,7 @@ struct TorrentListView: View {
                 return await model.start(torrent, sourceID: record.sourceID)
             }
         case let .group(records, _, _):
-            return await toggleGroupTransfers(records)
+            return await toggleGroupTransfers(records.filter { !$0.isAdding })
         }
     }
 
@@ -515,12 +527,14 @@ private struct TorrentListLiveRow: View {
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
+            isAdding: isAdding,
             shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             fileAction: fileAction,
             toggleTransfer: toggleTransfers
         )
         .equatable()
+        .allowsHitTesting(!isAdding)
         .frame(minHeight: grid ? 164 : rowHeight)
         .background {
             // The card extends 14 points beyond the content on each side, and
@@ -552,6 +566,7 @@ private struct TorrentListLiveRow: View {
     }
 
     private func removeRow(deleteData: Bool) {
+        guard !isAdding else { return }
         switch row.kind {
         case let .torrent(record, _): remove(record.summary, record.sourceID, deleteData)
         case let .group(records, _, _):
@@ -572,9 +587,17 @@ private struct TorrentListLiveRow: View {
         }
     }
 
+    private var isAdding: Bool {
+        switch row.kind {
+        case let .torrent(record, _): return record.isAdding
+        case let .group(records, _, _): return records.contains { $0.isAdding }
+        }
+    }
+
     private var shareUnavailable: Bool {
         func isUnavailable(_ record: TorrentRecord) -> Bool {
-            record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
+            if record.isAdding { return false }
+            return record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
                 sourceID: record.sourceID, directory: record.summary.downloadDir,
                 isLocal: record.sourceID == model.localSourceID
             )

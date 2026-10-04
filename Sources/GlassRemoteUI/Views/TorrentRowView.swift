@@ -27,6 +27,7 @@ struct TorrentRowView: View, Equatable {
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
+    var isAdding = false
     var shareUnavailable = false
     var thumbnailInput: TorrentThumbnailInput?
     var fileAction: ((TorrentFileActions.Action) -> Void)?
@@ -44,6 +45,7 @@ struct TorrentRowView: View, Equatable {
                 }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
             } else { row }
         }
+        .opacity(isAdding ? 0.45 : 1)
         .background(TorrentArtworkOverflow(enabled: funMode && !grid, order: iconPosition))
         .contentShape(Rectangle())
         .onChange(of: torrent.canStopTransfer) { _, running in
@@ -96,6 +98,7 @@ struct TorrentRowView: View, Equatable {
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
+            && lhs.isAdding == rhs.isAdding
             && lhs.shareUnavailable == rhs.shareUnavailable
             && lhs.thumbnailInput == rhs.thumbnailInput
     }
@@ -217,7 +220,7 @@ struct TorrentRowView: View, Equatable {
 
     private var transferButton: some View {
         ZStack {
-            if !stateGlass && !progressFilled {
+            if !isAdding && !stateGlass && !progressFilled {
                 Circle()
                     .stroke(Color.primary.opacity(0.12), lineWidth: progressLineWidth)
                     .allowsHitTesting(false)
@@ -243,7 +246,10 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var stateControl: some View {
-        if stateGlass {
+        if isAdding {
+            GlassActivityIndicator(label: "Adding torrent")
+                .frame(width: stateDiameter, height: stateDiameter)
+        } else if stateGlass {
             Button(action: requestStateChange) { stateGlyph.frame(width: stateDiameter, height: stateDiameter) }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
@@ -311,6 +317,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateLabel: String {
+        if isAdding { return "Adding torrent" }
         if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
         if torrent.isCompleted { return "Finished" }
         return torrent.canStopTransfer ? "Pause" : "Resume"

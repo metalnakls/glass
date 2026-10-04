@@ -28,6 +28,7 @@ public final class TorrentRecord: Identifiable {
     public let id: String
     public let hashString: String
     public let sourceID: UUID
+    public let isAdding: Bool
     public private(set) var summary: TorrentSummary
     public private(set) var status: Int
     public private(set) var name: String
@@ -36,7 +37,8 @@ public final class TorrentRecord: Identifiable {
     public private(set) var isDownloading: Bool
     public private(set) var isCompleted: Bool
 
-    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil) {
+    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil, isAdding: Bool = false) {
+        self.isAdding = isAdding
         self.sourceID = sourceID
         id = Self.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
         hashString = summary.hashString
@@ -94,9 +96,55 @@ public final class RemoteAppModel {
     public private(set) var profiles: [RemoteProfile] = []
     public var selectedProfileID: UUID?
     public private(set) var sources: [TorrentSourceState] = []
-    public var allTorrentRecords: [TorrentRecord] { sources.flatMap(\.records) }
+    private struct PendingAddition {
+        let id: UUID
+        let record: TorrentRecord
+        var confirmedHash: String?
+    }
+    private var pendingAdditions: [PendingAddition] = []
+    private var pendingAdditionRevision = 0
+    public var allTorrentRecords: [TorrentRecord] {
+        sources.flatMap(\.records) + pendingAdditions.map(\.record)
+    }
+
+    /// Present every batch member before any request can suspend the add flow.
+    public func prepareTorrentAddition(id: UUID, sourceID: UUID, name: String,
+                                      size: UInt64, fileCount: Int, downloadDirectory: String?,
+                                      namingPlan: TorrentAddNamingPlan?) {
+        guard !pendingAdditions.contains(where: { $0.id == id }) else { return }
+        let summary = TorrentSummary(id: -1, hashString: "adding:\(id.uuidString)",
+            name: namingPlan?.rootName ?? name, status: 0, percentDone: 0,
+            metadataPercentComplete: 1, rateDownload: 0, rateUpload: 0,
+            sizeWhenDone: size, leftUntilDone: max(1, size), eta: -1, uploadRatio: 0,
+            peersConnected: nil, downloadDir: downloadDirectory, fileCount: fileCount)
+        let record = TorrentRecord(summary, sourceID: sourceID,
+            displayName: namingPlan?.displayName, season: namingPlan?.season, isAdding: true)
+        pendingAdditions.append(PendingAddition(id: id, record: record))
+        pendingAdditionRevision &+= 1
+    }
+
+    private func finishTorrentAddition(id: UUID?, result: TorrentAddResult?, succeeded: Bool) {
+        guard let id, let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
+        if succeeded, let result, !result.hashString.isEmpty {
+            pendingAdditions[index].confirmedHash = result.hashString
+            reconcilePendingAdditions()
+        } else {
+            pendingAdditions.remove(at: index)
+            pendingAdditionRevision &+= 1
+        }
+    }
+
+    private func reconcilePendingAdditions() {
+        let records = sources.flatMap(\.records)
+        let oldCount = pendingAdditions.count
+        pendingAdditions.removeAll { pending in
+            guard let hash = pending.confirmedHash else { return false }
+            return records.contains { $0.sourceID == pending.record.sourceID && $0.hashString == hash }
+        }
+        if oldCount != pendingAdditions.count { pendingAdditionRevision &+= 1 }
+    }
     public private(set) var fileMutationRevision = 0
-    public var libraryStructureRevision: Int { sources.reduce(0) { $0 &+ $1.structureRevision } }
+    public var libraryStructureRevision: Int { sources.reduce(pendingAdditionRevision) { $0 &+ $1.structureRevision } }
     public private(set) var torrentRecords: [TorrentRecord] {
         get { sourceState(for: selectedSourceID).records }
         set { sourceState(for: selectedSourceID).records = newValue }
@@ -495,6 +543,7 @@ public final class RemoteAppModel {
         sourceID: UUID? = nil,
         sourceURL: URL? = nil,
         trashSourceOnSuccess: Bool = false,
+        pendingAdditionID: UUID? = nil,
         onSuccess: ((TorrentAddResult?) -> Void)? = nil
     ) async -> Bool {
         let sourceID = sourceID ?? selectedSourceID
@@ -542,6 +591,7 @@ public final class RemoteAppModel {
                 }
             }
         }
+        finishTorrentAddition(id: pendingAdditionID, result: addedTorrent, succeeded: didAdd)
         if didAdd {
             onSuccess?(navigationResult)
             rememberDownloadDirectory(downloadDirectory, for: sourceID)
@@ -1478,6 +1528,7 @@ public final class RemoteAppModel {
     }
 
     private func replaceTorrentRecords(with summaries: [TorrentSummary], sourceID requestedSourceID: UUID? = nil) {
+        defer { reconcilePendingAdditions() }
         let sourceID = requestedSourceID ?? selectedSourceID
         let state = sourceState(for: sourceID)
         let existingByIdentity = Dictionary(
@@ -1508,6 +1559,7 @@ public final class RemoteAppModel {
     }
 
     private func applyTorrentDelta(changed: [TorrentSummary], removedIDs: [Int], sourceID: UUID) -> [TorrentSummary] {
+        defer { reconcilePendingAdditions() }
         let state = sourceState(for: sourceID)
         let removedIDSet = Set(removedIDs)
         var records = state.records.filter { !removedIDSet.contains($0.summary.id) }
