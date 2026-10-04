@@ -83,3 +83,32 @@ The quarantine flag is reapplied on each update, so this is once per version.
 
 `.github/workflows/ci.yml` runs `swift test` on every push and pull request.
 It does not build the app, because hosted runners lack the macOS 27 SDK.
+
+## Appearance updates without an app release
+
+In a `--tune` build, use **Save**, keeping the default project JSON destination.
+Then publish only the appearance config:
+
+```sh
+./Scripts/push-tunes --check  # validate without network or publishing
+./Scripts/push-tunes
+```
+
+This pushes `AppearanceDefaults.json` to the separate `tunes` branch of `origin`.
+It never pushes `main`, changes `VERSION`, creates release assets, or invokes
+Sparkle. The temporary publishing checkout leaves your working tree alone and
+uses a normal fast-forward push; concurrent changes cannot be overwritten.
+
+Glass fetches the public GitHub config on launch and checks again on activation
+at most once per day. **Glass → Update Appearance** checks immediately. Changes
+apply live and replace local values for published keys, including tuning edits.
+Cached published values are reapplied on launch. Reset uses the latest remote
+defaults. Valid config is cached for offline launches; missing or invalid config
+keeps the last valid values, falling back to bundled defaults on first launch.
+Only known appearance keys, booleans, finite bounded numbers, and hex colours
+are accepted. This is HTTPS configuration delivery, separate from Sparkle's
+signed application updates.
+
+Existing app versions need one app update containing the fetcher before they can
+receive config-only updates. Publishing config requires an explicit invocation;
+building, saving, and committing do not publish it.

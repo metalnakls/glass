@@ -11,6 +11,7 @@ struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
     private let platformIntegration: GlassMacPlatformIntegration
     private let updaterController: SPUStandardUpdaterController?
+    @Environment(\.scenePhase) private var scenePhase
     @State private var model: RemoteAppModel
 
     init() {
@@ -36,6 +37,10 @@ struct GlassApp: App {
         Window("Glass", id: "main") {
             GlassRootView(model: model, platformIntegration: platformIntegration)
                 .frame(minWidth: 680, minHeight: 260)
+                .task { await GlassTuningUpdates.shared.refresh() }
+                .onChange(of: scenePhase) { _, phase in
+                    if phase == .active { Task { await GlassTuningUpdates.shared.refresh() } }
+                }
         }
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: 760, height: 444)
@@ -94,6 +99,7 @@ private struct GlassCommands: Commands {
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
+            Button("Update Appearance") { Task { await GlassTuningUpdates.shared.refresh(force: true) } }
             if let updaterController {
                 Button("Check for Updates...") {
                     updaterController.updater.checkForUpdates()

@@ -15,8 +15,9 @@ final class AppearancePreferences {
         _ = revision
         return defaults.object(forKey: key) as? Value ?? fallback
     }
+    func invalidate() { revision &+= 1 }
     func resetToDefaults() {
-        for (key, value) in GlassAppearanceDefaults.bundled { set(value, for: key) }
+        for (key, value) in GlassAppearanceDefaults.effective { set(value, for: key) }
     }
     func set<Value>(_ value: Value, for key: String) {
         defaults.set(value, forKey: key)

@@ -3,6 +3,9 @@ import Foundation
 
 @MainActor
 public enum GlassAppearanceDefaults {
+    static var remote: [String: Any] = [:]
+    static var effective: [String: Any] { bundled.merging(remote) { _, new in new } }
+
     static var bundled: [String: Any] {
         guard let url = Bundle.module.url(forResource: "AppearanceDefaults", withExtension: "json"),
               let data = try? Data(contentsOf: url),
@@ -20,7 +23,8 @@ public enum GlassAppearanceDefaults {
         if saved["GlassList.selectedHDRWhiteLight"] == nil, let legacy = saved["GlassList.selectedHDRWhite"] {
             defaults.set(legacy, forKey: "GlassList.selectedHDRWhiteLight")
         }
-        defaults.register(defaults: bundled)
+        defaults.register(defaults: effective)
+        if defaults === UserDefaults.standard { GlassTuningUpdates.shared.loadCached() }
     }
 
     static func snapshot(in defaults: UserDefaults = .standard) -> [String: Any] {
@@ -37,7 +41,7 @@ public enum GlassAppearanceDefaults {
             .appendingPathComponent("Resources/AppearanceDefaults.json")
         let panel = NSSavePanel()
         panel.title = "Save appearance defaults"
-        panel.message = "Save this file in the project Resources folder. Future builds use these values as their defaults."
+        panel.message = "Save this file in the project Resources folder. Publish this file with Scripts/push-tunes to update appearance without an app release."
         panel.directoryURL = source.deletingLastPathComponent()
         panel.nameFieldStringValue = source.lastPathComponent
         guard panel.runModal() == .OK, let url = panel.url else { return false }

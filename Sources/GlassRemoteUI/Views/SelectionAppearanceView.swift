@@ -122,7 +122,7 @@ public struct SelectionAppearanceView: View {
                 Button("Reset") { AppearancePreferences.shared.resetToDefaults() }
                 Button("Save") {
                     do {
-                        if try GlassAppearanceDefaults.save() { saveStatus = "Saved defaults for the next build." }
+                        if try GlassAppearanceDefaults.save() { saveStatus = "Saved. Publish with Scripts/push-tunes." }
                     } catch { saveStatus = error.localizedDescription }
                 }
                 if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
