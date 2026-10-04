@@ -49,6 +49,27 @@ struct RemoteAppModelTests {
         #expect(model.errorMessage != nil)
     }
 
+    @Test("file priority updates before the server responds and rolls back on rejection", arguments: [false, true])
+    func immediateFilePriority(rejected: Bool) async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh(sourceID: profile.id)
+        let torrent = try #require(model.torrentRecords.first?.summary)
+        await model.loadDetails(for: torrent, sourceID: profile.id)
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await model.loadDetailSection(.files, forHashString: torrent.hashString)
+        let original = try #require(model.selectedTorrentDetails?.fileStats.first)
+        await client.holdFilePriority(rejected: rejected)
+        let request = Task { await model.setFilePriority(torrent, fileIndices: [0], priority: 1, sourceID: profile.id) }
+        await client.waitForFilePriorityCall()
+        #expect(model.selectedTorrentDetails?.fileStats.first?.priority == 1)
+        #expect(model.selectedTorrentDetails?.fileStats.first?.bytesCompleted == original.bytesCompleted)
+        await client.releaseFilePriority()
+        await request.value
+        #expect(model.selectedTorrentDetails?.fileStats.first?.priority == (rejected ? original.priority : 1))
+    }
+
     @Test("native reorder updates immediately and can move to the queue end")
     func optimisticReorder() async throws {
         let profile = makeProfile()
@@ -866,6 +887,26 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var queuePositionContinuation: CheckedContinuation<Void, Never>?
     private var queuePositionWaiter: CheckedContinuation<Void, Never>?
     private var didRequestQueuePosition = false
+    private var holdingFilePriority = false
+    private var rejectFilePriority = false
+    private var filePriorityContinuation: CheckedContinuation<Void, Never>?
+    private var filePriorityWaiter: CheckedContinuation<Void, Never>?
+    private var didRequestFilePriority = false
+
+    func holdFilePriority(rejected: Bool) {
+        holdingFilePriority = true
+        rejectFilePriority = rejected
+        didRequestFilePriority = false
+    }
+    func waitForFilePriorityCall() async {
+        if didRequestFilePriority { return }
+        await withCheckedContinuation { filePriorityWaiter = $0 }
+    }
+    func releaseFilePriority() {
+        holdingFilePriority = false
+        filePriorityContinuation?.resume()
+        filePriorityContinuation = nil
+    }
 
     func holdQueuePosition(error: (any Error)?) {
         holdingQueuePosition = true
@@ -1028,7 +1069,8 @@ private actor StubRPCClient: TransmissionRPCServicing {
                     length: 100,
                     bytesCompleted: inspectorFileBytesCompleted
                 )
-            ]
+            ],
+            fileStats: [TorrentFileStats(bytesCompleted: inspectorFileBytesCompleted, wanted: true, priority: 0)]
         )
     }
 
@@ -1077,7 +1119,13 @@ private actor StubRPCClient: TransmissionRPCServicing {
         torrentName = name
     }
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
-    func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}
+    func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {
+        didRequestFilePriority = true
+        filePriorityWaiter?.resume()
+        filePriorityWaiter = nil
+        if holdingFilePriority { await withCheckedContinuation { filePriorityContinuation = $0 } }
+        if rejectFilePriority { throw TestError.failed }
+    }
     func setTorrentPriority(ids: [String], priority: Int) async throws {}
 }
 

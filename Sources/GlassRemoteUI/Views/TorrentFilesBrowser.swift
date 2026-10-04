@@ -22,7 +22,12 @@ struct TorrentFilesBrowser: View {
     var editSession: TorrentFileEditSession?
     var editID = ""
     var showsActionBar = true
-    var onSetPriorities: (([Int], Int) -> Void)?
+    var onSetPriorities: (([Int], Int) async -> Bool)?
+    @State private var pendingPriorities: [Int: PendingPriority] = [:]
+    private struct PendingPriority {
+        let value: Int
+        let requestID: UUID
+    }
     @State private var nativeSelection = Set<String>()
     @State private var localSelection = Set<Int>()
     @State private var localWanted: [Int: Bool] = [:]
@@ -81,14 +86,13 @@ struct TorrentFilesBrowser: View {
                             }
                             Text(displayName(row))
                                 .lineLimit(1).truncationMode(.middle)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            if row.indices.contains(where: { (byIndex[$0]?.priority ?? 0) > 0 }) {
+                            if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
                                 Image(systemName: "star.fill")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("High priority")
                                     .help("High priority")
-                            } else if row.indices.contains(where: { (byIndex[$0]?.priority ?? 0) < 0 }) {
+                            } else if row.indices.contains(where: { priority($0, byIndex: byIndex) < 0 }) {
                                 Text(":(")
                                     .font(.system(size: 10))
                                     .rotationEffect(.degrees(90))
@@ -97,6 +101,7 @@ struct TorrentFilesBrowser: View {
                                     .accessibilityLabel("Low priority")
                                     .help("Low priority")
                             }
+                            Spacer(minLength: 0)
                         }
                         .padding(.leading, CGFloat(row.depth) * 12)
                         VStack(alignment: .trailing, spacing: 2) {
@@ -147,6 +152,11 @@ struct TorrentFilesBrowser: View {
             .onChange(of: selection) { _, selected in
                 guard stagesChanges else { return }
                 nativeSelection = Set(rows.filter { !$0.indices.isEmpty && $0.indices.allSatisfy(selected.contains) }.map(\.id))
+            }
+            .onChange(of: entries) { _, updated in
+                for entry in updated where pendingPriorities[entry.index]?.value == entry.priority {
+                    pendingPriorities[entry.index] = nil
+                }
             }
             .listStyle(.plain)
             .contentMargins(.horizontal, 0, for: .scrollContent)
@@ -217,13 +227,28 @@ struct TorrentFilesBrowser: View {
     }
     private func adjustPriority(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry], higher: Bool) {
         let grouped = Dictionary(grouping: row.indices) { index in
-            min(1, max(-1, (byIndex[index]?.priority ?? 0) + (higher ? 1 : -1)))
+            min(1, max(-1, priority(index, byIndex: byIndex) + (higher ? 1 : -1)))
         }
         for (priority, indices) in grouped { applyPriority(indices, priority) }
     }
 
+    private func priority(_ index: Int, byIndex: [Int: TorrentFileBrowserEntry]) -> Int {
+        pendingPriorities[index]?.value ?? byIndex[index]?.priority ?? 0
+    }
+
     private func applyPriority(_ indices: [Int], _ value: Int) {
-        if let onSetPriorities { onSetPriorities(indices, value) }
+        if let onSetPriorities {
+            let requestID = UUID()
+            let previous = pendingPriorities
+            for index in indices { pendingPriorities[index] = PendingPriority(value: value, requestID: requestID) }
+            Task {
+                if !(await onSetPriorities(indices, value)) {
+                    for index in indices where pendingPriorities[index]?.requestID == requestID {
+                        pendingPriorities[index] = previous[index]
+                    }
+                }
+            }
+        }
         else { for index in indices { onSetPriority(index, value) } }
     }
     private func statusLabel(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> String {

@@ -253,9 +253,9 @@ private struct TorrentInspectorContent: View {
         let progress = min(1, max(0, torrent?.percentDone ?? details.percentDone ?? 0))
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
+                Text(formatPercent(progress))
                 ProgressView(value: progress).progressViewStyle(.linear)
                 Text(formatBytes(torrent?.sizeWhenDone ?? details.sizeWhenDone ?? details.totalSize ?? 0))
-                Text(formatPercent(progress))
             }
             .font(.caption).monospacedDigit()
             if let error = torrent?.errorString, !error.isEmpty {
@@ -307,7 +307,7 @@ private struct TorrentInspectorContent: View {
             editID: details.hashString,
             showsActionBar: false,
             onSetPriorities: { indices, priority in
-                Task { await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID) }
+                await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID)
             }
         )
         .id(details.hashString)

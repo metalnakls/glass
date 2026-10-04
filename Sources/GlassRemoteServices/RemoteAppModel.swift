@@ -871,10 +871,14 @@ public final class RemoteAppModel {
         fileMutationRevision &+= 1
     }
 
-    public func setFilePriority(_ torrent: TorrentSummary, fileIndices: [Int], priority: Int, sourceID requestedSourceID: UUID? = nil) async {
+    @discardableResult
+    public func setFilePriority(_ torrent: TorrentSummary, fileIndices: [Int], priority: Int, sourceID requestedSourceID: UUID? = nil) async -> Bool {
         let sourceID = requestedSourceID ?? selectedSourceID
-        guard !fileIndices.isEmpty else { return }
-        await performProviderAction(
+        guard !fileIndices.isEmpty else { return true }
+        let previous = selectedDetailsSourceID == sourceID && selectedDetailsTorrentHash == torrent.hashString
+            ? selectedTorrentDetails?.fileStats : nil
+        updateDisplayedFilePriorities(fileIndices, priority: priority, sourceID: sourceID, hash: torrent.hashString)
+        let succeeded = await performProviderAction(
             sourceID: sourceID,
             detailHash: torrent.hashString,
             detailSections: [.files],
@@ -882,7 +886,32 @@ public final class RemoteAppModel {
         ) { provider in
             try await provider.setFilePriority(ids: [torrent.hashString], fileIndices: fileIndices, priority: priority)
         }
+        if !succeeded, let previous {
+            updateDisplayedFilePriorities(fileIndices, priority: priority, sourceID: sourceID,
+                hash: torrent.hashString, restoring: previous)
+        }
         fileMutationRevision &+= 1
+        return succeeded
+    }
+
+    private func updateDisplayedFilePriorities(_ indices: [Int], priority: Int, sourceID: UUID,
+        hash: String, restoring previous: [TorrentFileStats]? = nil) {
+        guard selectedDetailsSourceID == sourceID, selectedDetailsTorrentHash == hash,
+              let details = selectedTorrentDetails else { return }
+        let affected = Set(indices)
+        let stats = details.fileStats.enumerated().map { index, stat in
+            guard affected.contains(index) else { return stat }
+            if let previous {
+                // A rejected request must not undo a newer priority change.
+                guard stat.priority == priority, previous.indices.contains(index) else { return stat }
+                return TorrentFileStats(bytesCompleted: stat.bytesCompleted, wanted: stat.wanted,
+                    priority: previous[index].priority)
+            }
+            return TorrentFileStats(bytesCompleted: stat.bytesCompleted, wanted: stat.wanted, priority: priority)
+        }
+        let update = TorrentDetails(id: details.id, hashString: details.hashString, name: details.name,
+            files: details.files, fileStats: stats)
+        selectedTorrentDetails = details.merging(update, section: .files)
     }
 
     public func smartRename(_ details: TorrentDetails, sourceID: UUID) async {
