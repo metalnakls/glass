@@ -52,6 +52,8 @@ public final class GlassTuningUpdates {
     }
 
     private static func range(for key: String) -> ClosedRange<Double> {
+        if key == "GlassWindow.defaultWidth" { return 680...16384 }
+        if key == "GlassWindow.defaultHeight" { return 260...16384 }
         let name = String(key.dropFirst("GlassList.".count))
         switch name {
         case "columnDarkBrightness", "columnLightBrightness", "headerFadeStrengthDark", "headerFadeStrengthLight": return 0...1

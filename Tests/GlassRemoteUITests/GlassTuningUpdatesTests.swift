@@ -14,6 +14,20 @@ struct GlassTuningUpdatesTests {
         #expect(values.count == 1)
     }
 
+    @Test func savedWindowDimensionsAreAccepted() throws {
+        let baseline = GlassAppearanceDefaults.bundled
+        let data = Data("{\"GlassWindow.defaultWidth\":792,\"GlassWindow.defaultHeight\":459}".utf8)
+        let values = try GlassTuningUpdates.validate(data, against: baseline)
+        #expect((values["GlassWindow.defaultWidth"] as? NSNumber)?.doubleValue == 792)
+        #expect((values["GlassWindow.defaultHeight"] as? NSNumber)?.doubleValue == 459)
+        #expect(throws: (any Error).self) {
+            try GlassTuningUpdates.validate(Data("{\"GlassWindow.defaultWidth\":true}".utf8), against: baseline)
+        }
+        #expect(throws: (any Error).self) {
+            try GlassTuningUpdates.validate(Data("{\"GlassWindow.defaultHeight\":100000}".utf8), against: baseline)
+        }
+    }
+
     @Test func deliveryAndOfflineCache() async throws {
         let suite = "GlassTests.Tunes.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

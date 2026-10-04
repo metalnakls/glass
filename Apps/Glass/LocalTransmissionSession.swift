@@ -76,6 +76,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
         let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
+        try validateDownloadDirectory(downloadDirectory)
         try ensureBridge().addMagnet(magnet, downloadDirectory: downloadDirectory)
         let snapshot = try await fetchSnapshot()
         guard let addedTorrent = snapshot.torrents.first(where: { !existingTorrentHashes.contains($0.hashString) }) else {
@@ -95,6 +96,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult? {
         let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
+        try validateDownloadDirectory(downloadDirectory)
         try ensureBridge().addTorrentData(data, downloadDirectory: downloadDirectory)
         let snapshot = try await fetchSnapshot()
         guard let addedTorrent = snapshot.torrents.first(where: { !existingTorrentHashes.contains($0.hashString) }) else {
@@ -160,6 +162,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
     }
 
     func moveData(id: String, to downloadDirectory: String) async throws {
+        try validateDownloadDirectory(downloadDirectory)
         try ensureBridge().moveData(
             forTorrent: id,
             toDownloadDirectory: downloadDirectory
@@ -184,6 +187,22 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
 
     func setTorrentPriority(ids: [String], priority: Int) async throws {
         try ensureBridge().setPriority(priority, forTorrents: ids)
+    }
+
+    /// libtransmission writes asynchronously; surface a denied destination before adding it.
+    private func validateDownloadDirectory(_ path: String?) throws {
+        let directory = path.map { URL(fileURLWithPath: $0, isDirectory: true) } ?? downloadDirectory
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let probe = directory.appendingPathComponent(".glass-write-check-" + UUID().uuidString)
+            try Data().write(to: probe, options: .withoutOverwriting)
+            try FileManager.default.removeItem(at: probe)
+        } catch {
+            throw NSError(domain: "Glass.DownloadFolder", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Glass couldn’t write to \(directory.path). Choose the folder again to grant access, or select another download folder.",
+                NSUnderlyingErrorKey: error
+            ])
+        }
     }
 
     private func apply(_ selection: TorrentAddFileSelection, to id: String) async throws {

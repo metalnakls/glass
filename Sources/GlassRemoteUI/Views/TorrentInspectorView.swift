@@ -39,6 +39,7 @@ struct TorrentInspectorView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .scrollEdgeEffectHidden(true, for: .top)
+                .scrollEdgeEffectStyle(.soft, for: .bottom)
             } else if selectedTorrentHash == nil {
                 ContentUnavailableView("No Torrent Selected", systemImage: "info.circle", description: Text("Select a torrent to show details."))
             } else if let error = selectionError {
@@ -53,19 +54,26 @@ struct TorrentInspectorView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if editSession.hasSelection || editSession.hasChanges {
-                HStack(spacing: 8) {
+                VStack(spacing: 8) {
                     if editSession.hasSelection {
-                        Button("Download") { editSession.stageSelection(true) }
-                        Button("Skip") { editSession.stageSelection(false) }
+                        HStack(spacing: 8) {
+                            Button { editSession.stageSelection(true) } label: {
+                                Text("Download").frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).tint(.accentColor)
+                            Button { editSession.stageSelection(false) } label: {
+                                Text("Skip").frame(maxWidth: .infinity)
+                            }.buttonStyle(.borderedProminent).tint(.red)
+                        }
                     }
-                    Spacer(minLength: 0)
                     if editSession.hasChanges {
-                        Button("Cancel") { editSession.wanted = [:] }
-                        Button("Apply") { Task { await applyFileEdits() } }.buttonStyle(.borderedProminent)
+                        Button { Task { await applyFileEdits() } } label: {
+                            Text("Apply").frame(maxWidth: .infinity)
+                        }.buttonStyle(.borderedProminent)
                     }
                 }
-                .controlSize(.small).padding(10)
+                .controlSize(.regular).padding(10)
                 .background(.regularMaterial)
+
                 .disabled(editSession.isApplying || snapshot?.selectionKey != selectionKey)
             }
         }
@@ -183,6 +191,7 @@ private struct TorrentInspectorContent: View {
         } else if let details = snapshot.details {
             VStack(alignment: .leading, spacing: 12) {
                 downloadLocation(details)
+                progressSummary(details)
                 if let error = snapshot.filesError, details.files.isEmpty {
                     detailErrorView(error)
                 } else {
@@ -201,11 +210,13 @@ private struct TorrentInspectorContent: View {
             HStack(spacing: 8) {
                 Toggle("Select all files", isOn: Binding(get: {
                     groupDetails.values.allSatisfy { details in
-                        details.files.indices.allSatisfy { index in editSession.selections[details.hashString]?.contains(index) == true }
+                        details.files.indices.allSatisfy { index in
+                            editSession.wanted[details.hashString]?[index] ?? (details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true)
+                        }
                     }
                 }, set: { value in
                     for details in groupDetails.values {
-                        editSession.selections[details.hashString] = value ? Set(details.files.indices) : []
+                        for index in details.files.indices { editSession.wanted[details.hashString, default: [:]][index] = value }
                     }
                 })).labelsHidden().toggleStyle(.checkbox)
                 TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
@@ -220,9 +231,29 @@ private struct TorrentInspectorContent: View {
                         if details.downloadDir != group.torrents.first.flatMap({ groupDetails[$0.hashString]?.downloadDir }) {
                             downloadLocation(details)
                         }
+                        progressSummary(details)
                         filesBrowser(details, showsControls: false)
                     }
                 }
+            }
+        }
+    }
+
+    private func progressSummary(_ details: TorrentDetails) -> some View {
+        let torrent = model.torrentRecords.first { $0.sourceID == sourceID && $0.summary.hashString == details.hashString }?.summary
+        let progress = min(1, max(0, torrent?.percentDone ?? details.percentDone ?? 0))
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                ProgressView(value: progress).progressViewStyle(.linear)
+                Text(formatBytes(torrent?.sizeWhenDone ?? details.sizeWhenDone ?? details.totalSize ?? 0))
+                Text(formatPercent(progress))
+            }
+            .font(.caption).monospacedDigit()
+            if let error = torrent?.errorString, !error.isEmpty {
+                Text(error).font(.caption).foregroundStyle(.red)
+            } else if let torrent, !torrent.isCompleted {
+                Text("\(formatRate(torrent.rateDownload)) · \(torrent.peersConnected ?? 0) peers")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
     }
@@ -250,6 +281,7 @@ private struct TorrentInspectorContent: View {
             onFileAction: { row, action in performFileAction(row, details: details, action: action) },
             showsControls: showsControls,
             isCompact: true,
+            shortEpisodeNames: true,
             stagesChanges: true,
             onApplyWanted: { changes in
                 Task {
@@ -354,8 +386,7 @@ private struct TorrentInspectorContent: View {
                 rootName: root,
                 completedBytes: stats?.bytesCompleted,
                 isWanted: stats?.wanted ?? true,
-                priority: stats?.priority ?? 0,
-                wasCompleted: (details.doneDate ?? 0) > 0
+                priority: stats?.priority ?? 0
             )
         }
     }

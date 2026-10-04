@@ -209,7 +209,10 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var sizeLabel: some View {
-        Text(formatBytes(torrent.sizeWhenDone))
+        HStack(spacing: 3) {
+            if !torrent.isCompleted { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
+            Text(torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload))
+        }
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)

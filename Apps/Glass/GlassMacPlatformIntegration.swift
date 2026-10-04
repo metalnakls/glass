@@ -135,7 +135,7 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
     }
 
     private func retainSecurityScopedAccess(to url: URL) throws {
-        let standardizedURL = url.standardizedFileURL
+        let standardizedURL = url
         let bookmarkData = try standardizedURL.bookmarkData(
             options: .withSecurityScope,
             includingResourceValuesForKeys: nil,
@@ -146,6 +146,9 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
         bookmarks[standardizedURL.path] = bookmarkData.base64EncodedString()
         defaults.set(bookmarks, forKey: Self.bookmarkDefaultsKey)
         startAccessingIfNeeded(standardizedURL)
+        guard FileManager.default.isWritableFile(atPath: standardizedURL.path) else {
+            throw CocoaError(.fileWriteNoPermission, userInfo: [NSFilePathErrorKey: standardizedURL.path])
+        }
     }
 
     private func restoreSecurityScopedDirectoryAccess() {
@@ -164,7 +167,7 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
                     options: [.withSecurityScope, .withoutUI],
                     relativeTo: nil,
                     bookmarkDataIsStale: &isStale
-                ).standardizedFileURL
+                )
                 startAccessingIfNeeded(url)
 
                 if isStale || storedPath != url.path {

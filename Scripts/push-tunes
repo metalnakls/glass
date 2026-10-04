@@ -24,8 +24,13 @@ def main():
     if not isinstance(values, dict) or not values or len(data) > 65536:
         raise ValueError('Invalid tuning config')
     for key, value in values.items():
-        if not key.startswith('GlassList.'):
+        if not key.startswith('GlassList.') and key not in ('GlassWindow.defaultWidth', 'GlassWindow.defaultHeight'):
             raise ValueError('Config must contain appearance settings only')
+        if key.startswith('GlassWindow.'):
+            minimum = 680 if key.endswith('Width') else 260
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and minimum <= value <= 16384:
+                continue
+            raise ValueError(f'Invalid window dimension: {key}')
         if isinstance(value, bool):
             continue
         if isinstance(value, (int, float)) and math.isfinite(value) and (-80 if key == "GlassList.highlightWidth" else -10) <= value <= 240:
