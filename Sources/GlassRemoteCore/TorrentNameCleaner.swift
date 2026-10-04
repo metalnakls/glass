@@ -117,7 +117,7 @@ public enum TorrentNameCleaner {
         removingTokens: [String] = []
     ) -> TorrentAddNamingPlan? {
         let season = isMediaFile(rootName) ? nil : seasonDescriptor(for: TorrentBatchNamingInput(rootName: rootName, files: files))
-        let cleanedRoot = season == nil ? smartRootName(rootName, files: files, removingTokens: removingTokens) : rootName
+        let cleanedRoot = season?.title ?? smartRootName(rootName, files: files, removingTokens: removingTokens)
         var renames: [TorrentPathRename] = []
 
         if files.count > 1 {

@@ -46,7 +46,7 @@ struct TorrentAddPreparationTests {
         let item = makeItem()
         item.name = "My Show"
         #expect(try #require(item.namingPlan()).displayName == "My Show")
-        #expect(try #require(item.namingPlan()).rootName == item.draft.preview.name)
+        #expect(try #require(item.namingPlan()).rootName == "My Show")
         item.restoreOriginalName()
         #expect(item.name == item.draft.preview.name)
     }

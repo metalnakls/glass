@@ -235,7 +235,7 @@ struct AddTorrentBatchView: View {
             ? (item.suggestion()?.pathRenames ?? [])
             : []
         return TorrentAddNamingPlan(
-            rootName: item.draft.preview.name,
+            rootName: resolvedGroupName(for: group),
             pathRenames: pathRenames,
             displayName: resolvedGroupName(for: group),
             season: TorrentSeasonDescriptor(title: resolvedGroupName(for: group), season: group.seasons[offset])
@@ -436,7 +436,7 @@ final class TorrentBatchItemState {
         return TorrentSeasonStoragePlan(
             downloadDirectory: TorrentSeasonStoragePlan.baseDirectory(base: baseDirectory, title: season.title),
             namingPlan: TorrentAddNamingPlan(
-                rootName: draft.preview.name, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName, season: season
+                rootName: season.title, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName, season: season
             )
         )
     }

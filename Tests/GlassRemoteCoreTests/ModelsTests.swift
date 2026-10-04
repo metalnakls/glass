@@ -187,7 +187,7 @@ struct ModelsTests {
             selectedFileIndices: [0, 1]
         ))
 
-        #expect(plan.rootName == "Show.Name.S02.1080p")
+        #expect(plan.rootName == "Show Name")
         #expect(plan.displayName == "Show Name")
         #expect(plan.pathRenames == [
             TorrentPathRename(
@@ -246,7 +246,7 @@ struct ModelsTests {
         #expect(TorrentNameCleaner.seasonDescriptor(for: input) == TorrentSeasonDescriptor(title: "Fargo", season: 5))
         #expect(TorrentNameCleaner.batchGroups(for: [input]).first?.displayName == "Fargo")
         let plan = TorrentNameCleaner.plan(rootName: rootName, files: files, selectedFileIndices: [0, 1])
-        #expect(plan?.rootName == rootName)
+        #expect(plan?.rootName == "Fargo")
         #expect(plan?.displayName == "Fargo")
     }
 

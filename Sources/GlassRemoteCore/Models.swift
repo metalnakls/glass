@@ -558,7 +558,7 @@ public struct TorrentAddNamingPlan: Sendable, Hashable {
 
     public func withDisplayName(_ name: String) -> Self {
         guard let season else { return Self(rootName: name, pathRenames: pathRenames) }
-        return Self(rootName: rootName, pathRenames: pathRenames, displayName: name,
+        return Self(rootName: name, pathRenames: pathRenames, displayName: name,
                     season: TorrentSeasonDescriptor(title: name, season: season.season))
     }
 
