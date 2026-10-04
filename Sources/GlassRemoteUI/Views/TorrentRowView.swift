@@ -116,6 +116,7 @@ struct TorrentRowView: View, Equatable {
                         .frame(width: 36, height: 48)
                         .contentShape(Rectangle())
                         .contentTransition(.symbolEffect(.replace))
+                        .offset(x: grid ? 0 : TorrentIconPose.forRole(.fan, position: iconPosition).x)
                 } else {
                     GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
                         .frame(width: 36, height: 42)
