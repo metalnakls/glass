@@ -57,6 +57,10 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
             var ancestor = superview
             while let view = ancestor {
                 if let table = view as? NSTableView {
+                    // The selected card is drawn by the elevation surface, so
+                    // AppKit's own highlight and focus ring are both unwanted.
+                    // This runs per row and is the only place that can reach the
+                    // table before it draws.
                     table.selectionHighlightStyle = .none
                     table.focusRingType = .none
                     table.gridStyleMask = []
@@ -135,6 +139,8 @@ final class TorrentListElevationController: NSObject {
         tableAttached?(table)
         table.floatsGroupRows = false
         table.gridStyleMask = []
+        table.selectionHighlightStyle = .none
+        table.focusRingType = .none
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(rowGeometryChanged), name: NSView.frameDidChangeNotification, object: table)
         table.addSubview(separators, positioned: .below, relativeTo: nil)
@@ -610,13 +616,16 @@ private final class SelectionSeparatorCanvas: NSView {
             let isNew = lines[row.id] == nil
             let line = lines[row.id] ?? CALayer()
             if isNew { layer?.addSublayer(line); lines[row.id] = line }
-            let y = row.rect.maxY + 3
+            let y = row.rect.maxY
             let touchesHighlight = selectedID != nil && (row.id == selectedID || row.nextID == selectedID)
             let opacity: Float = row.nextID != nil && !touchesHighlight ? 1 : 0
             let previous = line.presentation()?.opacity ?? line.opacity
             let changed = !isNew && line.opacity != opacity
+            // One rule per gap, flush against the row above it. The previous
+            // +3 offset pushed it far enough down to read as a second divider
+            // sitting next to the one the table drew.
             line.frame = CGRect(x: row.rect.minX + row.leadingInset, y: y,
-                                width: max(0, row.rect.width - row.leadingInset - 14), height: 0.5)
+                                width: max(0, row.rect.width - row.leadingInset - 14), height: 1 / (window?.backingScaleFactor ?? 2))
             line.backgroundColor = (settings.isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.12).cgColor
             line.opacity = opacity
             if changed && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {

@@ -95,10 +95,17 @@ struct TorrentFilesBrowser: View {
                                 Button {
                                     if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
                                 } label: {
+                                    // Both chevrons get the same fixed box. Left to
+                                    // its intrinsic size the glyph swapped between
+                                    // right and down widths, and the row re-laid out
+                                    // sideways on every expand.
                                     Image(systemName: collapsed.contains(row.id) ? "chevron.right" : "chevron.down")
-                                        .font(.system(size: 9, weight: .semibold)).frame(width: 14, height: 20)
+                                        .font(.system(size: 9, weight: .semibold))
+                                        .frame(width: 14, height: 20)
+                                        .contentShape(Rectangle())
                                 }.buttonStyle(.plain)
-                            } else { Color.clear.frame(width: 14, height: 1) }
+                                .frame(width: 14, height: 20)
+                            } else { Color.clear.frame(width: 14, height: 20) }
                             Text(row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension))
                                 .lineLimit(1).truncationMode(.middle)
                                 .frame(maxWidth: .infinity, alignment: .leading)

@@ -162,9 +162,14 @@ struct TorrentListView: View {
                             .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? 16 : sectionSpacing)
                             .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
+                            // A section title is a label, not a row: it must not
+                            // select, reorder or carry a rule.
                             .moveDisabled(true)
                             .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                            // Room to breathe above the title. Zeroing the top
+                            // inset is what made the header sit flush against
+                            // the row before it.
+                            .listRowInsets(EdgeInsets(top: 16, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                     case let .torrent(row):
                         liveRow(for: row)
@@ -202,7 +207,6 @@ struct TorrentListView: View {
             })
             .environment(\.defaultMinListRowHeight, listRowHeight)
             .focusEffectDisabled()
-            .tint(Color(nsColor: .secondaryLabelColor))
             .scrollEdgeEffectHidden(true, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
