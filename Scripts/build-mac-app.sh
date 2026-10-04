@@ -180,14 +180,24 @@ on_exit() {
 }
 trap on_exit EXIT
 
-AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
-resolve_sign_identity "$AVAILABLE_IDENTITIES"
-if ! grep -Fq "$SIGN_IDENTITY " <<< "$AVAILABLE_IDENTITIES"; then
-    printf 'Signing identity is unavailable: %s\n' "$SIGN_IDENTITY" >&2
-    printf 'Available codesigning identities:\n%s\n' "$AVAILABLE_IDENTITIES" >&2
-    exit 65
+# Releases are unsigned: no Developer ID certificate, no notarization, no
+# stapling. They therefore need no signing identity at all and sign ad-hoc, so a
+# release never depends on a certificate that is absent, expired, or paid.
+# Debug installs keep the Apple Development identity so the local app launches
+# without Gatekeeper interruptions.
+if [ "$CONFIGURATION" = "release" ]; then
+    SIGN_IDENTITY="-"
+    echo "Signing identity: ad-hoc (unsigned release)"
+else
+    AVAILABLE_IDENTITIES="$(security find-identity -v -p codesigning)"
+    resolve_sign_identity "$AVAILABLE_IDENTITIES"
+    if ! grep -Fq "$SIGN_IDENTITY " <<< "$AVAILABLE_IDENTITIES"; then
+        printf 'Signing identity is unavailable: %s\n' "$SIGN_IDENTITY" >&2
+        printf 'Available codesigning identities:\n%s\n' "$AVAILABLE_IDENTITIES" >&2
+        exit 65
+    fi
+    echo "Signing identity: $SIGN_IDENTITY"
 fi
-echo "Signing identity: $SIGN_IDENTITY"
 
 cd "$ROOT_DIR"
 XCODE_CONFIGURATION="$(tr '[:lower:]' '[:upper:]' <<< "${CONFIGURATION:0:1}")${CONFIGURATION:1}"

@@ -25,16 +25,18 @@ Release.
 
 ## Secrets
 
-One environment variable is required locally:
-
-- `SPARKLE_PRIVATE_ED_KEY`: the private key printed by Sparkle's `generate_keys`
-
-Keep it out of the repository. A safe default is a file outside the checkout:
+The EdDSA private key lives in the login Keychain, not in the repository and not
+in a plaintext file. `release.sh` reads it directly:
 
 ```sh
-chmod 600 ~/.glass-sparkle-private-key
-export SPARKLE_PRIVATE_ED_KEY="$(cat ~/.glass-sparkle-private-key)"
+security find-generic-password -a ed25519 -s https://sparkle-project.org -w
 ```
+
+`SPARKLE_PRIVATE_ED_KEY` still overrides the Keychain when it is set, for CI or
+one-off runs. Before signing, `release.sh` derives the public key half from the
+private seed and compares it with the `SUPublicEDKey` baked into the app. A
+mismatch aborts the release, because an update signed with the wrong key is
+rejected by Sparkle at install time rather than at download time.
 
 The matching public key is embedded in the app at build time through the
 `SPARKLE_PUBLIC_ED_KEY` build setting. Local builds that lack it simply run

@@ -42,4 +42,4 @@ Bump rules:
 
 See `Docs/UPDATES.md` for the release pipeline.
 
-Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using `SPARKLE_PRIVATE_ED_KEY` from GitHub Secrets, and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.
+Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using the private key in the login Keychain (`-a ed25519 -s https://sparkle-project.org`), and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.

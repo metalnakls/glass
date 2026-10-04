@@ -182,7 +182,6 @@
 /* Begin PBXShellScriptBuildPhase section */
 		106000000000000000000002 /* Build libtransmission */ = {
 			isa = PBXShellScriptBuildPhase;
-			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
 			files = (
 			);
