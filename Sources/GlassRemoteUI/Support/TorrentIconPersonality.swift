@@ -35,7 +35,9 @@ struct TorrentIconPose {
         let lean = rhythm[max(0, position) % rhythm.count] * amplitude
         // Spend the enlargement on the outer gutter, preserving space for names.
         let angle = lean * tilt * .pi / 180
-        let rightExtent = scale * (18 * abs(cos(angle)) + 21 * abs(sin(angle)))
+        // All roles share an optical center, including the expanded chevron.
+        let envelopeAngle = tilt * 0.6 * .pi / 180
+        let rightExtent = scale * (18 * abs(cos(envelopeAngle)) + 21 * abs(sin(envelopeAngle)))
         return Self(scale: scale, angle: angle, x: min(0, 18 - rightExtent) - 4)
     }
 }
