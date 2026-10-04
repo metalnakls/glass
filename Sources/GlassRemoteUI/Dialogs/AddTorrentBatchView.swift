@@ -18,6 +18,7 @@ struct AddTorrentBatchView: View {
     ) async -> TorrentFileAddSubmissionResult
     let didFinishAdding: @MainActor (UUID, String?) -> Void
 
+    @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @Environment(\.dismiss) private var dismiss
 
     @State private var items: [TorrentBatchItemState]
@@ -144,11 +145,11 @@ struct AddTorrentBatchView: View {
 
     private func titleBinding(for group: TorrentBatchGroup) -> Binding<String> {
         if optionHeld {
-            return .constant(group.itemIndices.first.map { items[$0].presentedName(holdingOption: true) } ?? group.displayName)
+            return .constant(group.itemIndices.first.map { items[$0].presentedName(holdingOption: true, showExtensions: showExtensions) } ?? group.displayName)
         }
         if group.isSeasonGroup { return groupNameBinding(for: group) }
         guard let index = group.itemIndices.first else { return .constant("") }
-        return Binding(get: { items[index].presentedName(holdingOption: false) }, set: { items[index].name = $0 })
+        return Binding(get: { items[index].presentedName(holdingOption: false, showExtensions: showExtensions) }, set: { items[index].editPresentedName($0, showExtensions: showExtensions) })
     }
 
     private var canAdd: Bool {
@@ -396,7 +397,16 @@ final class TorrentBatchItemState {
         self.selectedFileIndices = selected
     }
 
-    func presentedName(holdingOption: Bool) -> String { holdingOption ? draft.preview.name : name }
+    func presentedName(holdingOption: Bool, showExtensions: Bool = false) -> String {
+        let title = holdingOption ? draft.preview.name : name
+        return TorrentExtensionPolicy.name(title, hiding: showExtensions ? nil : hiddenTitleExtension)
+    }
+    private var hiddenTitleExtension: String? {
+        TorrentExtensionPolicy.hiddenExtension(paths: draft.preview.files.map(\.name))
+    }
+    func editPresentedName(_ title: String, showExtensions: Bool = false) {
+        name = TorrentExtensionPolicy.editedName(title, original: name, hiding: showExtensions ? nil : hiddenTitleExtension)
+    }
 
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
     var canAdd: Bool { !normalizedName.isEmpty && !selectedFileIndices.isEmpty }

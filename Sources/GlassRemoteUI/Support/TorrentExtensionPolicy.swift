@@ -11,6 +11,11 @@ enum TorrentExtensionPolicy {
         return suffix
     }
 
+    static func editedName(_ title: String, original: String, hiding suffix: String?) -> String {
+        guard let suffix, (original as NSString).pathExtension.lowercased() == suffix else { return title }
+        return (title as NSString).pathExtension.lowercased() == suffix ? title : title + "." + (original as NSString).pathExtension
+    }
+
     static func name(_ name: String, hiding suffix: String?) -> String {
         guard let suffix, (name as NSString).pathExtension.lowercased() == suffix else { return name }
         return (name as NSString).deletingPathExtension

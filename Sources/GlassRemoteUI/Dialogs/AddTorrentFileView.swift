@@ -11,6 +11,7 @@ struct AddTorrentFileView: View {
 
     @Environment(\.dismiss) private var dismiss
 
+    @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @State private var name: String
     @State private var selectedFileIndices: Set<Int>
     @State private var sourceID: UUID
@@ -61,13 +62,13 @@ struct AddTorrentFileView: View {
 
             Section {
                 LabeledContent("Name") {
-                    StemSelectingTextField(text: $name, initialSelection: initialNameSelection)
+                    StemSelectingTextField(text: titleBinding, initialSelection: initialNameSelection)
                 }
 
                 if let suggestion = autoCleanSuggestion {
                     LabeledContent(isAutoCleanEnabled ? "Applied" : "Suggestion") {
                         HStack(spacing: 8) {
-                            Text(suggestion.suggestedName)
+                            Text(TorrentExtensionPolicy.name(suggestion.suggestedName, hiding: showExtensions ? nil : TorrentExtensionPolicy.hiddenExtension(paths: draft.preview.files.map(\.name))))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -273,6 +274,12 @@ struct AddTorrentFileView: View {
     private var originalExtension: String {
         guard draft.preview.files.count == 1 else { return "" }
         return URL(fileURLWithPath: draft.preview.name).pathExtension
+    }
+
+    private var titleBinding: Binding<String> {
+        let suffix = showExtensions ? nil : TorrentExtensionPolicy.hiddenExtension(paths: draft.preview.files.map(\.name))
+        return Binding(get: { TorrentExtensionPolicy.name(name, hiding: suffix) },
+                       set: { name = TorrentExtensionPolicy.editedName($0, original: name, hiding: suffix) })
     }
 
     private var initialNameSelection: NSRange {
