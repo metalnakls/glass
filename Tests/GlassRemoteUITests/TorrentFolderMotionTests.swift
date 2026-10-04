@@ -15,10 +15,13 @@ struct TorrentFolderMotionTests {
         _ = NSApplication.shared
         let rows = Rows()
         let table = NSTableView(frame: CGRect(x: 0, y: 0, width: 400, height: 300))
-        table.addTableColumn(NSTableColumn(identifier: .init("name")))
+        let column = NSTableColumn(identifier: .init("name"))
+        column.width = 400
+        table.addTableColumn(column)
         table.headerView = nil; table.rowHeight = 48; table.dataSource = rows
-        let scroll = NSScrollView(frame: table.frame)
-        let window = NSWindow(contentRect: table.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 300)
+        let scroll = NSScrollView(frame: viewport)
+        let window = NSWindow(contentRect: viewport, styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.contentView?.addSubview(scroll)
         scroll.documentView = table
@@ -33,7 +36,7 @@ struct TorrentFolderMotionTests {
         // A real icon can sit away from the estimated row centre (native insets).
         let landing = TorrentFolderLandingAnchor.Anchor(frame: CGRect(x: 70, y: 178, width: 36, height: 42))
         landing.id = "first"
-        landing.pose = TorrentIconPose.forRole(.folder)
+        landing.pose = TorrentIconPose(scale: 1.4, angle: 0.12, x: -11)
         table.addSubview(landing)
         motion.register(landing)
         var flights: [CALayer] = []
@@ -46,7 +49,7 @@ struct TorrentFolderMotionTests {
         #expect(flights.count == 2)
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
         #expect(animation.duration == 0.30)
-        let pose = TorrentIconPose.forRole(.folder)
+        let pose = landing.pose
         #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
         #expect(abs(flights[0].position.y - landing.frame.midY) < 0.1)
         #expect(motion.flyingIDs.count == 2)
@@ -75,6 +78,27 @@ struct TorrentFolderMotionTests {
         #expect(finalLanding != nil)
         #expect(motion.flyingIDs.count == 2)
         #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
+        // Rendering, not a timer, controls the final dissolve. Both flight
+        // images remain opaque while either visible static icon is uncommitted.
+        for _ in 0..<60 {
+            if motion.revealToken(for: "first") != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let token = try #require(motion.revealToken(for: "first"))
+        #expect(motion.flyingIDs.isEmpty)
+        #expect(flights.allSatisfy { $0.opacity == 1 })
+        motion.acknowledgeReveal("first", token: token)
+        await Task.yield()
+        #expect(flights.allSatisfy { $0.opacity == 1 })
+        let rendered = TorrentFolderRevealAnchor.Anchor(frame: CGRect(x: 20, y: 202, width: 36, height: 36))
+        rendered.controller = motion; rendered.id = "second"; rendered.visible = true
+        table.addSubview(rendered)
+        rendered.commitReveal()
+        for _ in 0..<30 {
+            if flights.allSatisfy({ $0.opacity == 0 }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(flights.allSatisfy { $0.opacity == 0 })
         motion.cancel()
         #expect(motion.flyingIDs.isEmpty)
         #expect(flights.allSatisfy { $0.superlayer == nil })

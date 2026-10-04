@@ -19,6 +19,17 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var poses: [String: TorrentIconPose] = [:]
     @ObservationIgnored private let anchors = NSMapTable<NSString, TorrentFolderLandingAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
+    @ObservationIgnored private var awaitingReveal = Set<String>()
+    @ObservationIgnored private var revealContinuation: CheckedContinuation<Void, Never>?
+
+    func revealToken(for id: String) -> Int? { awaitingReveal.contains(id) ? generation : nil }
+    func acknowledgeReveal(_ id: String, token: Int) {
+        guard token == generation, awaitingReveal.remove(id) != nil else { return }
+        if awaitingReveal.isEmpty {
+            revealContinuation?.resume()
+            revealContinuation = nil
+        }
+    }
     private static let image = TorrentFileIconCache.icon(fileName: "", isFolder: true).cgImage(forProposedRect: nil, context: nil, hints: nil)
 
     func register(_ anchor: TorrentFolderLandingAnchor.Anchor) {
@@ -193,9 +204,20 @@ final class TorrentFolderMotion {
                 try? await Task.sleep(for: .milliseconds(160))
                 guard !Task.isCancelled, self.generation == token else { return }
             }
-            // SwiftUI can need more than one frame to redraw opacity. Keep the
-            // native image present and dissolve it, rather than exposing a gap.
-            self.flyingIDs = []
+            // Reveal the real icons underneath at full opacity. Do not dissolve
+            // the flight until their hosting views have committed the reveal.
+            await withCheckedContinuation { continuation in
+                self.revealContinuation = continuation
+                self.awaitingReveal = Set(self.layers.compactMap { id, layer in
+                    layer.frame.intersects(self.overlay.bounds) ? id : nil
+                })
+                self.flyingIDs = []
+                if self.awaitingReveal.isEmpty {
+                    self.revealContinuation = nil
+                    continuation.resume()
+                }
+            }
+            guard !Task.isCancelled, self.generation == token else { return }
             CATransaction.begin()
             CATransaction.setAnimationDuration(0.16)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
@@ -235,6 +257,8 @@ final class TorrentFolderMotion {
     func cancel() {
         generation += 1
         completion?.cancel(); completion = nil
+        awaitingReveal.removeAll()
+        revealContinuation?.resume(); revealContinuation = nil
         for layer in layers.values { layer.removeFromSuperlayer() }
         layers.removeAll(); flyingIDs = []
     }
@@ -276,5 +300,47 @@ struct TorrentFolderLandingAnchor: NSViewRepresentable {
         override func viewDidMoveToSuperview() { super.viewDidMoveToSuperview(); connect() }
         override func layout() { super.layout(); connect() }
         func connect() { controller?.register(self) }
+    }
+}
+
+/// Acknowledges the static icon's render transaction before its flight dissolves.
+struct TorrentFolderRevealAnchor: NSViewRepresentable {
+    let controller: TorrentFolderMotion
+    let id: String
+    let visible: Bool
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) {
+        view.controller = controller; view.id = id; view.visible = visible; view.commitReveal()
+    }
+    final class Anchor: NSView {
+        weak var controller: TorrentFolderMotion?
+        var id = ""
+        var visible = false
+        private var pendingToken: Int?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); commitReveal() }
+        override func layout() { super.layout(); commitReveal() }
+        func commitReveal() {
+            guard visible, window != nil, let token = controller?.revealToken(for: id), pendingToken != token else { return }
+            pendingToken = token
+            // Run after SwiftUI finishes this update, then wait for the native
+            // render transaction. No fixed sleep or continuous frame callback.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.visible, self.window != nil,
+                      self.controller?.revealToken(for: self.id) == token else { return }
+                let id = self.id
+                CATransaction.begin()
+                CATransaction.setCompletionBlock { [weak controller = self.controller] in
+                    Task { @MainActor in controller?.acknowledgeReveal(id, token: token) }
+                }
+                var ancestor: NSView? = self
+                while let view = ancestor, !(view is NSTableView) {
+                    view.layoutSubtreeIfNeeded()
+                    view.displayIfNeeded()
+                    ancestor = view.superview
+                }
+                CATransaction.commit()
+            }
+        }
     }
 }

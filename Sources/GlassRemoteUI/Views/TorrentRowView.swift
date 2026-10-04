@@ -139,7 +139,9 @@ struct TorrentRowView: View, Equatable {
         } else if let folderID, let folderMotion {
             TorrentFileIcon(fileName: "", isFolder: true)
                 .opacity(folderMotion.flyingIDs.contains(folderID) ? 0 : 1)
-                .animation(folderMotion.flyingIDs.contains(folderID) ? nil : .easeOut(duration: 0.16), value: folderMotion.flyingIDs.contains(folderID))
+                .transaction { $0.animation = nil }
+                .background(TorrentFolderRevealAnchor(controller: folderMotion, id: folderID,
+                    visible: !folderMotion.flyingIDs.contains(folderID)))
                 .transition(.identity)
                 .frame(width: 36, height: 42)
         } else {
@@ -366,7 +368,9 @@ private struct GroupFolderFanIcon: View {
         if let controller, ids.indices.contains(index) {
             fanIcon(index)
                 .opacity(controller.flyingIDs.contains(ids[index]) ? 0 : 1)
-                .animation(controller.flyingIDs.contains(ids[index]) ? nil : .easeOut(duration: 0.16), value: controller.flyingIDs.contains(ids[index]))
+                .transaction { $0.animation = nil }
+                .background(TorrentFolderRevealAnchor(controller: controller, id: ids[index],
+                    visible: !controller.flyingIDs.contains(ids[index])))
                 .transition(.identity)
         } else { fanIcon(index) }
     }
