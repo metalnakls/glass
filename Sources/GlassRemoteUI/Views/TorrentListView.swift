@@ -585,6 +585,7 @@ private struct TorrentListLiveRow: View {
                 .padding(.trailing, -14)
                 .padding(.vertical, 3) }
         }
+        .simultaneousGesture(TapGesture().onEnded { select() })
         .glassContextMenu(select: select) { contextMenuContent }
         .padding(.leading, grid ? 0 : leftPadding + 16)
         .padding(.trailing, grid ? 0 : rightPadding + 16)

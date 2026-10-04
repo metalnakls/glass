@@ -36,6 +36,7 @@ struct TorrentListElevationTests {
             return view
         }
         let b = anchor("b", 2)
+        #expect(b.hitTest(CGPoint(x: 10, y: 10)) == nil)
         for _ in 0..<4 { await Task.yield() }
         let canvas = try #require(table.subviews.first { String(describing: type(of: $0)).contains("SelectionSeparatorCanvas") })
         func visibleLines() -> Int { canvas.layer?.sublayers?.filter { $0.opacity == 1 }.count ?? 0 }

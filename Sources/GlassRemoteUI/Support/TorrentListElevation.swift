@@ -46,6 +46,7 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
         var selected = false
         var rowID = ""
         var separatorLeadingInset: CGFloat = 62
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
         fileprivate weak var registeredController: TorrentListElevationController?
         fileprivate var registeredID: String?
         override func layout() { super.layout(); connect() }
