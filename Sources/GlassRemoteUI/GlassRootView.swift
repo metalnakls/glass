@@ -11,7 +11,7 @@ public struct GlassRootView: View {
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = false
+    @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = true
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
     @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
     @State private var isTorrentDropTargeted = false
@@ -105,7 +105,7 @@ public struct GlassRootView: View {
         }
         .tint(Color.gray)
         .toolbarVisibility(.hidden, for: .windowToolbar)
-        .background(MainWindowChrome())
+        .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
         .sheet(item: $activeSheet) { sheet in
             NavigationStack {
@@ -196,11 +196,6 @@ public struct GlassRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActive(isTestWorkspace || phase == .active)
-        }
-        .onChange(of: selectedTorrentID, initial: true) { _, selection in
-            withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25)) {
-                isInspectorPresented = selection != nil
-            }
         }
         .task(id: selectedTorrentID) {
             await loadSelectedTorrentDetails()
@@ -499,6 +494,14 @@ public struct GlassRootView: View {
             await MainActor.run {
                 committingRemovalKeys.subtract(keys)
             }
+        }
+    }
+
+    private func updateInspectorWidth(_ width: CGFloat) {
+        let visible = TorrentInspectorLayout.isVisible(width: width, wasVisible: isInspectorPresented)
+        guard visible != isInspectorPresented else { return }
+        withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
+            isInspectorPresented = visible
         }
     }
 
