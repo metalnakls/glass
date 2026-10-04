@@ -31,6 +31,8 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
+    @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
+    @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
     @AppStorage("GlassList.grid") private var storedGrid = false
     @AppStorage("GlassList.density") private var storedDensityLevel = 1
     @AppStorage("GlassList.enableIconView") private var enableIconView = false
@@ -153,7 +155,8 @@ struct TorrentListView: View {
                     switch entry {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
-                            .padding(.top, 16)
+                            .padding(.top, headerIndex(section.id) == 0 ? 16 : sectionSpacing)
+                            .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
                             .moveDisabled(true)
                             .listRowBackground(Color.clear)

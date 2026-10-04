@@ -65,7 +65,7 @@ public final class GlassTuningUpdates {
         case "highlightWidth": return -80...160
         case "itemVerticalPadding": return -10...30
         case "leftPadding", "rightPadding": return 0...160
-        case "headerPushLead": return 0...120
+        case "headerPushLead", "sectionSpacing", "headerBottomPadding": return 0...120
         case "selectedHDRSpread", "shadowTopLift", "shadowBottomLift": return 0...24
         case "selectedHDRSoftness", "shadowTopSoftness", "shadowBottomSoftness", "dropBlurRadius", "stateGap": return 0...32
         default: return 0...240

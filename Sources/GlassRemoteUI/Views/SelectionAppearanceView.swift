@@ -15,6 +15,8 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
+    @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
+    @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
     @Environment(\.colorScheme) private var colorScheme
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -84,6 +86,8 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
+                shadowSlider("Between sections", value: $sectionSpacing, range: 0...120)
+                shadowSlider("Below headers", value: $headerBottomPadding, range: 0...120)
                 hdrSlider("HDR intensity · light", value: $selectedHDRWhiteLight)
                 hdrSlider("HDR intensity · dark", value: $selectedHDRWhiteDark)
                 shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
