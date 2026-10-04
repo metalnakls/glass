@@ -70,10 +70,11 @@ struct TorrentRowView: View, Equatable {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
                         }
                     }
-                    .onTapGesture(count: 2) { if groupIsExpanded == nil { fileAction?(.open) } }
+                    .gesture(TapGesture(count: 2).onEnded { fileAction?(.open) },
+                             including: groupIsExpanded == nil ? .all : .subviews)
                     .simultaneousGesture(TapGesture().onEnded {
-                        if groupIsExpanded == nil && NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
-                    })
+                        if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                    }, including: groupIsExpanded == nil ? .all : .subviews)
                     .padding(.trailing, 12)
             }
 
