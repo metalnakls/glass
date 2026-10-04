@@ -14,14 +14,14 @@ first time.
 Bump `VERSION`, build, then release:
 
 ```sh
-printf '1.1\n' > VERSION
-./Scripts/build-mac-app.sh release
-SPARKLE_PRIVATE_ED_KEY="$(cat ~/.glass-sparkle-private-key)" ./Scripts/release.sh
+printf '2.2\n' > VERSION
+./Scripts/release.sh
 ```
 
-`Scripts/release.sh` verifies the signed app, zips it to a stable `Glass.zip`,
-signs it with Sparkle EdDSA, writes `appcast.xml`, and publishes a GitHub
-Release.
+`Scripts/release.sh` builds the app, verifies its signature, zips it to a
+stable `Glass.zip`, signs it with Sparkle EdDSA, writes `appcast.xml`, and
+publishes a GitHub Release. The EdDSA private key is read from the login
+Keychain, so the export from earlier setups is no longer needed.
 
 ## Secrets
 
@@ -83,8 +83,13 @@ The quarantine flag is reapplied on each update, so this is once per version.
 
 ## CI
 
-`.github/workflows/ci.yml` runs `swift test` on every push and pull request.
-It does not build the app, because hosted runners lack the macOS 27 SDK.
+There is no hosted CI. The macOS app cannot be built on GitHub runners because
+they lack the macOS 27 SDK, and the `swift test` workflow was removed with it.
+Run the package tests locally before releasing:
+
+```sh
+swift test --package-path . --disable-sandbox
+```
 
 ## Appearance updates without an app release
 
