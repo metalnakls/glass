@@ -296,7 +296,7 @@ struct TorrentRowView: View, Equatable {
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentTransition(.symbolEffect(.replace.magic(fallback: .replace)))
-            .symbolEffect(.breathe, options: .repeating.speed(1.6), isActive: pendingRunning != nil && !reduceMotion)
+            .symbolEffect(.rotate.wholeSymbol.clockwise, options: .repeating.speed(1.2), isActive: pendingRunning != nil && !reduceMotion)
             .opacity(reduceMotion && pendingRunning != nil ? 0.65 : 1)
     }
 
