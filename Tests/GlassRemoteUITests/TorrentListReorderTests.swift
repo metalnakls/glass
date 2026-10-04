@@ -7,7 +7,7 @@ import Testing
 @MainActor @Suite("Native torrent reordering")
 struct TorrentListReorderTests {
     private func record(_ id: Int, source: UUID, name: String? = nil, complete: Bool = false, adding: Bool = false) -> TorrentRecord {
-        TorrentRecord(TorrentSummary(id: id, hashString: "move-\(id)", name: name ?? "Movie \(id)", status: 0,
+        TorrentRecord(TorrentSummary(id: id, hashString: "move-\(id)", name: name ?? [1: "Aurora", 2: "Solar Drift", 3: "Quiet Coast"][id] ?? "Archive", status: 0,
             percentDone: complete ? 1 : 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
             leftUntilDone: complete ? 0 : 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil),
             sourceID: source, isAdding: adding)
