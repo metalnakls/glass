@@ -291,15 +291,24 @@ struct TorrentListView: View {
     }
 
     private func performFileAction(for row: TorrentListRowPresentation, action: TorrentFileActions.Action) {
-        let torrent: TorrentSummary
+        let directory: String
+        let path: String
         switch row.kind {
-        case let .torrent(record, _): torrent = record.summary
+        case let .torrent(record, _):
+            guard let downloadDirectory = record.summary.downloadDir else {
+                TorrentFileActions.shared.showEmptyPreview(); return
+            }
+            directory = downloadDirectory
+            let torrent = record.summary
+            let details = model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: row.sourceID, including: [.files])
+            path = details?.files.first?.name.split(separator: "/").first.map(String.init) ?? torrent.name
         case let .group(records, _, _):
-            guard let first = records.first else { return }; torrent = first.summary
+            guard let common = TorrentFileActions.groupDirectory(records.map(\.summary)) else {
+                TorrentFileActions.shared.showEmptyPreview(); return
+            }
+            directory = common
+            path = "."
         }
-        guard let directory = torrent.downloadDir else { return }
-        let details = model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: row.sourceID, including: [.files])
-        let path = details?.files.first?.name.split(separator: "/").first.map(String.init) ?? torrent.name
         Task {
             do { try await TorrentFileActions.shared.perform(action, sourceID: row.sourceID, directory: directory, path: path, isLocal: row.sourceID == model.localSourceID) }
             catch { model.errorMessage = error.localizedDescription }
