@@ -77,7 +77,14 @@ struct TorrentListSection: Identifiable {
 @MainActor
 @Observable
 final class TorrentListPresentationModel {
-    private(set) var rows: [TorrentListRowPresentation] = []
+    private(set) var rows: [TorrentListRowPresentation] = [] {
+        didSet {
+            iconPositions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
+            movingFolderIDs = Set(rows.flatMap { Array($0.groupMemberIDs?.prefix(3) ?? []) })
+        }
+    }
+    @ObservationIgnored private(set) var iconPositions: [String: Int] = [:]
+    @ObservationIgnored private(set) var movingFolderIDs: Set<String> = []
 
     @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
 

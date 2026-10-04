@@ -313,7 +313,7 @@ struct TorrentListView: View {
     private func liveRow(for row: TorrentListRowPresentation) -> some View {
         TorrentListLiveRow(
             row: row,
-            iconPosition: presentation.rows.firstIndex(where: { $0.id == row.id }) ?? 0,
+            iconPosition: presentation.iconPositions[row.id] ?? 0,
             isSelected: selection == row.id,
             isReordering: reorderingIDs.contains(row.id),
             leftPadding: grid ? 0 : leftPadding,
@@ -322,7 +322,7 @@ struct TorrentListView: View {
             rowHeight: listRowHeight,
             folderMotion: folderMotion,
             folderIDs: row.groupMemberIDs.map { Array($0.prefix(3)) } ?? [],
-            folderID: presentation.rows.first(where: { $0.groupMemberIDs?.prefix(3).contains(row.id) == true }) == nil ? nil : row.id,
+            folderID: presentation.movingFolderIDs.contains(row.id) ? row.id : nil,
             elevationController: elevationController,
             fileAction: { performFileAction(for: row, action: $0) },
             density: density,
