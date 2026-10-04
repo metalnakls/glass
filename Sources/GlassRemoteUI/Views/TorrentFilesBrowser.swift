@@ -48,8 +48,15 @@ struct TorrentFilesBrowser: View {
             if showsControls {
                 HStack(spacing: 8) {
                     Toggle("Select all files", isOn: Binding(
-                        get: { !entries.isEmpty && entries.allSatisfy(wanted) },
-                        set: { value in for entry in entries { setWanted(entry.index, value) } }
+                        get: {
+                            !entries.isEmpty && (stagesChanges
+                                ? entries.allSatisfy { selection.contains($0.index) }
+                                : entries.allSatisfy(wanted))
+                        },
+                        set: { value in
+                            if stagesChanges { selectFiles(entries.map(\.index), selected: value) }
+                            else { for entry in entries { setWanted(entry.index, value) } }
+                        }
                     ))
                     .labelsHidden().toggleStyle(.checkbox)
                     TextField("Search Files", text: $searchText)
@@ -66,9 +73,12 @@ struct TorrentFilesBrowser: View {
                 selection = Set(rows.filter { ids.contains($0.id) }.flatMap(\.indices))
             })) {
                 TableColumn("") { row in
-                    Toggle("Download \(row.name)", isOn: Binding(
-                        get: { row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
-                        set: { value in for index in row.indices { setWanted(index, value) } }
+                    Toggle(stagesChanges ? "Select \(row.name)" : "Download \(row.name)", isOn: Binding(
+                        get: { stagesChanges ? row.indices.allSatisfy { selection.contains($0) } : row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
+                        set: { value in
+                            if stagesChanges { selectFiles(row.indices, selected: value) }
+                            else { for index in row.indices { setWanted(index, value) } }
+                        }
                     )).labelsHidden().toggleStyle(.checkbox).controlSize(.small)
                 }.width(20)
                 TableColumn("Name") { row in
@@ -131,6 +141,10 @@ struct TorrentFilesBrowser: View {
                 guard let onFileAction, let row = rows.first(where: { nativeSelection.contains($0.id) }) else { return .ignored }
                 onFileAction(row, .preview); return .handled
             }
+            .onChange(of: selection, initial: true) { _, selected in
+                guard stagesChanges else { return }
+                nativeSelection = Set(rows.filter { !$0.indices.isEmpty && $0.indices.allSatisfy(selected.contains) }.map(\.id))
+            }
             .tableStyle(.inset)
             .controlSize(.small)
             .font(.system(size: 12))
@@ -162,6 +176,10 @@ struct TorrentFilesBrowser: View {
         }
     }
 
+    private func selectFiles(_ indices: [Int], selected: Bool) {
+        if selected { selection.formUnion(indices) }
+        else { selection.subtract(indices) }
+    }
     private func setWanted(_ index: Int, _ value: Bool) {
         if stagesChanges { pendingWanted[index] = value }
         else { onSetWanted(index, value) }

@@ -201,11 +201,11 @@ private struct TorrentInspectorContent: View {
             HStack(spacing: 8) {
                 Toggle("Select all files", isOn: Binding(get: {
                     groupDetails.values.allSatisfy { details in
-                        details.files.indices.allSatisfy { index in editSession.wanted[details.hashString]?[index] ?? (details.fileStats.indices.contains(index) ? (details.fileStats[index].wanted ?? true) : true) }
+                        details.files.indices.allSatisfy { index in editSession.selections[details.hashString]?.contains(index) == true }
                     }
                 }, set: { value in
                     for details in groupDetails.values {
-                        for index in details.files.indices { editSession.wanted[details.hashString, default: [:]][index] = value }
+                        editSession.selections[details.hashString] = value ? Set(details.files.indices) : []
                     }
                 })).labelsHidden().toggleStyle(.checkbox)
                 TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
