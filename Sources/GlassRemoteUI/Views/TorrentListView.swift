@@ -105,15 +105,6 @@ struct TorrentListView: View {
         Color(white: colorScheme == .dark ? columnDarkBrightness : columnLightBrightness)
     }
 
-    private func headerIndex(_ id: String) -> Int {
-        var index = 0
-        for section in TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles) {
-            if section.id == id { return index }
-            index += section.rows.count + 1
-        }
-        return index
-    }
-
     private var density: TorrentRowDensity {
         densityLevel == 0 ? .compact : (enableCompactView && columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
     }
@@ -122,12 +113,20 @@ struct TorrentListView: View {
     }
 
     var body: some View {
+        let sections = TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)
+        let entries = sections.flatMap { section in
+            [TorrentListEntry.header(section)] + section.rows.map(TorrentListEntry.torrent)
+        }
+        let headerPositions = Dictionary(uniqueKeysWithValues: entries.enumerated().compactMap { index, entry -> (String, Int)? in
+            guard case let .header(section) = entry else { return nil }
+            return (section.id, index)
+        })
         ScrollViewReader { scrollProxy in
             Group {
             if grid {
                 ScrollView {
                     LazyVStack(spacing: 12, pinnedViews: .sectionHeaders) {
-                        ForEach(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)) { section in
+                        ForEach(sections) { section in
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
                                     ForEach(section.rows) { row in
@@ -151,11 +150,11 @@ struct TorrentListView: View {
                 }
             } else {
             List(selection: $selection) {
-                ForEach(TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles)) { entry in
+                ForEach(entries) { entry in
                     switch entry {
                     case let .header(section):
-                        TorrentStickyTitle(title: section.title, id: section.id, rowIndex: headerIndex(section.id), inset: leftPadding + 16, controller: stickyHeaders)
-                            .padding(.top, headerIndex(section.id) == 0 ? 16 : sectionSpacing)
+                        TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
+                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? 16 : sectionSpacing)
                             .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
                             .moveDisabled(true)
@@ -211,20 +210,20 @@ struct TorrentListView: View {
         }
         .onAppear {
             elevationController.setRows(elevationRows)
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
+            stickyHeaders.configure(sections, inset: leftPadding + 16)
             elevationController.observeTable { table in
                 stickyHeaders.attach(table)
                 folderMotion.attach(table)
                 artworkPreloader.attach(table)
             }
         }
-        .onChange(of: artworkInputs, initial: true) { _, inputs in artworkPreloader.setInputs(inputs) }
-        .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
-        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16) }
+        .onChange(of: artworkInputs(for: entries), initial: true) { _, inputs in artworkPreloader.setInputs(inputs) }
+        .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
+        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
-        .onChange(of: TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map(\.id)) { _, _ in
+        .onChange(of: entries.map(\.id)) { _, _ in
             elevationController.setRows(elevationRows)
-            stickyHeaders.configure(TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles), inset: leftPadding + 16)
+            stickyHeaders.configure(sections, inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
@@ -342,8 +341,8 @@ struct TorrentListView: View {
 
     }
 
-    private var artworkInputs: [TorrentThumbnailInput?] {
-        TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map { entry in
+    private func artworkInputs(for entries: [TorrentListEntry]) -> [TorrentThumbnailInput?] {
+        entries.map { entry in
             guard case let .torrent(row) = entry, let record = row.torrentRecord else { return nil }
             return TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID)
         }
