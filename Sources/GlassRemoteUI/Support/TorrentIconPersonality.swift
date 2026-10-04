@@ -83,11 +83,15 @@ struct TorrentArtworkOverflow: NSViewRepresentable {
                 if !saved.contains(where: { $0.view === view }) {
                     saved.append(SavedClip(view: view, clips: view.clipsToBounds, layerClips: view.layer?.masksToBounds ?? false, z: view.layer?.zPosition))
                 }
-                view.clipsToBounds = false
-                view.layer?.masksToBounds = false
-                if view is NSTableRowView {
-                    view.wantsLayer = true
-                    view.layer?.zPosition = CGFloat(order + 1)
+                // This runs from native layout too. Rewriting the same layer
+                // properties there can schedule another display/layout pass.
+                if view.clipsToBounds { view.clipsToBounds = false }
+                if view is NSTableRowView, !view.wantsLayer { view.wantsLayer = true }
+                if let layer = view.layer {
+                    if layer.masksToBounds { layer.masksToBounds = false }
+                    if view is NSTableRowView, layer.zPosition != CGFloat(order + 1) {
+                        layer.zPosition = CGFloat(order + 1)
+                    }
                 }
                 ancestor = view.superview
             }

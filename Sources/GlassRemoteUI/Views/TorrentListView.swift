@@ -132,6 +132,11 @@ struct TorrentListView: View {
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
                                             .moveDisabled(rowIsAdding(row))
+                                            .onScrollVisibilityChange(threshold: 0.1) { visible in
+                                                guard visible,
+                                                      let index = entries.firstIndex(where: { $0.id == row.id }) else { return }
+                                                artworkPreloader.prefetchAround(index)
+                                            }
                                     }.reorderable(collectionID: section.id)
                                 }
                             } header: {
@@ -335,11 +340,6 @@ struct TorrentListView: View {
             remove: remove,
             toggleTransfers: { await toggleTransfers(for: row) }
         )
-        .onScrollVisibilityChange(threshold: 0.1) { visible in
-            guard grid, visible,
-                  let index = TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).firstIndex(where: { $0.id == row.id }) else { return }
-            artworkPreloader.prefetchAround(index)
-        }
 
     }
 
@@ -570,7 +570,9 @@ private struct TorrentListLiveRow: View {
         )
         .equatable()
         .allowsHitTesting(!isAdding)
-        .frame(minHeight: grid ? 164 : rowHeight)
+        // Native List can reuse the tuned height without measuring this whole
+        // swipe/glass/icon hierarchy for each row entering the viewport.
+        .frame(height: grid ? 164 : max(density.showsIcon ? 48 : 28, rowHeight))
         .background {
             if isReordering {
                 RoundedRectangle(cornerRadius: 12)

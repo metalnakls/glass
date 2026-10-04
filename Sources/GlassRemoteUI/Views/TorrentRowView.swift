@@ -407,7 +407,6 @@ struct TorrentFileIcon: View {
     var thumbnailInput: TorrentThumbnailInput?
     @Environment(\.glassSampleArtwork) private var sampleArtwork
     @State private var thumbnail: NSImage?
-    @State private var isVisible = false
     @State private var artworkTint = Color.black
     @AppearanceStorage("GlassList.funMode") private var funMode = false
     @AppearanceStorage("GlassList.posterColoredShadows") private var coloredShadows = true
@@ -428,15 +427,16 @@ struct TorrentFileIcon: View {
             .aspectRatio(contentMode: .fit)
             .frame(width: size, height: size)
             .shadow(color: (coloredShadows && displayedThumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
-            .onScrollVisibilityChange(threshold: 0.1) { isVisible = $0 }
-            .task(id: ThumbnailTaskID(input: thumbnailInput, visible: isVisible, revision: TorrentThumbnailService.shared.revision)) {
+            // List already realizes a viewport buffer and the shared preloader
+            // warms nearby artwork. Load once on realization rather than adding
+            // a visibility observer and a second state/layout update per icon.
+            .task(id: ThumbnailTaskID(input: thumbnailInput, revision: TorrentThumbnailService.shared.revision)) {
                 if sampleArtwork {
                     let image = TorrentSampleArtwork.image(for: fileName)
                     thumbnail = image; artworkTint = TorrentArtworkTint.color(image)
                     return
                 }
                 guard let input = thumbnailInput, !isFolder else { thumbnail = nil; return }
-                guard isVisible else { return }
                 thumbnail = TorrentThumbnailService.shared.cachedImage(for: input)
                 if let thumbnail { artworkTint = TorrentArtworkTint.color(thumbnail) }
                 let image = await TorrentThumbnailService.shared.image(for: input)
@@ -458,7 +458,6 @@ struct TorrentFileIcon: View {
 
 private struct ThumbnailTaskID: Equatable {
     let input: TorrentThumbnailInput?
-    let visible: Bool
     let revision: Int
 }
 
