@@ -11,7 +11,7 @@ public struct GlassRootView: View {
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
-    @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = true
+    @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = false
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
     @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
     @State private var isTorrentDropTargeted = false
@@ -196,6 +196,11 @@ public struct GlassRootView: View {
         }
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActive(isTestWorkspace || phase == .active)
+        }
+        .onChange(of: selectedTorrentID, initial: true) { _, selection in
+            withAnimation(accessibilityReduceMotion ? nil : .easeInOut(duration: 0.25)) {
+                isInspectorPresented = selection != nil
+            }
         }
         .task(id: selectedTorrentID) {
             await loadSelectedTorrentDetails()

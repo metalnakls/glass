@@ -273,6 +273,11 @@ struct TorrentListView: View {
                 animated: hasRowIdentityChanges
             )
         }
+        .onKeyPress(.escape, phases: [.down]) { _ in
+            guard selection != nil else { return .ignored }
+            selection = nil
+            return .handled
+        }
         .onKeyPress(.delete, phases: [.down]) { keyPress in
             guard selection != nil, presentation.rows.contains(where: { $0.id == selection }) else { return .ignored }
             removeSelected(keyPress.modifiers.contains(.command))
