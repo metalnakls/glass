@@ -234,9 +234,10 @@ struct AddTorrentBatchView: View {
             ? (item.suggestion()?.pathRenames ?? [])
             : []
         return TorrentAddNamingPlan(
-            rootName: resolvedGroupName(for: group),
+            rootName: item.draft.preview.name,
             pathRenames: pathRenames,
-            displayName: submissionName(for: item, in: group, offset: offset)
+            displayName: resolvedGroupName(for: group),
+            season: TorrentSeasonDescriptor(title: resolvedGroupName(for: group), season: group.seasons[offset])
         )
     }
 
@@ -391,7 +392,7 @@ final class TorrentBatchItemState {
             files: draft.preview.files,
             selectedFileIndices: selected
         )
-        self.name = suggestion?.rootName ?? draft.preview.name
+        self.name = suggestion?.suggestedName ?? draft.preview.name
         self.selectedFileIndices = selected
     }
 
@@ -410,13 +411,13 @@ final class TorrentBatchItemState {
 
     func namingPlan() -> TorrentAddNamingPlan? {
         guard let suggestion = suggestion() else { return nil }
-        return TorrentAddNamingPlan(rootName: normalizedName, pathRenames: suggestion.pathRenames)
+        return suggestion.withDisplayName(normalizedName)
     }
 
     var smartSeason: TorrentSeasonDescriptor? {
         guard let season = TorrentNameCleaner.seasonDescriptor(for: TorrentBatchNamingInput(
             rootName: draft.preview.name, files: draft.preview.files
-        )), normalizedName == "\(season.title) \(season.season)" else { return nil }
+        )), normalizedName == season.title else { return nil }
         return season
     }
 
@@ -425,7 +426,7 @@ final class TorrentBatchItemState {
         return TorrentSeasonStoragePlan(
             downloadDirectory: TorrentSeasonStoragePlan.baseDirectory(base: baseDirectory, title: season.title),
             namingPlan: TorrentAddNamingPlan(
-                rootName: season.title, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName
+                rootName: draft.preview.name, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName, season: season
             )
         )
     }
@@ -455,7 +456,7 @@ final class TorrentBatchItemState {
 
     func applySmartName() {
         if let suggestion = suggestion() {
-            name = suggestion.rootName
+            name = suggestion.suggestedName
         }
     }
 

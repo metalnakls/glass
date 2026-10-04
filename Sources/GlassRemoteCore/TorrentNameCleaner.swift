@@ -10,7 +10,7 @@ public struct TorrentBatchNamingInput: Sendable, Hashable {
     }
 }
 
-public struct TorrentSeasonDescriptor: Sendable, Hashable {
+public struct TorrentSeasonDescriptor: Sendable, Hashable, Codable {
     public let title: String
     public let season: Int
 
@@ -102,7 +102,7 @@ public enum TorrentNameCleaner {
                 result.append(group)
             } else {
                 result.append(TorrentBatchGroup(
-                    displayName: smartRootName(inputs[index].rootName, files: inputs[index].files),
+                    displayName: seasonDescriptor(for: inputs[index])?.title ?? smartRootName(inputs[index].rootName, files: inputs[index].files),
                     itemIndices: [index]
                 ))
             }
@@ -116,7 +116,8 @@ public enum TorrentNameCleaner {
         selectedFileIndices: Set<Int>,
         removingTokens: [String] = []
     ) -> TorrentAddNamingPlan? {
-        let cleanedRoot = smartRootName(rootName, files: files, removingTokens: removingTokens)
+        let season = isMediaFile(rootName) ? nil : seasonDescriptor(for: TorrentBatchNamingInput(rootName: rootName, files: files))
+        let cleanedRoot = season == nil ? smartRootName(rootName, files: files, removingTokens: removingTokens) : rootName
         var renames: [TorrentPathRename] = []
 
         if files.count > 1 {
@@ -144,8 +145,8 @@ public enum TorrentNameCleaner {
         }
 
         renames.sort { pathDepth($0.path) > pathDepth($1.path) }
-        guard cleanedRoot != rootName || !renames.isEmpty else { return nil }
-        return TorrentAddNamingPlan(rootName: cleanedRoot, pathRenames: renames)
+        guard season != nil || cleanedRoot != rootName || !renames.isEmpty else { return nil }
+        return TorrentAddNamingPlan(rootName: cleanedRoot, pathRenames: renames, displayName: season?.title, season: season)
     }
 
     public static func cleanMediaFileName(
@@ -202,7 +203,10 @@ public enum TorrentNameCleaner {
         else {
             return nil
         }
-        let title = releaseTitle(from: titleText)
+        // Bilingual releases conventionally place the original Latin title after the translation.
+        let latinTitle = titleText.range(of: #"[A-Za-z][A-Za-z0-9 ._’'&!–—-]*$"#, options: .regularExpression)
+            .map { String(titleText[$0]) } ?? titleText
+        let title = releaseTitle(from: latinTitle)
         guard title.count >= 2 else { return nil }
         return TorrentSeasonDescriptor(title: title, season: season)
     }
@@ -296,7 +300,7 @@ public enum TorrentNameCleaner {
     )
 
     private static let seasonIdentityRegex = try! NSRegularExpression(
-        pattern: #"(?i)^(.+?)[\s._\-\[(]+(?:s(?:eason)?|season|series)[\s._-]*0?(\d{1,2})(?:\D|$)"#
+        pattern: #"(?i)^(.+?)[\s._\-\[(]+(?:s(?:eason)?|season|series|сезон)[\s._-]*0?(\d{1,2})(?:\D|$)"#
     )
 
     private static let mediaExtensions: Set<String> = [

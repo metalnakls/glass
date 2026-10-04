@@ -545,22 +545,34 @@ public struct TorrentPathRename: Sendable, Hashable, Identifiable {
 public struct TorrentAddNamingPlan: Sendable, Hashable {
     public let rootName: String
     public let pathRenames: [TorrentPathRename]
+    public let season: TorrentSeasonDescriptor?
     public let displayName: String?
 
-    public init(rootName: String, pathRenames: [TorrentPathRename], displayName: String? = nil) {
+    public init(rootName: String, pathRenames: [TorrentPathRename], displayName: String? = nil, season: TorrentSeasonDescriptor? = nil) {
         self.rootName = rootName
         self.pathRenames = pathRenames
         self.displayName = displayName
+        self.season = season
     }
+    public var suggestedName: String { displayName ?? rootName }
+
+    public func withDisplayName(_ name: String) -> Self {
+        guard let season else { return Self(rootName: name, pathRenames: pathRenames) }
+        return Self(rootName: rootName, pathRenames: pathRenames, displayName: name,
+                    season: TorrentSeasonDescriptor(title: name, season: season.season))
+    }
+
 }
 
 public struct TorrentStoredDisplayName: Sendable, Hashable, Codable {
     public let rootName: String
+    public let season: TorrentSeasonDescriptor?
     public let displayName: String
 
-    public init(rootName: String, displayName: String) {
+    public init(rootName: String, displayName: String, season: TorrentSeasonDescriptor? = nil) {
         self.rootName = rootName
         self.displayName = displayName
+        self.season = season
     }
 }
 

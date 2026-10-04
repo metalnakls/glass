@@ -10,7 +10,7 @@ struct TorrentAddPreparationTests {
     @Test("smart names are applied before the user edits the draft")
     func smartNamesStartApplied() throws {
         let item = makeItem()
-        #expect(item.name == "Show Name 1")
+        #expect(item.name == "Show Name")
         #expect(item.selectedFileIndices == [0, 1])
         let plan = try #require(item.namingPlan())
         #expect(plan.pathRenames.map(\.name) == ["S01E01 — Pilot.mkv", "S01E02.mkv"])
@@ -45,7 +45,8 @@ struct TorrentAddPreparationTests {
     func manualNameSurvivesSmartPlan() throws {
         let item = makeItem()
         item.name = "My Show"
-        #expect(try #require(item.namingPlan()).rootName == "My Show")
+        #expect(try #require(item.namingPlan()).displayName == "My Show")
+        #expect(try #require(item.namingPlan()).rootName == item.draft.preview.name)
         item.restoreOriginalName()
         #expect(item.name == item.draft.preview.name)
     }
@@ -53,12 +54,12 @@ struct TorrentAddPreparationTests {
     @Test("an inferred season starts named and joins either a single season or an existing group", arguments: [[2], [2, 3]])
     func inferredSeasonJoinsLibrary(existingSeasons: [Int]) throws {
         let item = makeItem(rootName: "Fargo", files: ["S05E01.mkv", "S05E22.mkv"])
-        #expect(item.name == "Fargo 5")
-        #expect(try #require(item.namingPlan()).rootName == "Fargo 5")
+        #expect(item.name == "Fargo")
+        #expect(try #require(item.namingPlan()).rootName == "Fargo")
         item.restoreOriginalName()
         #expect(item.name == "Fargo")
         item.applySmartName()
-        #expect(item.name == "Fargo 5")
+        #expect(item.name == "Fargo")
 
         let sourceID = UUID()
         let records = (existingSeasons + [5]).map { season in
@@ -67,7 +68,8 @@ struct TorrentAddPreparationTests {
                 status: TransmissionTorrentStatus.stopped.rawValue, percentDone: 0,
                 rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 100,
                 eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil
-            ), sourceID: sourceID)
+            ), sourceID: sourceID, displayName: season == 5 ? item.name : nil,
+               season: season == 5 ? TorrentSeasonDescriptor(title: "Fargo", season: 5) : nil)
         }
         let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
         #expect(rows.count == 1)
@@ -82,10 +84,10 @@ struct TorrentAddPreparationTests {
     func seasonsShareDirectory(season: Int) throws {
         let item = makeItem(rootName: "Fargo", files: ["S0\(season)E01.mkv", "S0\(season)E02.mkv"])
         let plan = try #require(item.seasonStoragePlan(baseDirectory: "/Volumes/and"))
-        #expect(item.name == "Fargo \(season)")
+        #expect(item.name == "Fargo")
         #expect(plan.downloadDirectory == "/Volumes/and")
         #expect(plan.namingPlan.rootName == "Fargo")
-        #expect(plan.namingPlan.displayName == "Fargo \(season)")
+        #expect(plan.namingPlan.displayName == "Fargo")
         #expect((plan.downloadDirectory as NSString).appendingPathComponent(plan.namingPlan.rootName) == "/Volumes/and/Fargo")
         let insideSeries = try #require(item.seasonStoragePlan(baseDirectory: "/Volumes/and/Fargo/"))
         #expect(insideSeries.downloadDirectory == plan.downloadDirectory)

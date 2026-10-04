@@ -31,11 +31,12 @@ public final class TorrentRecord: Identifiable {
     public private(set) var summary: TorrentSummary
     public private(set) var status: Int
     public private(set) var name: String
+    public private(set) var season: TorrentSeasonDescriptor?
     public private(set) var displayName: String?
     public private(set) var isDownloading: Bool
     public private(set) var isCompleted: Bool
 
-    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil) {
+    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil) {
         self.sourceID = sourceID
         id = Self.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
         hashString = summary.hashString
@@ -43,6 +44,7 @@ public final class TorrentRecord: Identifiable {
         status = summary.status
         name = summary.name
         self.displayName = displayName
+        self.season = season
         isDownloading = summary.isDownloading
         isCompleted = summary.isCompleted
     }
@@ -53,10 +55,11 @@ public final class TorrentRecord: Identifiable {
     }
 
     @discardableResult
-    func apply(_ updatedSummary: TorrentSummary, displayName: String? = nil) -> Bool {
-        guard summary != updatedSummary || self.displayName != displayName else { return false }
-        let structureChanged = name != updatedSummary.name || self.displayName != displayName
+    func apply(_ updatedSummary: TorrentSummary, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil) -> Bool {
+        guard summary != updatedSummary || self.displayName != displayName || self.season != season else { return false }
+        let structureChanged = name != updatedSummary.name || self.displayName != displayName || self.season != season
         self.displayName = displayName
+        self.season = season
         if status != updatedSummary.status {
             status = updatedSummary.status
         }
@@ -531,7 +534,7 @@ public final class RemoteAppModel {
             }
             if let displayName = namingPlan.displayName {
                 let key = TorrentRecord.identity(sourceID: sourceID, hashString: result.hashString)
-                torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: namingPlan.rootName, displayName: displayName)
+                torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: namingPlan.rootName, displayName: displayName, season: namingPlan.season)
                 do {
                     try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
                 } catch {
@@ -830,7 +833,7 @@ public final class RemoteAppModel {
     public func smartRename(_ details: TorrentDetails, sourceID: UUID) async {
         guard let plan = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
             selectedFileIndices: Set(details.files.indices)) else { return }
-        await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
+        let didRename = await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
             reloadCoreDetails: true, detailSections: [.files]) { provider in
             for rename in plan.pathRenames {
                 try await provider.renamePath(id: details.hashString, path: rename.path, name: rename.name)
@@ -838,6 +841,18 @@ public final class RemoteAppModel {
             if plan.rootName != details.name {
                 try await provider.renamePath(id: details.hashString, path: details.name, name: plan.rootName)
             }
+        }
+        if didRename, let displayName = plan.displayName {
+            let key = TorrentRecord.identity(sourceID: sourceID, hashString: details.hashString)
+            torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: plan.rootName, displayName: displayName, season: plan.season)
+            do {
+                try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
+                let state = sourceState(for: sourceID)
+                if let record = state.records.first(where: { $0.hashString == details.hashString }) {
+                    _ = record.apply(record.summary, displayName: displayName, season: plan.season)
+                    state.structureRevision &+= 1
+                }
+            } catch { errorMessage = error.localizedDescription }
         }
         fileMutationRevision &+= 1
     }
@@ -1473,11 +1488,11 @@ public final class RemoteAppModel {
         var updatedRecords = summaries.map { summary in
             let identity = Self.recordIdentity(for: summary, sourceID: sourceID)
             if let record = existingByIdentity[identity] {
-                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID)) || structureChanged
+                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID), season: storedSeason(for: summary, sourceID: sourceID)) || structureChanged
                 return record
             }
             structureChanged = true
-            return TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID))
+            return TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID), season: storedSeason(for: summary, sourceID: sourceID))
         }
 
         // Server queue telemetry must not move a card under the user's pointer.
@@ -1506,9 +1521,9 @@ public final class RemoteAppModel {
         for summary in changed {
             let identity = Self.recordIdentity(for: summary, sourceID: sourceID)
             if let record = recordsByIdentity[identity] {
-                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID)) || structureChanged
+                structureChanged = record.apply(summary, displayName: storedDisplayName(for: summary, sourceID: sourceID), season: storedSeason(for: summary, sourceID: sourceID)) || structureChanged
             } else {
-                let record = TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID))
+                let record = TorrentRecord(summary, sourceID: sourceID, displayName: storedDisplayName(for: summary, sourceID: sourceID), season: storedSeason(for: summary, sourceID: sourceID))
                 records.append(record)
                 recordsByIdentity[identity] = record
                 structureChanged = true
@@ -1526,6 +1541,12 @@ public final class RemoteAppModel {
 
     private static func recordIdentity(for summary: TorrentSummary, sourceID: UUID) -> String {
         TorrentRecord.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
+    }
+
+    private func storedSeason(for summary: TorrentSummary, sourceID: UUID) -> TorrentSeasonDescriptor? {
+        let key = Self.recordIdentity(for: summary, sourceID: sourceID)
+        guard let stored = torrentDisplayNames[key], stored.rootName == summary.name else { return nil }
+        return stored.season
     }
 
     private func storedDisplayName(for summary: TorrentSummary, sourceID: UUID) -> String? {

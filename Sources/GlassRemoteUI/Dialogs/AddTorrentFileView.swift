@@ -40,7 +40,7 @@ struct AddTorrentFileView: View {
             files: draft.preview.files,
             selectedFileIndices: selectedFileIndices
         )
-        _name = State(initialValue: suggestion?.rootName ?? draft.preview.name)
+        _name = State(initialValue: suggestion?.suggestedName ?? draft.preview.name)
         _selectedFileIndices = State(initialValue: selectedFileIndices)
         _sourceID = State(initialValue: model.selectedSourceID)
         _isAutoCleanEnabled = State(initialValue: suggestion != nil)
@@ -67,7 +67,7 @@ struct AddTorrentFileView: View {
                 if let suggestion = autoCleanSuggestion {
                     LabeledContent(isAutoCleanEnabled ? "Applied" : "Suggestion") {
                         HStack(spacing: 8) {
-                            Text(suggestion.rootName)
+                            Text(suggestion.suggestedName)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
                                 .truncationMode(.middle)
@@ -387,7 +387,7 @@ struct AddTorrentFileView: View {
 
     private var resolvedAutoCleanPlan: TorrentAddNamingPlan? {
         guard isAutoCleanEnabled, let suggestion = autoCleanSuggestion else { return nil }
-        return TorrentAddNamingPlan(rootName: normalizedName, pathRenames: suggestion.pathRenames)
+        return suggestion.withDisplayName(normalizedName)
     }
 
     private func namingPreview(_ kind: String, from oldName: String, to newName: String) -> some View {
@@ -485,7 +485,7 @@ struct AddTorrentFileView: View {
             isAutoCleanEnabled = false
         } else {
             nameBeforeAutoClean = name
-            name = suggestion.rootName
+            name = suggestion.suggestedName
             isAutoCleanEnabled = true
         }
     }

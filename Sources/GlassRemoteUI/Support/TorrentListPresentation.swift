@@ -237,7 +237,10 @@ struct TorrentListRowPresentation: Identifiable {
         expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
         let summaries = records.map { record in
-            (pendingRenameNames[record.id] ?? record.displayName).map { record.summary.renamedForPresentation(to: $0) }
+            if pendingRenameNames[record.id] == nil, let season = record.season {
+                return record.summary.renamedForPresentation(to: "\(season.title) \(season.season)")
+            }
+            return (pendingRenameNames[record.id] ?? record.displayName).map { record.summary.renamedForPresentation(to: $0) }
                 ?? record.summary
         }
         let topology = TorrentNameSequenceGrouper.items(for: summaries)
@@ -280,6 +283,7 @@ struct TorrentListRowPresentation: Identifiable {
     }
 
     static func groupMemberDisplayName(_ record: TorrentRecord, groupName: String) -> String {
+        if let season = record.season { return "Season \(season.season)" }
         let name = record.displayName ?? record.summary.name
         let suffix = name.hasPrefix(groupName) ? String(name.dropFirst(groupName.count)) : name
         let cleaned = suffix.replacingOccurrences(of: #"(?i)^\s*(?:season|s)[\s._-]*"#, with: "", options: .regularExpression)

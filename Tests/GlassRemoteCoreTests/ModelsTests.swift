@@ -187,7 +187,8 @@ struct ModelsTests {
             selectedFileIndices: [0, 1]
         ))
 
-        #expect(plan.rootName == "Show Name 2")
+        #expect(plan.rootName == "Show.Name.S02.1080p")
+        #expect(plan.displayName == "Show Name")
         #expect(plan.pathRenames == [
             TorrentPathRename(
                 path: files[0].name,
@@ -243,9 +244,10 @@ struct ModelsTests {
         ]
         let input = TorrentBatchNamingInput(rootName: rootName, files: files)
         #expect(TorrentNameCleaner.seasonDescriptor(for: input) == TorrentSeasonDescriptor(title: "Fargo", season: 5))
-        #expect(TorrentNameCleaner.batchGroups(for: [input]).first?.displayName == "Fargo 5")
+        #expect(TorrentNameCleaner.batchGroups(for: [input]).first?.displayName == "Fargo")
         let plan = TorrentNameCleaner.plan(rootName: rootName, files: files, selectedFileIndices: [0, 1])
-        #expect(plan?.rootName ?? rootName == "Fargo 5")
+        #expect(plan?.rootName == rootName)
+        #expect(plan?.displayName == "Fargo")
     }
 
     @Test("mixed seasons keep the plain root title even when the conflicting file is late")
