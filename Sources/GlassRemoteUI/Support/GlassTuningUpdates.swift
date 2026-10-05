@@ -69,7 +69,7 @@ public final class GlassTuningUpdates {
         case "leftPadding", "rightPadding": return 0...160
         case "headerPushLead", "sectionSpacing", "headerBottomPadding": return 0...120
         case "selectedHDRSpread", "shadowTopLift", "shadowBottomLift": return 0...24
-        case "selectedHDRSoftness", "shadowTopSoftness", "shadowBottomSoftness", "dropBlurRadius", "stateGap": return 0...32
+        case "selectedHDRSoftness", "shadowTopSoftness", "shadowBottomSoftness", "dropBlurRadius", "stateGap", "filePriorityGap": return 0...32
         default: return 0...240
         }
     }

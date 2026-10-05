@@ -18,6 +18,7 @@ struct TorrentFilesBrowser: View {
     var onApplyWanted: (([Int: Bool]) -> Void)?
     var onSmartRename: (() -> Void)?
     @AppStorage("GlassList.showExtensions") private var showsExtensions = false
+    @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @State private var collapsed = Set<String>()
     var editSession: TorrentFileEditSession?
     var editID = ""
@@ -75,14 +76,14 @@ struct TorrentFilesBrowser: View {
                             get: { row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
                             set: { value in for index in row.indices { setWanted(index, value) } }
                         )).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                        HStack(spacing: 4) {
+                        HStack(spacing: 0) {
                             if row.isFolder {
                                 Button {
                                     if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
                                 } label: {
                                     Image(systemName: collapsed.contains(row.id) ? "chevron.right" : "chevron.down")
                                         .font(.system(size: 9, weight: .semibold)).frame(width: 12)
-                                }.buttonStyle(.plain)
+                                }.buttonStyle(.plain).padding(.trailing, 4)
                             }
                             Text(displayName(row))
                                 .lineLimit(1).truncationMode(.middle)
@@ -92,6 +93,7 @@ struct TorrentFilesBrowser: View {
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("High priority")
                                     .help("High priority")
+                                    .padding(.leading, priorityGap)
                             } else if row.indices.contains(where: { priority($0, byIndex: byIndex) < 0 }) {
                                 Text(":(")
                                     .font(.system(size: 10))
@@ -100,6 +102,7 @@ struct TorrentFilesBrowser: View {
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("Low priority")
                                     .help("Low priority")
+                                    .padding(.leading, priorityGap)
                             }
                             Spacer(minLength: 0)
                         }

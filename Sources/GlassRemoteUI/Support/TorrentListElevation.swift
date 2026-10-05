@@ -268,7 +268,12 @@ final class TorrentListElevationController: NSObject {
         let animateMovement = animated || continueGlide
         updateSeparators(highlightID: visible ? selectedID : nil)
         // A layout pass at the destination must not reset an in-flight glide.
-        if !geometryChanged && !settingsChanged && visible == surfaceVisible { return }
+        if !geometryChanged && !settingsChanged && visible == surfaceVisible {
+            // The row frame stays fixed in document coordinates while scrolling
+            // moves its shadows through the viewport.
+            overlay.show(rect, settings: settings, animated: false)
+            return
+        }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         if geometryChanged { surface.frame = surfaceRect }

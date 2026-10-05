@@ -82,6 +82,19 @@ struct TorrentListElevationTests {
         controller.setRows([nil, "a", "c", "d", nil, "e", "b"])
         for _ in 0..<4 { await Task.yield() }
         #expect(surface.frame.minY == table.rect(ofRow: 6).minY + 3)
+        // Scrolling changes viewport coordinates without changing the row frame.
+        surface.layer?.removeAllAnimations()
+        let shadow = try #require(overlay.layer?.sublayers?.first)
+        let beforeScroll = shadow.frame.minY
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 24))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        #expect(shadow.frame.minY == beforeScroll - 24)
+        table.rowHeight = 60
+        table.noteHeightOfRows(withIndexesChanged: IndexSet(integersIn: 0..<7))
+        controller.configureGeometry(TorrentCardGeometry(leading: 20, trailing: 20, separatorInset: 62))
+        #expect(surface.frame.minY == table.rect(ofRow: 6).minY + 3)
+        #expect(surface.frame.height == table.rect(ofRow: 6).height - 6)
+        #expect(shadow.frame == overlay.convert(surface.frame, from: table))
     }
 
     @Test("swipe actions remain behind transparent artwork rather than a rectangular cutoff")

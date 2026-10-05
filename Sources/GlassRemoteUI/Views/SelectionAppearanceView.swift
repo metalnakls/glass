@@ -37,6 +37,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.shadowBottomLift") private var shadowBottomLift = 7.0
 
     @AppearanceStorage("GlassList.stateGap") private var stateGap = 8.0
+    @AppearanceStorage("GlassList.filePriorityGap") private var filePriorityGap = 4.0
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
     @AppearanceStorage("GlassList.progressGlowStrength") private var progressGlowStrength = 0.8
     @AppearanceStorage("GlassList.progressLineWidth") private var progressLineWidth = 2.0
@@ -111,6 +112,7 @@ public struct SelectionAppearanceView: View {
                 Text("State Button").font(.subheadline.weight(.semibold))
                 Toggle("Glass state button", isOn: $stateGlass)
                 shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
+                shadowSlider("File priority spacing", value: $filePriorityGap, range: 0...32)
                 shadowSlider("Progress glow blur", value: $progressGlowBlur, range: 0...16)
                 shadowSlider("Progress glow strength", value: $progressGlowStrength, range: 0...2)
                 shadowSlider("Progress ring width", value: $progressLineWidth, range: 0.5...5)

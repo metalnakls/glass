@@ -2,6 +2,7 @@
   "GlassList.columnDarkBrightness" : 0.10843983208955224,
   "GlassList.columnLightBrightness" : 1,
   "GlassList.dropBlurRadius" : 8,
+  "GlassList.filePriorityGap" : 4,
   "GlassList.funMode" : true,
   "GlassList.funScale" : 1.2189948694029851,
   "GlassList.funTilt" : 8.1236007462686572,
