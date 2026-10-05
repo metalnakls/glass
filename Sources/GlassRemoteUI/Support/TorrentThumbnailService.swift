@@ -38,13 +38,12 @@ struct TorrentThumbnailInput: Hashable, Sendable {
     }
 
     /// Previewable video only. Subtitles, artwork, disc images and archives are never eligible, and
-    /// audio is deliberately excluded because artwork extraction needs video frames.
-    static let previewableExtensions: Set<String> = [
-        "avi", "divx", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm", "xvid"
-    ]
+    /// audio is deliberately excluded because artwork extraction needs video frames. The set itself
+    /// lives in `TorrentNameCleaner` so naming, suffix display and previews cannot drift apart.
+    static let previewableExtensions = TorrentNameCleaner.previewableExtensions
 
     static func isPreviewableVideo(_ path: String) -> Bool {
-        previewableExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+        TorrentNameCleaner.isPreviewableVideo(path)
     }
 
     /// A path only reaches `TorrentThumbnailFolderLink.fileURL` when it is relative and free of `..`.

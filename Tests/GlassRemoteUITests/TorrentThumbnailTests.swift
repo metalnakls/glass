@@ -143,6 +143,34 @@ struct TorrentThumbnailTests {
         #expect(!TorrentThumbnailInput.isPreviewableVideo("Track.mp3"))
     }
 
+    @Test("naming, suffix display and previews share one media vocabulary")
+    func sharedMediaVocabulary() {
+        // The three features derive from one set in TorrentNameCleaner. Audio is
+        // display-only: it may hide its suffix but can never yield a video frame.
+        #expect(TorrentExtensionPolicy.mediaExtensions == TorrentNameCleaner.mediaExtensions)
+        #expect(TorrentThumbnailInput.previewableExtensions == TorrentNameCleaner.previewableExtensions)
+        #expect(TorrentNameCleaner.previewableExtensions == TorrentNameCleaner.videoExtensions)
+        #expect(TorrentNameCleaner.mediaExtensions == TorrentNameCleaner.videoExtensions.union(["flac", "mp3", "wav"]))
+        #expect(TorrentNameCleaner.mediaExtensions.isSuperset(of: TorrentNameCleaner.videoExtensions))
+        for suffix in TorrentNameCleaner.videoExtensions {
+            #expect(TorrentNameCleaner.isVideoFile("File.\(suffix)"))
+            #expect(TorrentNameCleaner.isPreviewableVideo("File.\(suffix)"))
+            #expect(TorrentNameCleaner.isVideoFile("File.\(suffix.uppercased())"))
+            #expect(TorrentThumbnailInput.isPreviewableVideo("File.\(suffix)"))
+            #expect(TorrentExtensionPolicy.hiddenExtension(paths: ["File.\(suffix)"]) == suffix)
+        }
+        for suffix in ["flac", "mp3", "wav"] {
+            #expect(!TorrentNameCleaner.isVideoFile("Track.\(suffix)"))
+            #expect(!TorrentThumbnailInput.isPreviewableVideo("Track.\(suffix)"))
+            #expect(TorrentExtensionPolicy.hiddenExtension(paths: ["Track.\(suffix)"]) == suffix)
+        }
+        for suffix in ["srt", "sub", "idx", "txt", "nfo", "jpg", "png", "iso", "zip", "rar", "7z"] {
+            #expect(!TorrentNameCleaner.isVideoFile("File.\(suffix)"))
+            #expect(!TorrentThumbnailInput.isPreviewableVideo("File.\(suffix)"))
+            #expect(TorrentExtensionPolicy.hiddenExtension(paths: ["File.\(suffix)"]) == nil)
+        }
+    }
+
     @Test("only relative, traversal-free paths are cached and resolved")
     func traversalSafe() {
         #expect(TorrentThumbnailInput.isSafeRelativePath("Mosquito Coast/Mosquito Coast.mkv"))

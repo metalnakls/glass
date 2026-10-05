@@ -278,9 +278,7 @@ public enum TorrentNameCleaner {
             || normalized.range(of: #"^ddp?\d"#, options: .regularExpression) != nil
     }
 
-    private static func isMediaFile(_ path: String) -> Bool {
-        mediaExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
-    }
+    private static func isMediaFile(_ path: String) -> Bool { isVideoFile(path) }
 
     private static func pathDepth(_ path: String) -> Int {
         path.reduce(into: 0) { count, character in
@@ -303,9 +301,30 @@ public enum TorrentNameCleaner {
         pattern: #"(?i)^(.+?)[\s._\-\[(]+(?:s(?:eason)?|season|series|сезон)[\s._-]*0?(\d{1,2})(?:\D|$)"#
     )
 
-    private static let mediaExtensions: Set<String> = [
-        "avi", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm"
+    /// Video containers whose filename carries the release, shared by naming,
+    /// suffix display and artwork preview so the three can never drift apart.
+    ///
+    /// `divx` and `xvid` joined the set when suffix hiding and artwork preview
+    /// adopted the legacy AVI peers; naming benefits from the same alignment
+    /// because a `.xvid` file is cleaned exactly like a `.avi` one.
+    public static let videoExtensions: Set<String> = [
+        "avi", "divx", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm", "xvid"
     ]
+
+    /// Containers worth offering a frame for. Artwork extraction needs decodable
+    /// video, so audio containers are deliberately absent.
+    public static let previewableExtensions = videoExtensions
+
+    /// Every container that may have its suffix hidden in the UI.
+    public static let mediaExtensions: Set<String> = videoExtensions.union(["flac", "mp3", "wav"])
+
+    public static func isVideoFile(_ path: String) -> Bool {
+        videoExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    public static func isPreviewableVideo(_ path: String) -> Bool {
+        previewableExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
 
     private static let releaseNoiseTokens: Set<String> = [
         "aac", "amzn", "atmos", "av1", "bdrip", "bluray", "brip", "cam", "dd", "dsnp", "dts", "dv",
