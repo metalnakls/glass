@@ -5,21 +5,41 @@ import SwiftUI
 /// crosses into AppKit on every call. The scroll paths below ask for it once per
 /// visible row per frame, so the answer is cached and refreshed only when the
 /// system setting actually changes.
-@MainActor
+/// `accessibilityDisplayShouldReduceMotion` is an Objective-C property read that crosses into AppKit
+/// on every call. The scroll paths ask for it once per visible row per frame, so the answer is cached
+/// and refreshed only when the setting actually changes.
+///
+/// The cache is a plain lock rather than actor-isolated state because it is read from SwiftUI's
+/// nonisolated keyframe closures as well as from main-actor view code.
 public enum ReduceMotion {
-    private static var cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    public static var enabled: Bool { cached }
-    /// Call when the accessibility display options change notification arrives.
-    static func refresh() { cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    private static let lock = NSLock()
+    nonisolated(unsafe) private static var cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    nonisolated(unsafe) private static var token: (any NSObjectProtocol)?
+
+    public static var enabled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cached
+    }
+
+    /// Re-read the setting. Called when the accessibility display options change.
+    public static func refresh() {
+        let value = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        lock.lock()
+        cached = value
+        lock.unlock()
+    }
+
     /// Observe `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`.
     public static func startObserving() {
         let center = NotificationCenter.default
+        lock.lock()
         if let token { center.removeObserver(token) }
         token = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
                                    object: nil, queue: .main) { _ in refresh() }
+        lock.unlock()
         refresh()
     }
-    private static var token: Any?
 }
 
 struct TorrentShadowSettings: Equatable {
