@@ -57,7 +57,7 @@ struct TorrentRowView: View, Equatable {
         .onDisappear { commandTask?.cancel(); pendingRunning = nil }
     }
 
-    private var iconRole: TorrentIconRole {
+    var iconRole: TorrentIconRole {
         if groupIsExpanded != nil { return .fan }
         if isFolderLike { return .folder }
         return thumbnailInput == nil ? .document : .artwork
@@ -141,11 +141,9 @@ struct TorrentRowView: View, Equatable {
         } else if showsActivityIcon {
             activityProgress
         } else if let folderID, let folderMotion {
-            TorrentFileIcon(fileName: "", isFolder: true)
-                .opacity(folderMotion.flyingIDs.contains(folderID) ? 0 : 1)
+            TorrentFolderGlassIcon(controller: folderMotion, id: folderID)
+                .frame(width: 36, height: 36)
                 .transaction { $0.animation = nil }
-                .background(TorrentFolderRevealAnchor(controller: folderMotion, id: folderID,
-                    visible: !folderMotion.flyingIDs.contains(folderID)))
                 .transition(.identity)
                 .frame(width: 36, height: 42)
         } else {
@@ -328,6 +326,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var isFolderLike: Bool {
+        if folderID != nil { return true }
         if thumbnailInput != nil { return false }
         return TorrentArtworkKind.isFolder(name: torrent.name, fileCount: torrent.fileCount)
     }
@@ -375,20 +374,22 @@ private struct GroupFolderFanIcon: View {
 
     @ViewBuilder
     private func matchedFanIcon(_ index: Int) -> some View {
-        if let controller, ids.indices.contains(index) {
-            fanIcon(index)
-                .opacity(controller.flyingIDs.contains(ids[index]) ? 0 : 1)
-                .transaction { $0.animation = nil }
-                .background(TorrentFolderRevealAnchor(controller: controller, id: ids[index],
-                    visible: !controller.flyingIDs.contains(ids[index])))
-                .transition(.identity)
-        } else { fanIcon(index) }
+        fanIcon(index)
+            .transaction { $0.animation = nil }
+            .transition(.identity)
     }
 
     private func fanIcon(_ index: Int) -> some View {
-        TorrentFileIcon(fileName: "", isFolder: true, size: 27)
-            .rotationEffect(rotation(for: index), anchor: .bottom)
-            .offset(offset(for: index))
+        Group {
+            if let controller, ids.indices.contains(index) {
+                TorrentFolderGlassIcon(controller: controller, id: ids[index], size: 27,
+                    rotation: rotation(for: index).radians)
+                    .frame(width: 27, height: 27)
+            } else {
+                TorrentFileIcon(fileName: "", isFolder: true, size: 27)
+                    .environment(\.nativeGlassRotation, rotation(for: index).radians)
+            }
+        }.offset(offset(for: index))
     }
 
     private func rotation(for index: Int) -> Angle {
@@ -400,7 +401,9 @@ private struct GroupFolderFanIcon: View {
     private func offset(for index: Int) -> CGSize {
         guard count > 1 else { return .zero }
         let progress = CGFloat(index) / CGFloat(count - 1)
-        return CGSize(width: -5 + (10 * progress), height: abs(progress - 0.5) * 2)
+        let angle = rotation(for: index).radians
+        return CGSize(width: -5 + (10 * progress) + 13.5 * sin(angle),
+            height: abs(progress - 0.5) * 2 + 13.5 * (1 - cos(angle)))
     }
 }
 

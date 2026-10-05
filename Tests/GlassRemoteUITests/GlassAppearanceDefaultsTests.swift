@@ -10,6 +10,8 @@ struct GlassAppearanceDefaultsTests {
         let defaults = try #require(UserDefaults(suiteName: suite))
         defer { defaults.removePersistentDomain(forName: suite) }
         defaults.set(0.12, forKey: "GlassList.headerFadeStrengthDark")
+        defaults.set(1.25, forKey: "GlassList.iconGlassBlur")
+        defaults.set(2.5, forKey: "GlassList.iconGlassHDRDark")
         GlassAppearanceDefaults.register(in: defaults, domainName: suite)
         #expect(defaults.string(forKey: "GlassList.highlightColorLight") == GlassAppearanceDefaults.bundled["GlassList.highlightColorLight"] as? String)
         #expect(defaults.string(forKey: "GlassList.highlightColorDark") == GlassAppearanceDefaults.bundled["GlassList.highlightColorDark"] as? String)
@@ -19,6 +21,8 @@ struct GlassAppearanceDefaultsTests {
         let snapshot = GlassAppearanceDefaults.snapshot(in: defaults)
         #expect(snapshot["serverPassword"] == nil)
         #expect(snapshot["GlassList.headerFadeStrengthDark"] as? Double == 0.12)
+        #expect(snapshot["GlassList.iconGlassBlur"] as? Double == 1.25)
+        #expect(snapshot["GlassList.iconGlassHDRDark"] as? Double == 2.5)
     }
 
     @Test("legacy shared strength seeds both independent modes")

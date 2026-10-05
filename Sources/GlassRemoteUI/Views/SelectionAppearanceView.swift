@@ -11,6 +11,7 @@ public struct SelectionAppearanceView: View {
     @AppStorage("GlassList.enableIconView") private var enableIconView = false
     @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
     @State private var saveStatus: String?
+    @State private var section: TuningSection? = .icons
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -68,81 +69,143 @@ public struct SelectionAppearanceView: View {
     }
 
     public var body: some View {
-        ScrollView {
+        NavigationSplitView {
+            List(TuningSection.allCases, selection: $section) { section in
+                Label(section.title, systemImage: section.symbol).tag(section)
+            }
+            .navigationSplitViewColumnWidth(140)
+        } detail: {
+            VStack(spacing: 0) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Text((section ?? .icons).title).font(.title2.weight(.semibold))
+                        controls
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
+                }.id(section)
+                Divider()
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button("Test Torrents…") { TorrentTestWindow.show() }
+                        Spacer()
+                        Button("Reset All") { AppearancePreferences.shared.resetToDefaults() }
+                        Button("Save…") {
+                            do {
+                                if try GlassAppearanceDefaults.save() { saveStatus = "Appearance defaults saved." }
+                            } catch { saveStatus = error.localizedDescription }
+                        }
+                        .help("Save all appearance values and the main window’s current size as defaults.")
+                    }
+                    if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
+                }.padding(12)
+            }
+        }
+        .frame(minWidth: 580, minHeight: 640)
+    }
+
+    @ViewBuilder private var controls: some View {
+        switch section ?? .icons {
+        case .icons:
+            GlassIconAppearanceControls()
+            Divider()
             VStack(alignment: .leading, spacing: 12) {
-                Text("Selection Appearance").font(.headline)
-                Button("Test Torrents…") { TorrentTestWindow.show() }
-                Toggle("Enable icon view (⌘1)", isOn: $enableIconView)
-                Toggle("Enable compact list", isOn: $enableCompactView)
-                Toggle("Lowercase section titles", isOn: $lowercaseTitles)
+                Text("Personality").font(.subheadline.weight(.semibold))
                 Toggle("Fun mode", isOn: $funMode)
                 if funMode {
                     shadowSlider("Icon scale", value: $funScale, range: 1...1.8, decimal: true)
                     shadowSlider("Icon tilt", value: $funTilt, range: 0...16)
                     Toggle("Coloured poster shadows", isOn: $coloredShadows)
                 }
-                ColorPicker("Highlight · light", selection: highlightColor(dark: false), supportsOpacity: false)
-                ColorPicker("Highlight · dark", selection: highlightColor(dark: true), supportsOpacity: false)
-                shadowSlider("Highlight width", value: $highlightWidth, range: -80...160)
+            }
+        case .selection:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Highlight").font(.subheadline.weight(.semibold))
+                ColorPicker("Colour · light", selection: highlightColor(dark: false), supportsOpacity: false)
+                ColorPicker("Colour · dark", selection: highlightColor(dark: true), supportsOpacity: false)
+                shadowSlider("Width", value: $highlightWidth, range: -80...160)
+                hdrSlider("HDR brightness · light", value: $selectedHDRWhiteLight)
+                hdrSlider("HDR brightness · dark", value: $selectedHDRWhiteDark)
+                shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
+                shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Shadow above").font(.subheadline.weight(.semibold))
+                shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
+                shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
+                shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
+            }
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Shadow below").font(.subheadline.weight(.semibold))
+                shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
+                shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
+                shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
+            }
+        case .layout:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Views").font(.subheadline.weight(.semibold))
+                Toggle("Enable icon view (⌘1)", isOn: $enableIconView)
+                Toggle("Enable compact list", isOn: $enableCompactView)
+                Toggle("Lowercase section titles", isOn: $lowercaseTitles)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Spacing").font(.subheadline.weight(.semibold))
                 shadowSlider("Left padding", value: $leftPadding, range: 0...160)
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
                 shadowSlider("Between sections", value: $sectionSpacing, range: 0...120)
                 shadowSlider("Below headers", value: $headerBottomPadding, range: 0...120)
-                hdrSlider("HDR intensity · light", value: $selectedHDRWhiteLight)
-                hdrSlider("HDR intensity · dark", value: $selectedHDRWhiteDark)
-                shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
-                shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
-                shadowSlider("Column brightness · light", value: $columnLightBrightness, range: 0...1, percent: true)
-                shadowSlider("Column brightness · dark", value: $columnDarkBrightness, range: 0...1, percent: true)
-                Divider()
-                shadowSlider("Drop blur radius", value: $dropBlurRadius, range: 0...32)
-                Text("Sticky Headers").font(.subheadline.weight(.semibold))
-                ColorPicker("Fade colour · light", selection: headerColor(dark: false), supportsOpacity: false)
-                ColorPicker("Fade colour · dark", selection: headerColor(dark: true), supportsOpacity: false)
-                shadowSlider("Fade strength · light", value: $headerFadeStrengthLight, range: 0...1, percent: true)
-                shadowSlider("Fade strength · dark", value: $headerFadeStrengthDark, range: 0...1, percent: true)
-                shadowSlider("Fade reach below title", value: $headerFadeReach, range: 0...240)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Columns").font(.subheadline.weight(.semibold))
+                shadowSlider("Brightness · light", value: $columnLightBrightness, range: 0...1, percent: true)
+                shadowSlider("Brightness · dark", value: $columnDarkBrightness, range: 0...1, percent: true)
+            }
+        case .headers:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Fade").font(.subheadline.weight(.semibold))
+                ColorPicker("Colour · light", selection: headerColor(dark: false), supportsOpacity: false)
+                ColorPicker("Colour · dark", selection: headerColor(dark: true), supportsOpacity: false)
+                shadowSlider("Strength · light", value: $headerFadeStrengthLight, range: 0...1, percent: true)
+                shadowSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, percent: true)
+                shadowSlider("Reach below title", value: $headerFadeReach, range: 0...240)
+                shadowSlider("Extra push lead", value: $headerPushLead, range: 0...120)
+            }
+        case .progress:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("State button").font(.subheadline.weight(.semibold))
+                Toggle("Glass state button", isOn: $stateGlass)
+                shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
+                shadowSlider("File priority spacing", value: $filePriorityGap, range: 0...32)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Progress ring").font(.subheadline.weight(.semibold))
+                Toggle("Fill circle with progress", isOn: $progressFilled)
+                shadowSlider("Glow blur", value: $progressGlowBlur, range: 0...16)
+                shadowSlider("Glow strength", value: $progressGlowStrength, range: 0...2)
+                shadowSlider("Line width", value: $progressLineWidth, range: 0.5...5)
+            }
+        case .motion:
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Selection").font(.subheadline.weight(.semibold))
+                durationSlider("Ease in", value: $selectionEaseIn)
+                durationSlider("Ease out", value: $selectionEaseOut)
+            }
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Header transitions").font(.subheadline.weight(.semibold))
                 durationSlider("Background fade in", value: $headerBackgroundIn)
                 durationSlider("Background fade out", value: $headerBackgroundOut)
                 durationSlider("Title fade in", value: $headerTitleIn)
                 durationSlider("Title fade out", value: $headerTitleOut)
-                shadowSlider("Extra header push lead", value: $headerPushLead, range: 0...120)
-                Divider()
-                Text("State Button").font(.subheadline.weight(.semibold))
-                Toggle("Glass state button", isOn: $stateGlass)
-                shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
-                shadowSlider("File priority spacing", value: $filePriorityGap, range: 0...32)
-                shadowSlider("Progress glow blur", value: $progressGlowBlur, range: 0...16)
-                shadowSlider("Progress glow strength", value: $progressGlowStrength, range: 0...2)
-                shadowSlider("Progress ring width", value: $progressLineWidth, range: 0.5...5)
-                Toggle("Fill circle with progress", isOn: $progressFilled)
-                Divider()
-                Text("Motion").font(.subheadline.weight(.semibold))
-                durationSlider("Ease in", value: $selectionEaseIn)
-                durationSlider("Ease out", value: $selectionEaseOut)
-                Divider()
-                Text("Above").font(.subheadline.weight(.semibold))
-                shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
-                shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
-                shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
-                Divider()
-                Text("Below").font(.subheadline.weight(.semibold))
-                shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
-                shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
-                shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
-                Button("Reset") { AppearancePreferences.shared.resetToDefaults() }
-                Button("Save") {
-                    do {
-                        if try GlassAppearanceDefaults.save() { saveStatus = "Saved. Publish with Scripts/push-tunes." }
-                    } catch { saveStatus = error.localizedDescription }
-                }
-                .help("Save appearance tuning and the main window’s current size as defaults.")
-                if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
             }
-            .padding(16)
+            Divider()
+            shadowSlider("Drop blur", value: $dropBlurRadius, range: 0...32)
         }
-        .frame(width: 320, height: 640)
     }
 
     private func hdrSlider(_ title: String, value: Binding<Double>) -> some View {
@@ -183,6 +246,22 @@ public struct SelectionAppearanceView: View {
 
 }
 
+private enum TuningSection: String, CaseIterable, Identifiable {
+    case icons, selection, layout, headers, progress, motion
+    var id: Self { self }
+    var title: String { rawValue.capitalized }
+    var symbol: String {
+        switch self {
+        case .icons: "folder"
+        case .selection: "square.on.square"
+        case .layout: "rectangle.split.3x1"
+        case .headers: "textformat"
+        case .progress: "arrow.down.circle"
+        case .motion: "waveform.path"
+        }
+    }
+}
+
 @MainActor
 public enum SelectionAppearanceWindow {
     private static var window: NSWindow?
@@ -197,14 +276,14 @@ public enum SelectionAppearanceWindow {
     }
 
     public static func show() {
-        guard ProcessInfo.processInfo.arguments.contains("--tune") else { return }
+        guard GlassTuningMode.isEnabled else { return }
         if window == nil {
-            let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 320, height: 640),
-                                 styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
-            panel.title = "Selection Appearance"
+            let panel = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 700),
+                                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            panel.title = "Appearance"
             panel.contentView = NSHostingView(rootView: SelectionAppearanceView())
             panel.isReleasedWhenClosed = false
-            panel.setFrameAutosaveName("GlassSelectionAppearance")
+            panel.setFrameAutosaveName("GlassAppearance")
             panel.center()
             window = panel
         }

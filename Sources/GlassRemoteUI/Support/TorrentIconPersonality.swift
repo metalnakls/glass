@@ -50,8 +50,10 @@ struct TorrentIconPersonality: ViewModifier {
     func body(content: Content) -> some View {
         let pose = enabled ? TorrentIconPose.forRole(role, position: position) : TorrentIconPose()
         content
+            // Rotate native glass's outline, never its composited material.
+            .environment(\.nativeGlassRotation, role == .artwork ? 0 : pose.angle)
             .scaleEffect(grid ? min(pose.scale, 1.2) : pose.scale)
-            .rotationEffect(.radians(pose.angle))
+            .rotationEffect(.radians(role == .artwork ? pose.angle : 0))
             .offset(x: grid ? 0 : pose.x)
     }
 }

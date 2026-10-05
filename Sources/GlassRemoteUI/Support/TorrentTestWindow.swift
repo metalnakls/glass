@@ -6,7 +6,7 @@ import SwiftUI
 @MainActor public enum TorrentTestWindow {
     private static var window: NSWindow?
     public static func show() {
-        guard ProcessInfo.processInfo.arguments.contains("--tune") else { return }
+        guard GlassTuningMode.isEnabled else { return }
         if window == nil {
             let panel = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 820, height: 620),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)

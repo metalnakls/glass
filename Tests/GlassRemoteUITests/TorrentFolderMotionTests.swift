@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 @testable import GlassRemoteUI
 
@@ -28,9 +29,21 @@ struct TorrentFolderMotionTests {
         table.reloadData()
         let motion = TorrentFolderMotion()
         motion.attach(table)
+        let source = TorrentFolderIconContainer(frame: CGRect(x: 20, y: 50, width: 27, height: 27))
+        source.controller = motion; source.id = "first"; source.size = 27
+        table.addSubview(source); motion.register(source)
+        let originalIcon = try #require(source.subviews.first)
         motion.prepare(groupID: "group", members: ["first", "second"], expanding: true,
             inset: 20, indices: ["group": 1], reduceMotion: false)
         #expect(motion.flyingIDs == ["first", "second"])
+        // Every flying icon is a live view in the same window, never a grey
+        // image. There is exactly one host per visible member.
+        let liveViews = scroll.subviews.flatMap(\.subviews)
+            .filter { $0.subviews.contains { $0 is NSHostingView<FolderFlightArtwork> } }
+        #expect(liveViews.count == 2)
+        #expect(liveViews.contains { $0 === originalIcon })
+        #expect(source.subviews.isEmpty)
+        #expect(liveViews.allSatisfy { $0.window === window && $0.layer?.contents == nil })
         motion.animateAfterLayout(indices: ["group": 1, "first": 2, "second": 3], expectedRows: 4)
         rows.count = 4; table.reloadData()
         // A real icon can sit away from the estimated row centre (native insets).
@@ -39,6 +52,11 @@ struct TorrentFolderMotionTests {
         landing.pose = TorrentIconPose(scale: 1.4, angle: 0.12, x: -11)
         table.addSubview(landing)
         motion.register(landing)
+        let destination = TorrentFolderIconContainer(frame: landing.frame)
+        destination.controller = motion; destination.id = "first"
+        destination.rotation = landing.pose.angle
+        table.addSubview(destination); motion.register(destination)
+        #expect(destination.subviews.isEmpty)
         var flights: [CALayer] = []
         for _ in 0..<25 {
             try await Task.sleep(for: .milliseconds(10))
@@ -50,8 +68,9 @@ struct TorrentFolderMotionTests {
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
         #expect(animation.duration == 0.30)
         let pose = landing.pose
-        #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
-        #expect(abs(flights[0].position.y - landing.frame.midY) < 0.1)
+        #expect(abs(flights[0].position.x + 18 - (landing.frame.midX + pose.x)) < 0.1)
+        #expect(abs(flights[0].position.y + 18 - landing.frame.midY) < 0.1)
+        #expect(abs(hypot(flights[0].sublayerTransform.m11, flights[0].sublayerTransform.m12) - pose.scale) < 0.001)
         #expect(motion.flyingIDs.count == 2)
         // Row geometry can finish changing after the initial flight starts.
         // Keep the overlay alive for a separate, remeasured settle tail.
@@ -77,31 +96,19 @@ struct TorrentFolderMotionTests {
         }
         #expect(finalLanding != nil)
         #expect(motion.flyingIDs.count == 2)
-        #expect(abs(flights[0].position.x - (landing.frame.midX + pose.x)) < 0.1)
-        // Rendering, not a timer, controls the final dissolve. Both flight
-        // images remain opaque while either visible static icon is uncommitted.
-        for _ in 0..<60 {
-            if motion.revealToken(for: "first") != nil { break }
+        #expect(abs(flights[0].position.x + 18 - (landing.frame.midX + pose.x)) < 0.1)
+        // The exact original material returns to the landing container. No
+        // duplicate static icon exists and no render-ack fade is needed.
+        for _ in 0..<100 {
+            if motion.flyingIDs.isEmpty { break }
             try await Task.sleep(for: .milliseconds(10))
         }
-        let token = try #require(motion.revealToken(for: "first"))
         #expect(motion.flyingIDs.isEmpty)
-        #expect(flights.allSatisfy { $0.opacity == 1 })
-        motion.acknowledgeReveal("first", token: token)
-        await Task.yield()
-        #expect(flights.allSatisfy { $0.opacity == 1 })
-        let rendered = TorrentFolderRevealAnchor.Anchor(frame: CGRect(x: 20, y: 202, width: 36, height: 36))
-        rendered.controller = motion; rendered.id = "second"; rendered.visible = true
-        table.addSubview(rendered)
-        rendered.commitReveal()
-        for _ in 0..<30 {
-            if flights.allSatisfy({ $0.opacity == 0 }) { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(flights.allSatisfy { $0.opacity == 0 })
+        #expect(destination.subviews.first === originalIcon)
+        #expect(source.subviews.isEmpty)
+        #expect(originalIcon.window === window)
+        #expect(liveViews.filter { $0.superview === destination }.count == 1)
         motion.cancel()
-        #expect(motion.flyingIDs.isEmpty)
-        #expect(flights.allSatisfy { $0.superlayer == nil })
         motion.detach()
         window.close()
     }
@@ -112,6 +119,34 @@ struct TorrentFolderMotionTests {
         motion.prepare(groupID: "group", members: ["first"], expanding: true,
             inset: 20, indices: ["group": 1], reduceMotion: true)
         #expect(motion.flyingIDs.isEmpty)
+    }
+
+    @MainActor @Test("recycling a native row cannot retain the previous glass icon")
+    func recycledContainerHasOneIcon() throws {
+        _ = NSApplication.shared
+        let frame = CGRect(x: 0, y: 0, width: 36, height: 36)
+        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let container = TorrentFolderIconContainer(frame: frame)
+        window.contentView = NSView(frame: frame)
+        window.contentView?.addSubview(container)
+        let motion = TorrentFolderMotion()
+        defer { motion.detach(); window.close() }
+        container.configure(controller: motion, id: "season-2", size: 36, rotation: -0.1)
+        let previous = try #require(container.subviews.first)
+        container.configure(controller: motion, id: "season-3", size: 36, rotation: 0)
+        #expect(container.subviews.count == 1)
+        #expect(container.subviews.first !== previous)
+        #expect(previous.superview == nil)
+        container.configure(controller: motion, id: "season-3", size: 36, rotation: 0.1)
+        #expect(container.subviews.count == 1)
+        let current = try #require(container.subviews.first)
+        let replacement = TorrentFolderIconContainer(frame: frame)
+        window.contentView?.addSubview(replacement)
+        replacement.configure(controller: motion, id: "season-3", size: 36, rotation: 0.1)
+        motion.place(container)
+        #expect(container.subviews.isEmpty)
+        #expect(replacement.subviews.first === current)
     }
 
     @MainActor @Test("all visible members fly, extra leaves emerge behind the fan, and unacknowledged overlays retire")
@@ -138,10 +173,13 @@ struct TorrentFolderMotionTests {
         #expect(visibleIDs.count < members.count)
         #expect(visibleIDs.contains("member-3"))
         #expect(!visibleIDs.contains("member-19"))
-        let flights = scroll.subviews.flatMap { $0.layer?.sublayers ?? [] }
-            .filter { $0.name?.hasPrefix("member-") == true }
-        let extra = try #require(flights.first { $0.name == "member-3" })
-        let first = try #require(flights.first { $0.name == "member-0" })
+        let flightViews = scroll.subviews.flatMap(\.subviews)
+            .filter { $0.identifier?.rawValue.hasPrefix("member-") == true }
+        let flights = flightViews.compactMap(\.layer)
+        #expect(flightViews.count == visibleIDs.count)
+        #expect(flightViews.allSatisfy { $0.subviews.filter { $0 is NSHostingView<FolderFlightArtwork> }.count == 1 })
+        let extra = try #require(flightViews.first { $0.identifier?.rawValue == "member-3" }?.layer)
+        let first = try #require(flightViews.first { $0.identifier?.rawValue == "member-0" }?.layer)
         #expect(extra.opacity == 0)
         #expect(extra.zPosition < first.zPosition)
         var indices = ["group": 1]
@@ -158,7 +196,7 @@ struct TorrentFolderMotionTests {
         // No reveal anchors are installed: virtualized/recycled rows must not
         // leave permanent copies of the flight images above the real icons.
         for _ in 0..<180 {
-            if flights.allSatisfy({ $0.superlayer == nil }) { break }
+            if motion.flyingIDs.isEmpty && flightViews.allSatisfy({ $0.superview == nil }) { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(motion.flyingIDs.isEmpty)
@@ -168,12 +206,12 @@ struct TorrentFolderMotionTests {
             inset: 20, indices: indices, reduceMotion: false)
         #expect(motion.flyingIDs.count > 3)
         #expect(!motion.flyingIDs.contains("member-19"))
-        let returning = scroll.subviews.flatMap { $0.layer?.sublayers ?? [] }
-            .filter { $0.name?.hasPrefix("member-") == true }
+        let returning = scroll.subviews.flatMap(\.subviews)
+            .filter { $0.identifier?.rawValue.hasPrefix("member-") == true }.compactMap(\.layer)
         rows.count = 2; table.reloadData()
         motion.animateAfterLayout(indices: ["group": 1], expectedRows: 2)
         for _ in 0..<180 {
-            if returning.allSatisfy({ $0.superlayer == nil }) { break }
+            if motion.flyingIDs.isEmpty && returning.allSatisfy({ $0.superlayer == nil }) { break }
             try await Task.sleep(for: .milliseconds(10))
         }
         #expect(motion.flyingIDs.isEmpty)

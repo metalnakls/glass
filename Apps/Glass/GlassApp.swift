@@ -51,8 +51,8 @@ struct GlassApp: App {
             GlassCommands(updaterController: updaterController)
             InspectorCommands()
             CommandGroup(replacing: .appSettings) {
-                if ProcessInfo.processInfo.arguments.contains("--tune") {
-                    Button("Selection Appearance…") { SelectionAppearanceWindow.show() }
+                if GlassTuningMode.isEnabled {
+                    Button("Appearance…") { SelectionAppearanceWindow.show() }
                         .keyboardShortcut(",", modifiers: .command)
                 }
             }
@@ -121,9 +121,9 @@ private struct GlassCommands: Commands {
             Button("Make Larger") { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
             Divider()
             Toggle("Show Extensions", isOn: $showExtensions)
-            if ProcessInfo.processInfo.arguments.contains("--tune") {
+            if GlassTuningMode.isEnabled {
                 Divider()
-                Button("Selection Appearance…") { SelectionAppearanceWindow.show() }
+                Button("Appearance…") { SelectionAppearanceWindow.show() }
                 Button("Test Torrents…") { TorrentTestWindow.show() }
                     .keyboardShortcut(",", modifiers: [.command, .shift])
             }

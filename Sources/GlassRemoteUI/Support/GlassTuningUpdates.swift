@@ -56,6 +56,12 @@ public final class GlassTuningUpdates {
         if key == "GlassWindow.defaultHeight" { return 260...16384 }
         let name = String(key.dropFirst("GlassList.".count))
         switch name {
+        case "iconGlassFrost", "iconGlassBrightness", "iconGlassTintStrength": return 0...1
+        case "iconGlassOpacity": return 0.1...1
+        case "iconGlassBlur": return 0...6
+        case "iconGlassHDRLight", "iconGlassHDRDark": return 0...3
+        case "iconGlassHDRSoftness": return 0...4
+        case "iconGlassHDRWidth": return 0.5...3
         case "columnDarkBrightness", "columnLightBrightness", "headerFadeStrengthDark", "headerFadeStrengthLight": return 0...1
         case "shadowTopStrength", "shadowBottomStrength": return 0...0.65
         case "funScale": return 1...1.8

@@ -28,6 +28,25 @@ struct GlassTuningUpdatesTests {
         }
     }
 
+    @Test func glassIconTuningValidation() throws {
+        let baseline = GlassAppearanceDefaults.bundled
+        let tuning: [String: Any] = [
+            "GlassList.iconGlassRegular": true, "GlassList.iconGlassTint": "AACCFF",
+            "GlassList.iconGlassBlur": 6, "GlassList.iconGlassFrost": 0.7,
+            "GlassList.iconGlassOpacity": 0.1, "GlassList.iconGlassBrightness": 1,
+            "GlassList.iconGlassTintStrength": 0.3, "GlassList.iconGlassHDRLight": 3,
+            "GlassList.iconGlassHDRDark": 2.5, "GlassList.iconGlassHDRSoftness": 4,
+            "GlassList.iconGlassHDRWidth": 0.5
+        ]
+        let data = try JSONSerialization.data(withJSONObject: tuning)
+        #expect(try GlassTuningUpdates.validate(data, against: baseline).count == tuning.count)
+        for (key, value) in ["GlassList.iconGlassBlur": 6.1, "GlassList.iconGlassOpacity": 0,
+                             "GlassList.iconGlassHDRDark": 3.1, "GlassList.iconGlassHDRWidth": 0.4] {
+            let invalid = try JSONSerialization.data(withJSONObject: [key: value])
+            #expect(throws: (any Error).self) { try GlassTuningUpdates.validate(invalid, against: baseline) }
+        }
+    }
+
     @Test func deliveryAndOfflineCache() async throws {
         let suite = "GlassTests.Tunes.\(UUID().uuidString)"
         let defaults = try #require(UserDefaults(suiteName: suite))

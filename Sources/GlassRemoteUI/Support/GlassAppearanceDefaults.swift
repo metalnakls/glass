@@ -45,7 +45,7 @@ public enum GlassAppearanceDefaults {
     }
 
     static func save() throws -> Bool {
-        guard ProcessInfo.processInfo.arguments.contains("--tune") else { return false }
+        guard GlassTuningMode.isEnabled else { return false }
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/AppearanceDefaults.json")
         let panel = NSSavePanel()

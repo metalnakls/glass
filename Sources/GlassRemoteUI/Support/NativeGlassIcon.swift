@@ -6,26 +6,70 @@ struct NativeGlassIcon: View {
     let image: NSImage
     var size: CGFloat = 36
     var isFolder = false
+    var rotation: Double = 0
+    @Environment(\.nativeGlassRotation) private var inheritedRotation
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorScheme) private var colorScheme
+    @AppearanceStorage("GlassList.iconGlassRegular") private var regular = false
+    @AppearanceStorage("GlassList.iconGlassBlur") private var blur = 0.5
+    @AppearanceStorage("GlassList.iconGlassFrost") private var frost = 0.15
+    @AppearanceStorage("GlassList.iconGlassOpacity") private var opacity = 1.0
+    @AppearanceStorage("GlassList.iconGlassBrightness") private var brightness = 0.0
+    @AppearanceStorage("GlassList.iconGlassTint") private var tint = "FFFFFF"
+    @AppearanceStorage("GlassList.iconGlassTintStrength") private var tintStrength = 0.0
+    @AppearanceStorage("GlassList.iconGlassHDRLight") private var hdrLight = 0.0
+    @AppearanceStorage("GlassList.iconGlassHDRDark") private var hdrDark = 0.0
+    @AppearanceStorage("GlassList.iconGlassHDRSoftness") private var hdrSoftness = 0.35
+    @AppearanceStorage("GlassList.iconGlassHDRWidth") private var hdrWidth = 1.5
+
+    private var material: Glass {
+        (regular ? Glass.regular : Glass.clear)
+            .tint(tintStrength > 0 ? Color(nsColor: HeaderFadeColor.decode(tint)).opacity(tintStrength) : nil)
+    }
+    private var hdr: Double { colorScheme == .dark ? hdrDark : hdrLight }
 
     var body: some View {
         Group {
             if let artwork = NativeIconGeometry.artwork(for: image) {
                 let source = Image(decorative: artwork.image, scale: 1).resizable().scaledToFit()
                     .frame(width: size, height: size)
+                    .rotationEffect(.radians(rotation + inheritedRotation))
                 if reduceTransparency {
                     source.saturation(0)
                 } else {
-                    let silhouette = NativeIconSilhouette(unitPath: artwork.path)
-                    silhouette.fill(.white.opacity(0.02))
+                    let silhouette = NativeIconSilhouette(unitPath: artwork.path, rotation: rotation + inheritedRotation)
+                    ZStack {
+                        if frost > 0 {
+                            silhouette.fill(.ultraThinMaterial)
+                                .blur(radius: blur * size / 36)
+                                .opacity(frost)
+                        }
+                        silhouette.fill(.white.opacity(0.02 + brightness * 0.35))
+                            .glassEffect(material, in: silhouette)
+                    }
                         .frame(width: size, height: size)
-                        .glassEffect(.clear, in: silhouette)
+                        .overlay {
+                            if hdr > 0 {
+                                let white = Color(.sRGBLinear, red: 1 + hdr, green: 1 + hdr, blue: 1 + hdr)
+                                    .headroom(1 + hdr)
+                                silhouette.stroke(LinearGradient(colors: [white, white.opacity(0.04)],
+                                    startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: hdrWidth * size / 36)
+                                    .drawingGroup(opaque: false, colorMode: .extendedLinear)
+                                    .blur(radius: hdrSoftness * size / 36)
+                                    .blendMode(.plusLighter)
+                            }
+                        }
                         // Glass optics extend past their shape. Bound them
                         // to the exact pixels of the original icon too.
                         .mask(source)
+                        .opacity(opacity)
+                        .allowedDynamicRange(.high)
                 }
             }
         }
+        // Recreate the native material when the window changes appearance;
+        // retained glass render nodes must not keep the previous theme.
+        .id(colorScheme)
         .frame(width: size, height: size)
         .accessibilityHidden(true)
     }
@@ -33,18 +77,36 @@ struct NativeGlassIcon: View {
 
 struct NativeIconSilhouette: Shape {
     let unitPath: Path
+    var rotation: Double = 0
+    var animatableData: Double {
+        get { rotation }
+        set { rotation = newValue }
+    }
     func path(in rect: CGRect) -> Path {
-        unitPath.applying(CGAffineTransform(a: rect.width, b: 0, c: 0, d: rect.height, tx: rect.minX, ty: rect.minY))
+        let turn = CGAffineTransform(translationX: 0.5, y: 0.5)
+            .rotated(by: rotation).translatedBy(x: -0.5, y: -0.5)
+        return unitPath.applying(turn)
+            .applying(CGAffineTransform(a: rect.width, b: 0, c: 0, d: rect.height, tx: rect.minX, ty: rect.minY))
+    }
+}
+
+private struct NativeGlassRotationKey: EnvironmentKey {
+    static let defaultValue: Double = 0
+}
+
+extension EnvironmentValues {
+    var nativeGlassRotation: Double {
+        get { self[NativeGlassRotationKey.self] }
+        set { self[NativeGlassRotationKey.self] = newValue }
     }
 }
 
 @MainActor enum NativeIconGeometry {
     final class Artwork {
         let image: CGImage
-        let flightImage: CGImage
         let path: Path
-        init(image: CGImage, flightImage: CGImage, path: Path) {
-            self.image = image; self.flightImage = flightImage; self.path = path
+        init(image: CGImage, path: Path) {
+            self.image = image; self.path = path
         }
     }
     private static let artworks: NSCache<NSImage, Artwork> = {
@@ -71,22 +133,10 @@ struct NativeIconSilhouette: Shape {
         }
         guard let original else { return nil }
         let path = outline(alpha: stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }, width: size, height: size)
-        // Moving layers retain the same optical size and alpha as the source.
-        // The material is approximated only for the brief, cached flight image.
-        for index in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Double(pixels[index + 3]) / 255
-            guard alpha > 0 else { continue }
-            let luminance = (0.2126 * Double(pixels[index]) + 0.7152 * Double(pixels[index + 1]) + 0.0722 * Double(pixels[index + 2])) / alpha
-            let value = UInt8(min(255, max(0, (luminance * 0.42 + 148) * alpha)))
-            pixels[index] = value; pixels[index + 1] = value; pixels[index + 2] = value
-        }
-        guard let flight = pixels.withUnsafeMutableBytes({ context($0.baseAddress, size: size)?.makeImage() }) else { return nil }
-        let result = Artwork(image: original, flightImage: flight, path: path)
+        let result = Artwork(image: original, path: path)
         artworks.setObject(result, forKey: image)
         return result
     }
-
-    static func flightImage(for image: NSImage) -> CGImage? { artwork(for: image)?.flightImage }
 
     /// Trace only opaque pixels so baked shadows and transparent margins do
     /// not enlarge the material. Preserve tabs and holes in the native shape.

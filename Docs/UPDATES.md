@@ -93,7 +93,8 @@ swift test --package-path . --disable-sandbox
 
 ## Appearance updates without an app release
 
-In a `--tune` build, use **Save**, keeping the default project JSON destination.
+Debug builds always include the tuner; release builds never include it.
+Use **View → Appearance…** (⌘,) and **Save**, keeping the default project JSON destination.
 Then publish only the appearance config:
 
 ```sh

@@ -2,13 +2,16 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// Folder images move in the scroll view's overlay, independently of native row layout.
+/// Live folder views move in the scroll overlay, independently of native row layout.
 @MainActor @Observable
 final class TorrentFolderMotion {
     private(set) var flyingIDs = Set<String>()
     @ObservationIgnored private weak var table: NSTableView?
     @ObservationIgnored private let overlay = FolderFlightOverlay()
     @ObservationIgnored private var layers: [String: CALayer] = [:]
+    @ObservationIgnored private var views: [String: FolderFlightView] = [:]
+    @ObservationIgnored private var icons: [String: FolderFlightView] = [:]
+    @ObservationIgnored private let containers = NSMapTable<NSString, TorrentFolderIconContainer>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     @ObservationIgnored private var members: [String] = []
     @ObservationIgnored private var groupID = ""
     @ObservationIgnored private var expanding = false
@@ -19,20 +22,40 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var poses: [String: TorrentIconPose] = [:]
     @ObservationIgnored private let anchors = NSMapTable<NSString, TorrentFolderLandingAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
-    @ObservationIgnored private var awaitingReveal = Set<String>()
-    @ObservationIgnored private var revealContinuation: CheckedContinuation<Void, Never>?
-    @ObservationIgnored private var revealTimeout: Task<Void, Never>?
-
-    func revealToken(for id: String) -> Int? { awaitingReveal.contains(id) ? generation : nil }
-    func acknowledgeReveal(_ id: String, token: Int) {
-        guard token == generation, awaitingReveal.remove(id) != nil else { return }
-        if awaitingReveal.isEmpty {
-            revealTimeout?.cancel(); revealTimeout = nil
-            revealContinuation?.resume()
-            revealContinuation = nil
-        }
+    func register(_ container: TorrentFolderIconContainer) {
+        guard !container.id.isEmpty, container.window != nil else { return }
+        containers.setObject(container, forKey: container.id as NSString)
+        place(container)
     }
-    private static let image = NativeIconGeometry.flightImage(for: TorrentFileIconCache.icon(fileName: "", isFolder: true))
+
+    func unregister(_ container: TorrentFolderIconContainer) {
+        guard containers.object(forKey: container.id as NSString) === container else { return }
+        containers.removeObject(forKey: container.id as NSString)
+        guard views[container.id] == nil else { return }
+        icons.removeValue(forKey: container.id)?.removeFromSuperview()
+    }
+
+    func place(_ container: TorrentFolderIconContainer) {
+        guard views[container.id] == nil, container.window != nil,
+              containers.object(forKey: container.id as NSString) === container else { return }
+        let icon = artwork(for: container.id)
+        for child in container.subviews where child !== icon { child.removeFromSuperview() }
+        if icon.superview !== container { container.addSubview(icon) }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        icon.setFrameOrigin(CGPoint(x: container.bounds.midX - 18, y: container.bounds.midY - 18))
+        icon.layer?.sublayerTransform = Self.transform(scale: container.size / 36)
+        icon.pose.rotation = container.rotation
+        icon.isHidden = false; icon.alphaValue = 1
+        CATransaction.commit()
+    }
+
+    private func artwork(for id: String) -> FolderFlightView {
+        if let icon = icons[id] { return icon }
+        let icon = FolderFlightView()
+        icon.identifier = NSUserInterfaceItemIdentifier(id)
+        icons[id] = icon
+        return icon
+    }
 
     func register(_ anchor: TorrentFolderLandingAnchor.Anchor) {
         anchors.setObject(anchor, forKey: anchor.id as NSString)
@@ -40,7 +63,7 @@ final class TorrentFolderMotion {
 
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
-        detach()
+        if self.table != nil { detach() }
         self.table = table
         scrollOrigin = scroll.contentView.bounds.origin
         overlay.frame = scroll.contentView.frame
@@ -59,8 +82,11 @@ final class TorrentFolderMotion {
 
     func prepare(groupID: String, members: [String], expanding: Bool, inset: CGFloat,
                  indices: [String: Int], reduceMotion: Bool) {
-        let interrupted = layers.mapValues { $0.presentation() ?? $0 }
-            .mapValues { ($0.position, $0.bounds.size, $0.value(forKeyPath: "transform.rotation.z") as? Double ?? 0, $0.opacity) }
+        let interrupted = Dictionary(uniqueKeysWithValues: layers.map { id, model in
+            let layer = model.presentation() ?? model
+            return (id, (CGPoint(x: layer.position.x + 18, y: layer.position.y + 18),
+                layer.sublayerTransform.m11, views[id]?.pose.rotation ?? 0, layer.opacity))
+        })
         cancel()
         guard !reduceMotion, let table, let scroll = table.enclosingScrollView else { return }
         overlay.frame = scroll.contentView.frame
@@ -78,24 +104,23 @@ final class TorrentFolderMotion {
                 : sourceFrame.intersects(table.visibleRect)
             guard visible else { continue }
             let source = endpoint(row: row, slot: slot, fan: expanding, id: sourceID)
-            let layer = CALayer()
+            // Move the same hosting view out of its row/fan container. There
+            // is no second material and no bitmap replacement during flight.
+            let view = artwork(for: id)
+            views[id] = view
+            overlay.addSubview(view)
+            view.layoutSubtreeIfNeeded()
+            guard let layer = view.layer else { view.removeFromSuperview(); views[id] = nil; continue }
             layer.name = id
-            layer.contents = Self.image
-            layer.contentsGravity = .resizeAspect
-            let scale = poses[sourceID]?.scale ?? 1
-            if AppearancePreferences.shared.value(for: "GlassList.funMode", fallback: false) {
-                layer.shadowOpacity = 0.10
-                layer.shadowRadius = 3 * scale
-                layer.shadowOffset = CGSize(width: 0, height: 2 * scale)
-            }
             layer.contentsScale = table.window?.backingScaleFactor ?? 2
-            layer.position = interrupted[id]?.0 ?? source.center
-            layer.bounds.size = interrupted[id]?.1 ?? source.size
-            layer.setValue(interrupted[id]?.2 ?? source.angle, forKeyPath: "transform.rotation.z")
-            layer.opacity = interrupted[id]?.3 ?? (expanding && slot >= 3 ? 0 : 1)
+            let center = interrupted[id]?.0 ?? source.center
+            view.setFrameOrigin(CGPoint(x: center.x - 18, y: center.y - 18))
+            layer.sublayerTransform = Self.transform(scale: interrupted[id]?.1 ?? source.size.width / 36)
+            view.pose.rotation = interrupted[id]?.2 ?? source.angle
+            view.alphaValue = CGFloat(interrupted[id]?.3 ?? (expanding && slot >= 3 ? 0 : 1))
             // Extra folders emerge from behind the three visible fan leaves.
             layer.zPosition = slot < 3 ? CGFloat(100 + slot) : -CGFloat(slot)
-            overlay.layer?.addSublayer(layer)
+            views[id] = view
             layers[id] = layer
         }
         CATransaction.commit()
@@ -121,22 +146,8 @@ final class TorrentFolderMotion {
             for (slot, id) in self.members.enumerated() {
                 guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
-                let position = CABasicAnimation(keyPath: "position")
-                position.fromValue = layer.position; position.toValue = target.center
-                let size = CABasicAnimation(keyPath: "bounds.size")
-                size.fromValue = layer.bounds.size; size.toValue = target.size
-                let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
-                rotation.fromValue = layer.value(forKeyPath: "transform.rotation.z") ?? 0
-                rotation.toValue = target.angle
-                CATransaction.begin(); CATransaction.setDisableActions(true)
-                layer.position = target.center; layer.bounds.size = target.size
-                layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
-                CATransaction.commit()
-                let flight = CAAnimationGroup()
-                flight.animations = [position, size, rotation]
-                flight.duration = 0.30
-                flight.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
-                layer.add(flight, forKey: "folderFlight")
+                self.fly(id, to: target, duration: 0.30,
+                    timing: CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1), fromPresentation: false)
                 if slot >= 3 {
                     let opacity = CABasicAnimation(keyPath: "opacity")
                     opacity.fromValue = layer.opacity
@@ -145,7 +156,7 @@ final class TorrentFolderMotion {
                     opacity.beginTime = CACurrentMediaTime() + (self.expanding ? 0.04 + min(Double(slot - 3) * 0.015, 0.10) : 0.18)
                     opacity.fillMode = .backwards
                     CATransaction.begin(); CATransaction.setDisableActions(true)
-                    layer.opacity = self.expanding ? 1 : 0
+                    self.views[id]?.alphaValue = self.expanding ? 1 : 0
                     CATransaction.commit()
                     layer.add(opacity, forKey: "folderEmergence")
                 }
@@ -176,24 +187,10 @@ final class TorrentFolderMotion {
             // the image a gentle tail from its current presentation position.
             table.layoutSubtreeIfNeeded()
             for (slot, id) in self.members.enumerated() {
-                guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
+                guard self.layers[id] != nil, let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
-                let current = layer.presentation() ?? layer
-                let position = CABasicAnimation(keyPath: "position")
-                position.fromValue = current.position; position.toValue = target.center
-                let size = CABasicAnimation(keyPath: "bounds.size")
-                size.fromValue = current.bounds.size; size.toValue = target.size
-                let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
-                rotation.fromValue = current.value(forKeyPath: "transform.rotation.z") ?? 0
-                rotation.toValue = target.angle
-                CATransaction.begin(); CATransaction.setDisableActions(true)
-                layer.position = target.center; layer.bounds.size = target.size
-                layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
-                CATransaction.commit()
-                let tail = CAAnimationGroup()
-                tail.animations = [position, size, rotation]; tail.duration = 0.32
-                tail.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-                layer.add(tail, forKey: "folderFlight")
+                self.fly(id, to: target, duration: 0.32,
+                    timing: CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1))
             }
             try? await Task.sleep(for: .milliseconds(320))
             guard !Task.isCancelled, self.generation == token else { return }
@@ -205,62 +202,53 @@ final class TorrentFolderMotion {
                     guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                     let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
                     let current = layer.presentation() ?? layer
-                    let angle = current.value(forKeyPath: "transform.rotation.z") as? Double ?? 0
-                    guard hypot(current.position.x - target.center.x, current.position.y - target.center.y) > 0.25
-                        || abs(current.bounds.width - target.size.width) > 0.25 || abs(angle - target.angle) > 0.005 else { continue }
-                    let position = CABasicAnimation(keyPath: "position")
-                    position.fromValue = current.position; position.toValue = target.center
-                    let size = CABasicAnimation(keyPath: "bounds.size")
-                    size.fromValue = current.bounds.size; size.toValue = target.size
-                    let rotation = CABasicAnimation(keyPath: "transform.rotation.z")
-                    rotation.fromValue = angle; rotation.toValue = target.angle
-                    CATransaction.begin(); CATransaction.setDisableActions(true)
-                    layer.position = target.center; layer.bounds.size = target.size
-                    layer.setValue(target.angle, forKeyPath: "transform.rotation.z")
-                    CATransaction.commit()
-                    let landing = CAAnimationGroup()
-                    landing.animations = [position, size, rotation]; landing.duration = 0.16
-                    landing.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
-                    layer.add(landing, forKey: "folderFlight")
+                    let angle = self.views[id]?.pose.rotation ?? 0
+                    let scale = hypot(current.sublayerTransform.m11, current.sublayerTransform.m12)
+                    guard hypot(current.position.x + 18 - target.center.x, current.position.y + 18 - target.center.y) > 0.25
+                        || abs(36 * scale - target.size.width) > 0.25 || abs(angle - target.angle) > 0.005 else { continue }
+                    self.fly(id, to: target, duration: 0.16,
+                        timing: CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1))
                     adjusted = true
                 }
                 if !adjusted { break }
                 try? await Task.sleep(for: .milliseconds(160))
                 guard !Task.isCancelled, self.generation == token else { return }
             }
-            // Reveal the real icons underneath at full opacity. Do not dissolve
-            // the flight until their hosting views have committed the reveal.
-            await withCheckedContinuation { continuation in
-                self.revealContinuation = continuation
-                self.awaitingReveal = Set(self.layers.compactMap { id, layer in
-                    layer.opacity > 0 && layer.frame.intersects(self.overlay.bounds) ? id : nil
-                })
-                self.flyingIDs = []
-                if self.awaitingReveal.isEmpty {
-                    self.revealContinuation = nil
-                    continuation.resume()
-                } else {
-                    // A recycled/offscreen hosting view may never acknowledge
-                    // its render. Always retire the overlay after the handoff.
-                    self.revealTimeout = Task { @MainActor [weak self] in
-                        try? await Task.sleep(for: .milliseconds(100))
-                        guard let self, !Task.isCancelled, self.generation == token else { return }
-                        self.awaitingReveal.removeAll()
-                        self.revealContinuation?.resume(); self.revealContinuation = nil
-                        self.revealTimeout = nil
-                    }
-                }
-            }
-            guard !Task.isCancelled, self.generation == token else { return }
-            CATransaction.begin()
-            CATransaction.setAnimationDuration(0.16)
-            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
-            for layer in self.layers.values { layer.opacity = 0 }
-            CATransaction.commit()
-            try? await Task.sleep(for: .milliseconds(180))
-            guard !Task.isCancelled, self.generation == token else { return }
+            // Reparent the original material into its landing container in
+            // one transaction. No static/flight overlap or dissolve is needed.
             self.cancel()
         }
+    }
+
+    /// AppKit owns the view layer's origin/anchor point. Transform the live
+    /// content around its centre instead of overriding that native geometry.
+    private static func transform(scale: CGFloat) -> CATransform3D {
+        var transform = CATransform3DMakeTranslation(18, 18, 0)
+        transform = CATransform3DScale(transform, scale, scale, 1)
+        return CATransform3DTranslate(transform, -18, -18, 0)
+    }
+
+    private func fly(_ id: String, to target: (center: CGPoint, size: CGSize, angle: Double),
+                     duration: Double, timing: CAMediaTimingFunction, fromPresentation: Bool = true) {
+        guard let view = views[id], let layer = layers[id] else { return }
+        let current = fromPresentation ? (layer.presentation() ?? layer) : layer
+        let origin = CGPoint(x: target.center.x - 18, y: target.center.y - 18)
+        let transform = Self.transform(scale: target.size.width / 36)
+        let position = CABasicAnimation(keyPath: "position")
+        position.fromValue = current.position; position.toValue = origin
+        let geometry = CABasicAnimation(keyPath: "sublayerTransform")
+        geometry.fromValue = current.sublayerTransform; geometry.toValue = transform
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        view.setFrameOrigin(origin); layer.sublayerTransform = transform
+        withAnimation(.timingCurve(fromPresentation ? 0.16 : 1.0 / 3,
+            fromPresentation ? 1 : 0, fromPresentation ? 0.3 : 2.0 / 3, 1, duration: duration)) {
+            view.pose.rotation = target.angle
+        }
+        CATransaction.commit()
+        let flight = CAAnimationGroup()
+        flight.animations = [position, geometry]; flight.duration = duration
+        flight.timingFunction = timing
+        layer.add(flight, forKey: "folderFlight")
     }
 
     private func endpoint(row: Int, slot: Int, fan: Bool, id: String) -> (center: CGPoint, size: CGSize, angle: Double) {
@@ -292,18 +280,56 @@ final class TorrentFolderMotion {
     func cancel() {
         generation += 1
         completion?.cancel(); completion = nil
-        revealTimeout?.cancel(); revealTimeout = nil
-        awaitingReveal.removeAll()
-        revealContinuation?.resume(); revealContinuation = nil
-        for layer in layers.values { layer.removeFromSuperlayer() }
+        let returning = views
+        views.removeAll()
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        for (id, view) in returning {
+            view.layer?.removeAllAnimations()
+            if let container = containers.object(forKey: id as NSString), container.window != nil {
+                place(container)
+            } else {
+                view.removeFromSuperview(); icons[id] = nil
+            }
+        }
+        CATransaction.commit()
         layers.removeAll(); flyingIDs = []
     }
     func detach() {
         cancel()
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         scrollObserver = nil
+        for icon in icons.values { icon.removeFromSuperview() }
+        icons.removeAll(); containers.removeAllObjects()
         overlay.removeFromSuperview(); table = nil
     }
+}
+
+@MainActor @Observable final class FolderFlightPose {
+    var rotation: Double = 0
+}
+
+struct FolderFlightArtwork: View {
+    let pose: FolderFlightPose
+    var body: some View {
+        NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "", isFolder: true),
+            size: 36, isFolder: true, rotation: pose.rotation)
+    }
+}
+
+private final class FolderFlightView: NSView {
+    let pose = FolderFlightPose()
+    override var isFlipped: Bool { true }
+    override init(frame: NSRect) {
+        let rect = NSRect(x: 0, y: 0, width: 36, height: 36)
+        super.init(frame: rect)
+        wantsLayer = true
+        layer?.isGeometryFlipped = true
+        let host = NSHostingView(rootView: FolderFlightArtwork(pose: pose))
+        host.frame = rect
+        host.sizingOptions = []
+        addSubview(host)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 private final class FolderFlightOverlay: NSView {
@@ -339,44 +365,38 @@ struct TorrentFolderLandingAnchor: NSViewRepresentable {
     }
 }
 
-/// Acknowledges the static icon's render transaction before its flight dissolves.
-struct TorrentFolderRevealAnchor: NSViewRepresentable {
+/// The row owns only a placeholder container; the controller owns the one
+/// material view and moves it between this container and the flight overlay.
+struct TorrentFolderGlassIcon: NSViewRepresentable {
     let controller: TorrentFolderMotion
     let id: String
-    let visible: Bool
-    func makeNSView(context: Context) -> Anchor { Anchor() }
-    func updateNSView(_ view: Anchor, context: Context) {
-        view.controller = controller; view.id = id; view.visible = visible; view.commitReveal()
+    var size: CGFloat = 36
+    var rotation: Double = 0
+    @Environment(\.nativeGlassRotation) private var inheritedRotation
+    func makeNSView(context: Context) -> TorrentFolderIconContainer { TorrentFolderIconContainer() }
+    func updateNSView(_ view: TorrentFolderIconContainer, context: Context) {
+        view.configure(controller: controller, id: id, size: size, rotation: rotation + inheritedRotation)
     }
-    final class Anchor: NSView {
-        weak var controller: TorrentFolderMotion?
-        var id = ""
-        var visible = false
-        private var pendingToken: Int?
-        override func hitTest(_ point: NSPoint) -> NSView? { nil }
-        override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); commitReveal() }
-        override func layout() { super.layout(); commitReveal() }
-        func commitReveal() {
-            guard visible, window != nil, let token = controller?.revealToken(for: id), pendingToken != token else { return }
-            pendingToken = token
-            // Run after SwiftUI finishes this update, then wait for the native
-            // render transaction. No fixed sleep or continuous frame callback.
-            DispatchQueue.main.async { [weak self] in
-                guard let self, self.visible, self.window != nil,
-                      self.controller?.revealToken(for: self.id) == token else { return }
-                let id = self.id
-                CATransaction.begin()
-                CATransaction.setCompletionBlock { [weak controller = self.controller] in
-                    Task { @MainActor in controller?.acknowledgeReveal(id, token: token) }
-                }
-                var ancestor: NSView? = self
-                while let view = ancestor, !(view is NSTableView) {
-                    view.layoutSubtreeIfNeeded()
-                    view.displayIfNeeded()
-                    ancestor = view.superview
-                }
-                CATransaction.commit()
-            }
-        }
+    static func dismantleNSView(_ view: TorrentFolderIconContainer, coordinator: ()) {
+        view.controller?.unregister(view)
+    }
+}
+
+final class TorrentFolderIconContainer: NSView {
+    weak var controller: TorrentFolderMotion?
+    var id = ""
+    var size: CGFloat = 36
+    var rotation: Double = 0
+    func configure(controller: TorrentFolderMotion, id: String, size: CGFloat, rotation: Double) {
+        if self.id != id || self.controller !== controller { self.controller?.unregister(self) }
+        self.controller = controller; self.id = id; self.size = size; self.rotation = rotation
+        controller.register(self)
+    }
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override func layout() { super.layout(); controller?.place(self) }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window == nil { controller?.unregister(self) } else { controller?.register(self) }
     }
 }
