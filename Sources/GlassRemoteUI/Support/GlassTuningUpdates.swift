@@ -5,7 +5,7 @@ import CoreFoundation
 @MainActor
 public final class GlassTuningUpdates {
     public static let shared = GlassTuningUpdates()
-    static let feed = URL(string: "https://raw.githubusercontent.com/metalnakls/glass/tunes/AppearanceDefaults.json")!
+    static let feed = URL(string: "https://raw.githubusercontent.com/metalnakls/glass/main/Sources/GlassRemoteUI/Resources/AppearanceDefaults.json")!
     private let defaults: UserDefaults
     private let cacheURL: URL
     private var checking = false

@@ -101,10 +101,12 @@ Then publish only the appearance config:
 ./Scripts/push-tunes
 ```
 
-This pushes `AppearanceDefaults.json` to the separate `tunes` branch of `origin`.
-It never pushes `main`, changes `VERSION`, creates release assets, or invokes
-Sparkle. The temporary publishing checkout leaves your working tree alone and
-uses a normal fast-forward push; concurrent changes cannot be overwritten.
+This commits only the saved config on `main` and pushes it on an allowed even
+minute. It leaves unrelated staged and working-tree changes alone and refuses
+to push unrelated local commits. Synchronize `main` first if it has diverged.
+It never changes `VERSION`, builds release assets, or invokes Sparkle.
+App releases happen only when `Scripts/release.sh` is run; tuning commits do
+not trigger an app release.
 
 Glass fetches the public GitHub config on launch and checks again on activation
 at most once per day. **Glass → Update Appearance** checks immediately. Changes
@@ -116,6 +118,6 @@ Only known appearance keys, booleans, finite bounded numbers, and hex colours
 are accepted. This is HTTPS configuration delivery, separate from Sparkle's
 signed application updates.
 
-Existing app versions need one app update containing the fetcher before they can
-receive config-only updates. Publishing config requires an explicit invocation;
+Older app versions that read the former `tunes` branch need the 4.2 app update
+to switch to the config on `main`. The old branch is retained for compatibility. Publishing config requires an explicit invocation;
 building, saving, and committing do not publish it.

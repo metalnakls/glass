@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Publish only saved appearance data; never checks out or pushes main."""
+"""Publish saved appearance data on main without creating an app release."""
 import argparse
 import json
 import math
 import pathlib
 import subprocess
-import tempfile
+import datetime
+import time
+from zoneinfo import ZoneInfo
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SOURCE = ROOT / 'Sources/GlassRemoteUI/Resources/AppearanceDefaults.json'
@@ -41,28 +43,24 @@ def main():
     if args.check:
         print('Tuning config valid. No push performed.')
         return
-    remote = git('remote', 'get-url', '--push', 'origin')
-    head = git('ls-remote', '--heads', remote, 'refs/heads/tunes')
-    with tempfile.TemporaryDirectory(prefix='glass-tunes-') as directory:
-        repo = pathlib.Path(directory)
-        git('init', '--quiet', cwd=repo)
-        # Reuse identity without modifying the user's checkout or configuration.
-        for field in ('user.name', 'user.email'):
-            git('config', field, git('config', field), cwd=repo)
-        if head:
-            git('fetch', '--quiet', remote, 'refs/heads/tunes', cwd=repo)
-            git('checkout', '--quiet', '-b', 'tunes', 'FETCH_HEAD', cwd=repo)
-        else:
-            git('checkout', '--quiet', '--orphan', 'tunes', cwd=repo)
-        (repo / 'AppearanceDefaults.json').write_bytes(data)
-        git('add', 'AppearanceDefaults.json', cwd=repo)
-        if not git('diff', '--cached', '--name-only', cwd=repo):
-            print('Published tuning already matches. Nothing pushed.')
-            return
-        git('commit', '--quiet', '-m', 'tunes', cwd=repo)
-        # No force: concurrent publishers must fetch and retry, never overwrite history.
-        git('push', remote, 'HEAD:refs/heads/tunes', cwd=repo)
-    print('Published appearance config only. No app release created.')
+    if git('branch', '--show-current') != 'main':
+        raise ValueError('Switch to main before publishing tuning')
+    git('fetch', '--quiet', 'origin', 'main')
+    if git('rev-parse', 'HEAD') != git('rev-parse', 'FETCH_HEAD'):
+        raise ValueError('Synchronize main first; tuning publication will not push unrelated commits')
+    relative = str(SOURCE.relative_to(ROOT))
+    if not git('diff', 'HEAD', '--', relative):
+        print('Published tuning already matches. Nothing pushed.')
+        return
+    while True:
+        now = datetime.datetime.now(ZoneInfo('Europe/Moscow'))
+        if now.minute % 2 == 0 and now.minute not in (30, 50) and now.second <= 10:
+            break
+        time.sleep(1)
+    # --only leaves unrelated staged and working-tree changes untouched.
+    git('commit', '--quiet', '--only', '-m', 'Tune', '--', relative)
+    git('push', 'origin', 'HEAD:refs/heads/main')
+    print('Published appearance config on main. No app release created.')
 
 
 if __name__ == '__main__':
