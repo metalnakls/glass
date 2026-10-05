@@ -420,16 +420,17 @@ struct TorrentFileIcon: View {
         if isFolder {
             // Folder flights need only the cached system image. Visibility tracking
             // and thumbnail revisions otherwise invalidate every moving folder.
-            Image(nsImage: nativeIcon)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: size, height: size)
+            NativeGlassIcon(image: nativeIcon, size: size, isFolder: true)
                 .shadow(color: .black.opacity(funMode ? 0.10 : 0), radius: 3, y: 2)
         } else {
-        Image(nsImage: displayedThumbnail ?? nativeIcon)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: size, height: size)
+        Group {
+            if let displayedThumbnail {
+                Image(nsImage: displayedThumbnail).resizable().aspectRatio(contentMode: .fit)
+                    .frame(width: size, height: size)
+            } else {
+                NativeGlassIcon(image: nativeIcon, size: size)
+            }
+        }
             .shadow(color: (coloredShadows && displayedThumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
             // List already realizes a viewport buffer and the shared preloader
             // warms nearby artwork. Load once on realization rather than adding

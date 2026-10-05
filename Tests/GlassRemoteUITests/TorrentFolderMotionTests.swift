@@ -113,4 +113,70 @@ struct TorrentFolderMotionTests {
             inset: 20, indices: ["group": 1], reduceMotion: true)
         #expect(motion.flyingIDs.isEmpty)
     }
+
+    @MainActor @Test("all visible members fly, extra leaves emerge behind the fan, and unacknowledged overlays retire")
+    func visibleMembersAndHandoff() async throws {
+        _ = NSApplication.shared
+        let rows = Rows()
+        let viewport = CGRect(x: 0, y: 0, width: 400, height: 360)
+        let table = NSTableView(frame: viewport)
+        table.addTableColumn(NSTableColumn(identifier: .init("name")))
+        table.headerView = nil; table.rowHeight = 48; table.dataSource = rows
+        let scroll = NSScrollView(frame: viewport)
+        let window = NSWindow(contentRect: viewport, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(scroll); scroll.documentView = table
+        table.reloadData()
+        let motion = TorrentFolderMotion()
+        motion.attach(table)
+        defer { motion.detach(); window.close() }
+        let members = (0..<20).map { "member-\($0)" }
+        motion.prepare(groupID: "group", members: members, expanding: true,
+            inset: 20, indices: ["group": 1], reduceMotion: false)
+        let visibleIDs = motion.flyingIDs
+        #expect(visibleIDs.count > 3)
+        #expect(visibleIDs.count < members.count)
+        #expect(visibleIDs.contains("member-3"))
+        #expect(!visibleIDs.contains("member-19"))
+        let flights = scroll.subviews.flatMap { $0.layer?.sublayers ?? [] }
+            .filter { $0.name?.hasPrefix("member-") == true }
+        let extra = try #require(flights.first { $0.name == "member-3" })
+        let first = try #require(flights.first { $0.name == "member-0" })
+        #expect(extra.opacity == 0)
+        #expect(extra.zPosition < first.zPosition)
+        var indices = ["group": 1]
+        for (slot, id) in members.enumerated() { indices[id] = slot + 2 }
+        rows.count = 22; table.reloadData()
+        motion.animateAfterLayout(indices: indices, expectedRows: 22)
+        for _ in 0..<25 {
+            if extra.animation(forKey: "folderEmergence") != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let emergence = try #require(extra.animation(forKey: "folderEmergence") as? CABasicAnimation)
+        #expect(emergence.fromValue as? Float == 0)
+        #expect(emergence.toValue as? Int == 1)
+        // No reveal anchors are installed: virtualized/recycled rows must not
+        // leave permanent copies of the flight images above the real icons.
+        for _ in 0..<180 {
+            if flights.allSatisfy({ $0.superlayer == nil }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(motion.flyingIDs.isEmpty)
+        #expect(flights.allSatisfy { $0.superlayer == nil })
+
+        motion.prepare(groupID: "group", members: members, expanding: false,
+            inset: 20, indices: indices, reduceMotion: false)
+        #expect(motion.flyingIDs.count > 3)
+        #expect(!motion.flyingIDs.contains("member-19"))
+        let returning = scroll.subviews.flatMap { $0.layer?.sublayers ?? [] }
+            .filter { $0.name?.hasPrefix("member-") == true }
+        rows.count = 2; table.reloadData()
+        motion.animateAfterLayout(indices: ["group": 1], expectedRows: 2)
+        for _ in 0..<180 {
+            if returning.allSatisfy({ $0.superlayer == nil }) { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(motion.flyingIDs.isEmpty)
+        #expect(returning.allSatisfy { $0.superlayer == nil })
+    }
 }

@@ -23,19 +23,39 @@ struct TorrentDownloadLocationTests {
         #expect(TorrentDownloadLocation(directory: "/data/../private", localName: nil, link: link).directoryURL == nil)
     }
 
-    @Test("local locations show the Mac name and final folder only")
+    @Test("local locations show the destination folder as the authority")
     func localDirectory() {
         let location = TorrentDownloadLocation(directory: "/Users/test/Downloads", localName: "Studio Mac", link: nil)
-        #expect(location.sourceName == "Studio Mac")
+        #expect(location.sourceName == "Downloads")
         #expect(location.folderName == "Downloads")
         #expect(location.directoryURL?.path == "/Users/test/Downloads")
     }
 
-    @Test("unlinked remote folders offer a share connection")
+    @Test("unlinked remote folders use the server name until a share is mapped")
     func unlinkedDirectory() {
-        let location = TorrentDownloadLocation(directory: "/container/downloads/Movies", localName: nil, link: nil)
-        #expect(location.sourceName == "Connect share…")
+        let location = TorrentDownloadLocation(directory: "/container/downloads/Movies", localName: nil, serverName: "Ultra", link: nil)
+        #expect(location.sourceName == "Ultra")
         #expect(location.folderName == "Movies")
         #expect(location.directoryURL == nil)
+    }
+
+    @Test("a mapped share owns the label, including nested server folders")
+    func shareAuthority() {
+        let link = TorrentThumbnailFolderLink(remoteRoot: "/downloads", localPath: "/Volumes/and", bookmark: Data())
+        for directory in ["/downloads", "/downloads/Fargo", "/downloads/Fargo/Season 2"] {
+            let location = TorrentDownloadLocation(directory: directory, localName: nil, serverName: "Ultra", link: link)
+            #expect(location.sourceName == "and")
+            #expect(!location.sourceName.contains("\n"))
+        }
+        let unrelated = TorrentDownloadLocation(directory: "/other", localName: nil, serverName: "Ultra", link: link)
+        #expect(unrelated.sourceName == "Ultra")
+        #expect(unrelated.directoryURL == nil)
+    }
+
+    @Test("local custom folders keep their name without the Mac or parent folder")
+    func localAuthority() {
+        let location = TorrentDownloadLocation(directory: "/Users/test/Movies/Real Movies", localName: "Studio Mac", link: nil)
+        #expect(location.sourceName == "Real Movies")
+        #expect(TorrentDownloadLocation.shareName(link: nil, fallback: "Ultra") == "Ultra")
     }
 }

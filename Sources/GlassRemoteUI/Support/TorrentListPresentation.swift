@@ -80,7 +80,7 @@ final class TorrentListPresentationModel {
     private(set) var rows: [TorrentListRowPresentation] = [] {
         didSet {
             iconPositions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
-            movingFolderIDs = Set(rows.flatMap { Array($0.groupMemberIDs?.prefix(3) ?? []) })
+            movingFolderIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
         }
     }
     @ObservationIgnored private(set) var iconPositions: [String: Int] = [:]

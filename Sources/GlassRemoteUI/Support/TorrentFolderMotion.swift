@@ -21,16 +21,18 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
     @ObservationIgnored private var awaitingReveal = Set<String>()
     @ObservationIgnored private var revealContinuation: CheckedContinuation<Void, Never>?
+    @ObservationIgnored private var revealTimeout: Task<Void, Never>?
 
     func revealToken(for id: String) -> Int? { awaitingReveal.contains(id) ? generation : nil }
     func acknowledgeReveal(_ id: String, token: Int) {
         guard token == generation, awaitingReveal.remove(id) != nil else { return }
         if awaitingReveal.isEmpty {
+            revealTimeout?.cancel(); revealTimeout = nil
             revealContinuation?.resume()
             revealContinuation = nil
         }
     }
-    private static let image = TorrentFileIconCache.icon(fileName: "", isFolder: true).cgImage(forProposedRect: nil, context: nil, hints: nil)
+    private static let image = NativeIconGeometry.flightImage(for: TorrentFileIconCache.icon(fileName: "", isFolder: true))
 
     func register(_ anchor: TorrentFolderLandingAnchor.Anchor) {
         anchors.setObject(anchor, forKey: anchor.id as NSString)
@@ -58,19 +60,26 @@ final class TorrentFolderMotion {
     func prepare(groupID: String, members: [String], expanding: Bool, inset: CGFloat,
                  indices: [String: Int], reduceMotion: Bool) {
         let interrupted = layers.mapValues { $0.presentation() ?? $0 }
-            .mapValues { ($0.position, $0.bounds.size, $0.value(forKeyPath: "transform.rotation.z") as? Double ?? 0) }
+            .mapValues { ($0.position, $0.bounds.size, $0.value(forKeyPath: "transform.rotation.z") as? Double ?? 0, $0.opacity) }
         cancel()
         guard !reduceMotion, let table, let scroll = table.enclosingScrollView else { return }
         overlay.frame = scroll.contentView.frame
-        self.groupID = groupID; self.members = Array(members.prefix(3))
+        self.groupID = groupID; self.members = members
         self.expanding = expanding; self.inset = inset
         poses = Dictionary(uniqueKeysWithValues: ([groupID] + self.members).map { ($0, TorrentIconPose.forRole($0 == groupID ? .fan : .folder)) })
         CATransaction.begin(); CATransaction.setDisableActions(true)
         for (slot, id) in self.members.enumerated() {
             let sourceID = expanding ? groupID : id
             guard let row = indices[sourceID], row < table.numberOfRows else { continue }
+            let sourceFrame = table.rect(ofRow: row)
+            let landingFrame = sourceFrame.offsetBy(dx: 0, dy: CGFloat(slot + 1) * (table.rowHeight + table.intercellSpacing.height))
+            let visible = expanding
+                ? (slot < 3 && sourceFrame.intersects(table.visibleRect)) || landingFrame.intersects(table.visibleRect)
+                : sourceFrame.intersects(table.visibleRect)
+            guard visible else { continue }
             let source = endpoint(row: row, slot: slot, fan: expanding, id: sourceID)
             let layer = CALayer()
+            layer.name = id
             layer.contents = Self.image
             layer.contentsGravity = .resizeAspect
             let scale = poses[sourceID]?.scale ?? 1
@@ -83,6 +92,9 @@ final class TorrentFolderMotion {
             layer.position = interrupted[id]?.0 ?? source.center
             layer.bounds.size = interrupted[id]?.1 ?? source.size
             layer.setValue(interrupted[id]?.2 ?? source.angle, forKeyPath: "transform.rotation.z")
+            layer.opacity = interrupted[id]?.3 ?? (expanding && slot >= 3 ? 0 : 1)
+            // Extra folders emerge from behind the three visible fan leaves.
+            layer.zPosition = slot < 3 ? CGFloat(100 + slot) : -CGFloat(slot)
             overlay.layer?.addSublayer(layer)
             layers[id] = layer
         }
@@ -125,6 +137,18 @@ final class TorrentFolderMotion {
                 flight.duration = 0.30
                 flight.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
                 layer.add(flight, forKey: "folderFlight")
+                if slot >= 3 {
+                    let opacity = CABasicAnimation(keyPath: "opacity")
+                    opacity.fromValue = layer.opacity
+                    opacity.toValue = self.expanding ? 1 : 0
+                    opacity.duration = self.expanding ? 0.16 : 0.12
+                    opacity.beginTime = CACurrentMediaTime() + (self.expanding ? 0.04 + min(Double(slot - 3) * 0.015, 0.10) : 0.18)
+                    opacity.fillMode = .backwards
+                    CATransaction.begin(); CATransaction.setDisableActions(true)
+                    layer.opacity = self.expanding ? 1 : 0
+                    CATransaction.commit()
+                    layer.add(opacity, forKey: "folderEmergence")
+                }
             }
             try? await Task.sleep(for: .milliseconds(270))
             // Native insertion can keep changing the host geometry after the
@@ -135,7 +159,7 @@ final class TorrentFolderMotion {
                 guard !Task.isCancelled, self.generation == token else { return }
                 var targets: [String: CGPoint] = [:]
                 for (slot, id) in self.members.enumerated() {
-                    guard let row = indices[self.expanding ? id : self.groupID] else { continue }
+                    guard self.layers[id] != nil, let row = indices[self.expanding ? id : self.groupID] else { continue }
                     targets[id] = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID).center
                 }
                 let stable = targets.count == lastTargets.count && targets.allSatisfy { id, point in
@@ -209,12 +233,22 @@ final class TorrentFolderMotion {
             await withCheckedContinuation { continuation in
                 self.revealContinuation = continuation
                 self.awaitingReveal = Set(self.layers.compactMap { id, layer in
-                    layer.frame.intersects(self.overlay.bounds) ? id : nil
+                    layer.opacity > 0 && layer.frame.intersects(self.overlay.bounds) ? id : nil
                 })
                 self.flyingIDs = []
                 if self.awaitingReveal.isEmpty {
                     self.revealContinuation = nil
                     continuation.resume()
+                } else {
+                    // A recycled/offscreen hosting view may never acknowledge
+                    // its render. Always retire the overlay after the handoff.
+                    self.revealTimeout = Task { @MainActor [weak self] in
+                        try? await Task.sleep(for: .milliseconds(100))
+                        guard let self, !Task.isCancelled, self.generation == token else { return }
+                        self.awaitingReveal.removeAll()
+                        self.revealContinuation?.resume(); self.revealContinuation = nil
+                        self.revealTimeout = nil
+                    }
                 }
             }
             guard !Task.isCancelled, self.generation == token else { return }
@@ -232,7 +266,8 @@ final class TorrentFolderMotion {
     private func endpoint(row: Int, slot: Int, fan: Bool, id: String) -> (center: CGPoint, size: CGSize, angle: Double) {
         guard let table else { return (.zero, .zero, 0) }
         let rowFrame = table.rect(ofRow: row)
-        let progress = members.count > 1 ? Double(slot) / Double(members.count - 1) : 0.5
+        let fanCount = min(members.count, 3)
+        let progress = slot >= 3 || fanCount < 2 ? 0.5 : Double(slot) / Double(fanCount - 1)
         let size: CGFloat = fan ? 27 : 36
         let angle = fan ? (-9 + 18 * progress) * .pi / 180 : 0
         // The static fan rotates around the folder's bottom, whereas a layer
@@ -257,6 +292,7 @@ final class TorrentFolderMotion {
     func cancel() {
         generation += 1
         completion?.cancel(); completion = nil
+        revealTimeout?.cancel(); revealTimeout = nil
         awaitingReveal.removeAll()
         revealContinuation?.resume(); revealContinuation = nil
         for layer in layers.values { layer.removeFromSuperlayer() }

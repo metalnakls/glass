@@ -7,8 +7,7 @@ struct NativeLocationIcon: View {
     var size: CGFloat = 24
     @State private var image: NSImage?
     var body: some View {
-        Image(nsImage: image ?? NSWorkspace.shared.icon(for: .folder))
-            .resizable().scaledToFit().frame(width: size, height: size)
+        NativeGlassIcon(image: image ?? TorrentFileIconCache.icon(fileName: "", isFolder: true), size: size, isFolder: true)
             .task(id: path) {
                 guard let path else { image = nil; return }
                 let data = await Task.detached(priority: .utility) {
