@@ -6,13 +6,13 @@ import SwiftUI
 /// visible row per frame, so the answer is cached and refreshed only when the
 /// system setting actually changes.
 @MainActor
-enum ReduceMotion {
+public enum ReduceMotion {
     private static var cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    static var enabled: Bool { cached }
+    public static var enabled: Bool { cached }
     /// Call when the accessibility display options change notification arrives.
     static func refresh() { cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// Observe `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`.
-    static func startObserving() {
+    public static func startObserving() {
         let center = NotificationCenter.default
         if let token { center.removeObserver(token) }
         token = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
