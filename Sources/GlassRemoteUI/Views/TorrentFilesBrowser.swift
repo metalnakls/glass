@@ -88,17 +88,13 @@ struct TorrentFilesBrowser: View {
                             Text(displayName(row))
                                 .lineLimit(1).truncationMode(.middle)
                             if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
-                                Image(systemName: "star.fill")
-                                    .resizable()
-                                    .scaledToFit()
-                                    .frame(width: 10, height: 10)
-                                    .frame(width: 12, height: 12)
+                                FilePriorityIcon(high: true)
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("High priority")
                                     .help("High priority")
                                     .padding(.leading, priorityGap)
                             } else if row.indices.contains(where: { priority($0, byIndex: byIndex) < 0 }) {
-                                LowPriorityFace()
+                                FilePriorityIcon(high: false)
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("Low priority")
                                     .help("Low priority")
@@ -269,21 +265,26 @@ struct TorrentFilesBrowser: View {
     }
 }
 
-private struct LowPriorityFace: View {
+private struct FilePriorityIcon: View {
+    let high: Bool
+
     var body: some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 2) {
-                Circle().frame(width: 1.5, height: 1.5)
-                Circle().frame(width: 1.5, height: 1.5)
+        ZStack(alignment: .center) {
+            if high {
+                Image(systemName: "star.fill")
+                    .font(.caption)
+                    .fixedSize()
+                    // SF Symbols carry baseline padding below the visible star.
+                    .offset(y: -1)
+            } else {
+                Text(":(")
+                    .font(.system(size: 10))
+                    .fixedSize()
+                    .rotationEffect(.degrees(90))
             }
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: 3))
-                path.addQuadCurve(to: CGPoint(x: 7, y: 3), control: CGPoint(x: 3.5, y: -3))
-            }
-            .stroke(style: StrokeStyle(lineWidth: 1, lineCap: .round))
-            .frame(width: 7, height: 3)
         }
-        .frame(width: 12, height: 12, alignment: .center)
+        .frame(width: 12, height: 16, alignment: .center)
+        .fixedSize()
     }
 }
 
