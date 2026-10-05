@@ -95,6 +95,7 @@ struct TorrentFilesBrowser: View {
                                     .padding(.leading, priorityGap)
                             } else if row.indices.contains(where: { priority($0, byIndex: byIndex) < 0 }) {
                                 FilePriorityIcon(high: false)
+                                    .offset(y: 0.5)
                                     .foregroundStyle(.secondary)
                                     .accessibilityLabel("Low priority")
                                     .help("Low priority")
