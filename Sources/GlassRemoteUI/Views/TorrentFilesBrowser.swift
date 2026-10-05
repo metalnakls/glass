@@ -20,6 +20,7 @@ struct TorrentFilesBrowser: View {
     @AppStorage("GlassList.showExtensions") private var showsExtensions = false
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @State private var collapsed = Set<String>()
+    @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
     var editID = ""
     var showsActionBar = true
@@ -41,16 +42,12 @@ struct TorrentFilesBrowser: View {
         nonmutating set { if let editSession { editSession.wanted[editID] = newValue } else { localWanted = newValue } }
     }
 
-    private var rows: [TorrentFileTreeRow] {
-        TorrentFileTreeRow.rows(entries: entries, collapsed: collapsed, query: searchText)
-    }
-    private var hiddenExtension: String? {
-        showsExtensions ? nil : TorrentExtensionPolicy.hiddenExtension(paths: entries.map(\.originalPath))
-    }
     private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { pendingWanted[entry.index] ?? entry.isWanted }
 
     var body: some View {
         let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
+        let rows = treeCache.rows(entries: entries, byIndex: byIndex, collapsed: collapsed, query: searchText)
+        let hiddenExtension = showsExtensions ? nil : treeCache.hiddenExtension
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
@@ -85,7 +82,7 @@ struct TorrentFilesBrowser: View {
                                         .font(.system(size: 9, weight: .semibold)).frame(width: 12)
                                 }.buttonStyle(.plain).padding(.trailing, 4)
                             }
-                            Text(displayName(row))
+                            Text(displayName(row, hiding: hiddenExtension))
                                 .lineLimit(1).truncationMode(.middle)
                             if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
                                 FilePriorityIcon(high: true)
@@ -188,7 +185,7 @@ struct TorrentFilesBrowser: View {
         }
     }
 
-    private func displayName(_ row: TorrentFileTreeRow) -> String {
+    private func displayName(_ row: TorrentFileTreeRow, hiding hiddenExtension: String?) -> String {
         let name = row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension)
         guard shortEpisodeNames, !row.isFolder,
               let range = name.range(of: "^S[0-9]+E[0-9]+", options: [.regularExpression, .caseInsensitive]) else { return name }
@@ -263,6 +260,51 @@ struct TorrentFilesBrowser: View {
         if members.allSatisfy({ !wanted($0) }) { return "minus.circle" }
         if members.allSatisfy(\.isComplete) { return "checkmark" }
         return "arrow.down.circle"
+    }
+}
+
+/// File paths and sizes define the tree. Progress, wanted flags and priorities
+/// update the existing rows without rebuilding nodes or sorting folder contents.
+@MainActor
+final class TorrentFileTreeCache {
+    private struct File: Equatable {
+        let index: Int
+        let originalPath: String
+        let displayName: String
+        let size: UInt64
+        init(_ entry: TorrentFileBrowserEntry) {
+            index = entry.index
+            originalPath = entry.originalPath
+            displayName = entry.displayName
+            size = entry.size
+        }
+    }
+    private var files: [File]?
+    private var collapsed = Set<String>()
+    private var query = ""
+    private var cachedRows: [TorrentFileTreeRow] = []
+    private(set) var hiddenExtension: String?
+
+    func rows(entries: [TorrentFileBrowserEntry], byIndex: [Int: TorrentFileBrowserEntry],
+              collapsed: Set<String>, query: String) -> [TorrentFileTreeRow] {
+        let files = entries.map(File.init)
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        let topologyChanged = self.files != files
+        if topologyChanged {
+            hiddenExtension = TorrentExtensionPolicy.hiddenExtension(paths: entries.map(\.originalPath))
+        }
+        if topologyChanged || self.collapsed != collapsed || self.query != query {
+            self.files = files
+            self.collapsed = collapsed
+            self.query = query
+            cachedRows = TorrentFileTreeRow.rows(entries: entries, collapsed: collapsed, query: query)
+        }
+        // Keep file actions and callers supplied with current telemetry, even
+        // though the path topology is shared across refreshes.
+        return cachedRows.map { row in
+            TorrentFileTreeRow(id: row.id, name: row.name, depth: row.depth,
+                indices: row.indices, size: row.size, entry: row.entry.flatMap { byIndex[$0.index] })
+        }
     }
 }
 

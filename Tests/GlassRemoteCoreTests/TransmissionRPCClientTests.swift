@@ -4,6 +4,43 @@ import Testing
 
 @Suite("TransmissionRPCClient", .serialized)
 struct TransmissionRPCClientTests {
+    @Test("group details use one request, only visible sections, and preserve member order")
+    func batchedGroupDetails() async throws {
+        let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body:
+            #"{"result":"success","arguments":{"torrents":[{"id":2,"hashString":"two","name":"Two","files":[{"name":"two.mkv","length":200,"bytesCompleted":100}]},{"id":1,"hashString":"one","name":"One","files":[{"name":"one.mkv","length":100,"bytesCompleted":50}]}]}}"#)])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        let details = try await client.fetchTorrentDetails(hashStrings: ["one", "two"], including: [.files])
+        #expect(details.map(\.hashString) == ["one", "two"])
+        #expect(details.map { $0.files.first?.bytesCompleted } == [50, 100])
+        #expect(transport.recordedRequests.count == 1)
+        let body = try #require(transport.recordedRequestBodies.first ?? nil)
+        let request = try JSONDecoder().decode(RecordedRPCRequest.self, from: body)
+        #expect(request.method == "torrent-get")
+        #expect(request.arguments["ids"] == .array([.string("one"), .string("two")]))
+        guard case let .array(values) = try #require(request.arguments["fields"]) else {
+            Issue.record("Expected a fields array")
+            return
+        }
+        let fields = Set(values.compactMap { value -> String? in
+            guard case let .string(field) = value else { return nil }
+            return field
+        })
+        #expect(fields.isSuperset(of: ["status", "downloadDir", "files", "fileStats"]))
+        #expect(fields.isDisjoint(with: ["peers", "trackerStats", "pieces"]))
+    }
+
+    @Test("empty groups make no request and missing members report an error")
+    func batchedGroupMembership() async throws {
+        let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body:
+            #"{"result":"success","arguments":{"torrents":[]}}"#)])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        #expect(try await client.fetchTorrentDetails(hashStrings: [], including: [.files]).isEmpty)
+        #expect(transport.recordedRequests.isEmpty)
+        await #expect(throws: TransmissionRPCError.self) {
+            _ = try await client.fetchTorrentDetails(hashStrings: ["missing"], including: [.files])
+        }
+    }
+
     @Test("direct queue placement sends a torrent mutation with a stable hash")
     func directQueuePlacement() async throws {
         let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body: #"{"result":"success","arguments":{}}"#)])

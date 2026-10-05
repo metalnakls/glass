@@ -489,20 +489,11 @@ struct TorrentListView: View {
         let unfinished = liveTorrents.filter { $0.summary.isUnfinished && !isUnavailable($0) }
         let transfers = unfinished.isEmpty ? liveTorrents : unfinished
         guard !transfers.isEmpty else { return false }
-        var succeeded = true
-
         if transfers.contains(where: { $0.summary.canStopTransfer }) {
-            for record in transfers where record.summary.canStopTransfer {
-                let result = await model.stop(record.summary, sourceID: record.sourceID)
-                succeeded = result && succeeded
-            }
+            return await model.stop(transfers.filter { $0.summary.canStopTransfer }.map(\.summary), sourceID: transfers[0].sourceID)
         } else {
-            for record in transfers {
-                let result = await model.start(record.summary, sourceID: record.sourceID)
-                succeeded = result && succeeded
-            }
+            return await model.start(transfers.map(\.summary), sourceID: transfers[0].sourceID)
         }
-        return succeeded
     }
 
     @ViewBuilder

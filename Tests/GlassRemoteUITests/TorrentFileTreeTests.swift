@@ -5,6 +5,33 @@ import Testing
 @MainActor
 @Suite("Compact file tree")
 struct TorrentFileTreeTests {
+    @Test("cached trees retain fresh telemetry and invalidate for names, sizes, collapse and search")
+    func cachedTreeUpdates() {
+        let cache = TorrentFileTreeCache()
+        func entries(name: String = "Show/Season 1/one.mkv", size: UInt64 = 10, completed: UInt64 = 0, wanted: Bool = true) -> [TorrentFileBrowserEntry] {
+            [TorrentFileBrowserEntry(index: 0,
+                file: TorrentFile(name: name, length: size, bytesCompleted: completed),
+                rootName: "Show", isWanted: wanted)]
+        }
+        func rows(_ entries: [TorrentFileBrowserEntry], collapsed: Set<String> = [], query: String = "") -> [TorrentFileTreeRow] {
+            cache.rows(entries: entries, byIndex: Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) }), collapsed: collapsed, query: query)
+        }
+        #expect(rows(entries()).map(\.name) == ["Season 1", "one.mkv"])
+        #expect(cache.hiddenExtension == "mkv")
+        let updated = rows(entries(completed: 7, wanted: false))
+        #expect(updated.last?.entry?.completedBytes == 7)
+        #expect(updated.last?.entry?.isWanted == false)
+        #expect(rows(entries(), collapsed: ["Season 1"]).count == 1)
+        #expect(rows(entries(), collapsed: ["Season 1"], query: "one").count == 2)
+        #expect(rows(entries(), query: "absent").isEmpty)
+        let renamed = rows(entries(name: "Show/Season 2/two.mp4", size: 20))
+        #expect(renamed.map(\.name) == ["Season 2", "two.mp4"])
+        #expect(renamed.first?.size == 20)
+        #expect(cache.hiddenExtension == "mp4")
+        #expect(rows([]).isEmpty)
+        #expect(cache.hiddenExtension == nil)
+    }
+
     @Test("smart names preserve parents and staged choices stay isolated between torrents")
     func stagedNaming() {
         let entry = TorrentFileBrowserEntry(index: 4, file: TorrentFile(name: "Show/Season 1/Subfolder/original.mkv", length: 10, bytesCompleted: 0), rootName: "Show", displayName: "S01E01.mkv")

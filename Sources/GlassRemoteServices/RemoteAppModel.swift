@@ -217,7 +217,7 @@ public final class RemoteAppModel {
     @ObservationIgnored private var detailSectionTasks: [TorrentDetailSection: Task<TorrentDetails, Error>] = [:]
     @ObservationIgnored private var loadedTorrentDetailSections: Set<TorrentDetailSection> = []
     @ObservationIgnored private var visibleTorrentDetailSections: Set<TorrentDetailSection> = []
-    @ObservationIgnored private var isApplicationActive = true
+    public private(set) var isApplicationActive = true
     @ObservationIgnored private var watchedTorrents: [WatchedTorrent: String] = [:]
     @ObservationIgnored private var completionWatcherTask: Task<Void, Never>?
 
@@ -464,6 +464,7 @@ public final class RemoteAppModel {
     }
 
     public func runAutoRefresh() async {
+        guard isApplicationActive else { return }
         await withTaskGroup(of: Void.self) { group in
             for sourceID in sources.map(\.id) {
                 group.addTask { await self.runAutoRefresh(sourceID: sourceID) }
@@ -472,18 +473,13 @@ public final class RemoteAppModel {
     }
 
     private func runAutoRefresh(sourceID: UUID) async {
-        while !Task.isCancelled {
-            if isApplicationActive { await refresh(sourceID: sourceID) }
-            guard !Task.isCancelled, sources.contains(where: { $0.id == sourceID }) else { return }
+        while isApplicationActive && !Task.isCancelled {
+            await refresh(sourceID: sourceID)
+            guard isApplicationActive, !Task.isCancelled, sources.contains(where: { $0.id == sourceID }) else { return }
             do {
-                let interval: Duration
-                if isApplicationActive {
-                    let state = sourceState(for: sourceID)
-                    interval = state.records.contains { $0.summary.isActive }
-                        ? Self.activeAutoRefreshInterval : Self.quietAutoRefreshInterval
-                } else {
-                    interval = .milliseconds(500)
-                }
+                let state = sourceState(for: sourceID)
+                let interval = state.records.contains { $0.summary.isActive }
+                    ? Self.activeAutoRefreshInterval : Self.quietAutoRefreshInterval
                 try await Task.sleep(for: interval)
             } catch { break }
         }
@@ -754,38 +750,7 @@ public final class RemoteAppModel {
         guard !torrents.isEmpty else { return [] }
         let sourceID = requestedSourceID ?? selectedSourceID
         let provider = try self.provider(for: sourceID)
-        let indexedDetails = try await withThrowingTaskGroup(
-            of: (Int, TorrentDetails).self,
-            returning: [(Int, TorrentDetails)].self
-        ) { group in
-            for (index, torrent) in torrents.enumerated() {
-                group.addTask {
-                    var details = try await provider.fetchTorrentDetails(hashString: torrent.hashString)
-                    for section in sections {
-                        let update: TorrentDetails
-                        switch section {
-                        case .files:
-                            update = try await provider.fetchTorrentFiles(hashString: torrent.hashString)
-                        case .peers:
-                            update = try await provider.fetchTorrentPeers(hashString: torrent.hashString)
-                        case .trackers:
-                            update = try await provider.fetchTorrentTrackers(hashString: torrent.hashString)
-                        case .pieces:
-                            update = try await provider.fetchTorrentPieces(hashString: torrent.hashString)
-                        }
-                        details = details.merging(update, section: section)
-                    }
-                    return (index, details)
-                }
-            }
-
-            var values: [(Int, TorrentDetails)] = []
-            for try await value in group {
-                values.append(value)
-            }
-            return values
-        }
-        return indexedDetails.sorted { $0.0 < $1.0 }.map(\.1)
+        return try await provider.fetchTorrentDetails(hashStrings: torrents.map(\.hashString), including: sections)
     }
 
     public func setVisibleTorrentDetailSections(
@@ -964,17 +929,29 @@ public final class RemoteAppModel {
 
     @discardableResult
     public func start(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        await start([torrent], sourceID: requestedSourceID)
+    }
+
+    @discardableResult
+    public func start(_ torrents: [TorrentSummary], sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        guard !torrents.isEmpty else { return true }
         let sourceID = requestedSourceID ?? selectedSourceID
         return await performProviderAction(sourceID: sourceID) { provider in
-            try await provider.start(ids: [torrent.hashString])
+            try await provider.start(ids: torrents.map(\.hashString))
         }
     }
 
     @discardableResult
     public func stop(_ torrent: TorrentSummary, sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        await stop([torrent], sourceID: requestedSourceID)
+    }
+
+    @discardableResult
+    public func stop(_ torrents: [TorrentSummary], sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        guard !torrents.isEmpty else { return true }
         let sourceID = requestedSourceID ?? selectedSourceID
         return await performProviderAction(sourceID: sourceID) { provider in
-            try await provider.stop(ids: [torrent.hashString])
+            try await provider.stop(ids: torrents.map(\.hashString))
         }
     }
 

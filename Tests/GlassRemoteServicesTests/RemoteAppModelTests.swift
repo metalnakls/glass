@@ -7,6 +7,51 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("inactive auto refresh finishes without opening local or remote connections")
+    func inactiveAutoRefreshStops() async {
+        let factory = StubRPCClientFactory()
+        let local = StubLocalTransmissionSession()
+        let model = makeModel(profiles: [makeProfile()], factory: factory, localSession: local)
+        model.setApplicationActive(false)
+        await model.runAutoRefresh()
+        #expect(factory.createdCount == 0)
+        #expect(await local.fetchSnapshotCount == 0)
+    }
+
+    @Test("activation starts polling and cancellation permits a fresh activation", .timeLimit(.minutes(1)))
+    func autoRefreshActivationLifecycle() async {
+        let client = StubRPCClient()
+        let model = makeModel(profile: makeProfile(), factory: StubRPCClientFactory { _ in client })
+        for count in 1...2 {
+            model.setApplicationActive(true)
+            let polling = Task { await model.runAutoRefresh() }
+            await client.waitForTorrentFetch(count: count)
+            model.setApplicationActive(false)
+            polling.cancel()
+            await polling.value
+            #expect(await client.fetchTorrentsCount == count)
+        }
+    }
+
+    @Test("group commands send all members in one request to their owning source")
+    func batchedTransferCommands() async throws {
+        let profile = makeProfile()
+        let client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh(sourceID: profile.id)
+        let first = try #require(model.torrentRecords.first?.summary)
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
+            percentDone: 0, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 100, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        model.selectedProfileID = model.localSourceID
+        #expect(await model.start([first, second], sourceID: profile.id))
+        #expect(await model.stop([first, second], sourceID: profile.id))
+        #expect(await client.startRequests == [["hash-1", "hash-2"]])
+        #expect(await client.stopRequests == [["hash-1", "hash-2"]])
+        #expect(await model.start([], sourceID: profile.id))
+        #expect(await client.startRequests.count == 1)
+    }
+
     @Test("adding rows survive stale snapshots and retire when the server row arrives")
     func pendingAdditionLifecycle() async throws {
         let profile = makeProfile()
@@ -940,6 +985,14 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private(set) var cancelledTorrentDetailsCount = 0
     private(set) var renamedPaths: [TorrentPathRename] = []
     private(set) var stoppedIDs: [String] = []
+    private(set) var startRequests: [[String]] = []
+    private(set) var stopRequests: [[String]] = []
+    private var torrentFetchWaiter: (count: Int, continuation: CheckedContinuation<Void, Never>)?
+
+    func waitForTorrentFetch(count: Int) async {
+        guard fetchTorrentsCount < count else { return }
+        await withCheckedContinuation { torrentFetchWaiter = (count, $0) }
+    }
 
     init(fetchDelay: Duration? = nil, detailDelay: Duration? = nil) {
         self.fetchDelay = fetchDelay
@@ -1006,6 +1059,10 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func fetchTorrents() async throws -> [TorrentSummary] {
         fetchTorrentsCount += 1
+        if let waiter = torrentFetchWaiter, fetchTorrentsCount >= waiter.count {
+            torrentFetchWaiter = nil
+            waiter.continuation.resume()
+        }
         if let fetchDelay {
             try await Task.sleep(for: fetchDelay)
         }
@@ -1099,8 +1156,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
         )
     }
 
-    func start(ids: [String]) async throws {}
-    func stop(ids: [String]) async throws { stoppedIDs.append(contentsOf: ids) }
+    func start(ids: [String]) async throws { startRequests.append(ids) }
+    func stop(ids: [String]) async throws {
+        stopRequests.append(ids)
+        stoppedIDs.append(contentsOf: ids)
+    }
     func remove(ids: [String], deleteLocalData: Bool) async throws {}
     func verify(ids: [String]) async throws {}
     func reannounce(ids: [String]) async throws {}

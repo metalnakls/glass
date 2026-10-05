@@ -6,6 +6,24 @@ import GlassRemoteCore
 
 @MainActor @Suite("Add title extension presentation")
 struct AddModalExtensionTests {
+    @Test("background imports preserve metainfo, source and parsed preview")
+    func importedDraft() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("movie.torrent")
+        let data = Data("d4:infod6:lengthi100e4:name9:movie.mkvee".utf8)
+        try data.write(to: url)
+        let draft = try await TorrentFileAddDraft.load(from: url)
+        #expect(draft.data == data)
+        #expect(draft.sourceURL == url)
+        #expect(draft.preview.name == "movie.mkv")
+        #expect(draft.preview.size == 100)
+        await #expect(throws: CocoaError.self) {
+            _ = try await TorrentFileAddDraft.load(from: directory.appendingPathComponent("missing.torrent"))
+        }
+    }
+
     @Test func singleMovieTitle() throws {
         let name = "The.Mosquito.Coast.1986.720p.mkv"
         let data = Data("d4:infod6:lengthi100e4:name\(name.utf8.count):\(name)ee".utf8)

@@ -11,6 +11,7 @@ public protocol TransmissionRPCServicing: Sendable {
     func fetchTorrents() async throws -> [TorrentSummary]
     func fetchRecentlyActiveTorrents() async throws -> TorrentCollectionUpdate
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails]
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails
     func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
@@ -39,6 +40,26 @@ public protocol TransmissionRPCServicing: Sendable {
 }
 
 public extension TransmissionRPCServicing {
+    func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails] {
+        var result: [TorrentDetails] = []
+        for hash in hashStrings {
+            try Task.checkCancellation()
+            var details = try await fetchTorrentDetails(hashString: hash)
+            for section in sections {
+                let update: TorrentDetails
+                switch section {
+                case .files: update = try await fetchTorrentFiles(hashString: hash)
+                case .peers: update = try await fetchTorrentPeers(hashString: hash)
+                case .trackers: update = try await fetchTorrentTrackers(hashString: hash)
+                case .pieces: update = try await fetchTorrentPieces(hashString: hash)
+                }
+                details = details.merging(update, section: section)
+            }
+            result.append(details)
+        }
+        return result
+    }
+
     func setQueuePosition(ids: [String], position: Int) async throws {
         try await queueMoveTop(ids: ids)
         for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
@@ -118,6 +139,7 @@ public protocol TorrentProvider: Sendable {
     func fetchSessionSettings() async throws -> TransmissionSessionSettings
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails
+    func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails]
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails
     func fetchTorrentPeers(hashString: String) async throws -> TorrentDetails
     func fetchTorrentTrackers(hashString: String) async throws -> TorrentDetails
@@ -360,6 +382,10 @@ public actor RemoteTorrentProvider: TorrentProvider {
         try await client.fetchTorrentDetails(hashString: hashString)
     }
 
+    public func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails] {
+        try await client.fetchTorrentDetails(hashStrings: hashStrings, including: sections)
+    }
+
     public func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
         try await client.fetchTorrentFiles(hashString: hashString)
     }
@@ -518,6 +544,16 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
         try await session.fetchTorrentDetails(hashString: hashString)
+    }
+
+    public func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails] {
+        // The local bridge already returns every detail section in one call.
+        var details: [TorrentDetails] = []
+        for hash in hashStrings {
+            try Task.checkCancellation()
+            details.append(try await session.fetchTorrentDetails(hashString: hash))
+        }
+        return details
     }
 
     public func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {

@@ -503,6 +503,17 @@ struct TorrentFileAddDraft: Identifiable, Sendable {
     let data: Data
     let preview: TorrentFilePreview
     let sourceURL: URL
+
+    @concurrent
+    static func load(from url: URL) async throws -> Self {
+        try Task.checkCancellation()
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
+        let data = try Data(contentsOf: url)
+        let preview = TorrentFilePreview(data: data, fallbackURL: url)
+        try Task.checkCancellation()
+        return Self(data: data, preview: preview, sourceURL: url)
+    }
 }
 
 private enum Destination: Hashable {

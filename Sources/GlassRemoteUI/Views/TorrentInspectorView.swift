@@ -91,15 +91,26 @@ struct TorrentInspectorView: View {
         }
         .task(id: groupDetailLoadInput) {
             groupDetailsError = nil
-            guard let group = selectedTorrentGroup else { return }
-            do {
-                let details = try await model.fetchDetails(for: group.torrents, including: [.files], sourceID: sourceID)
-                guard !Task.isCancelled else { return }
-                for detail in details { confirmFileEdits(detail) }
-                snapshot = TorrentInspectorSnapshot(sourceID: sourceID, group: group, groupDetails: Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) }))
-            } catch {
-                guard !Task.isCancelled, !(error is CancellationError) else { return }
-                groupDetailsError = error.localizedDescription
+            guard model.isApplicationActive, let group = selectedTorrentGroup else { return }
+            // Live summary changes update the progress labels, not the lifetime
+            // of this request. Fetch file telemetry on a deliberate cadence.
+            while !Task.isCancelled {
+                do {
+                    let details = try await model.fetchDetails(for: group.torrents, including: [.files], sourceID: sourceID)
+                    guard !Task.isCancelled else { return }
+                    for detail in details { confirmFileEdits(detail) }
+                    groupDetailsError = nil
+                    let byHash = Dictionary(uniqueKeysWithValues: details.map { ($0.hashString, $0) })
+                    if snapshot?.sourceID != sourceID || snapshot?.group?.id != group.id
+                        || snapshot?.group?.displayName != group.displayName || snapshot?.groupDetails != byHash {
+                        snapshot = TorrentInspectorSnapshot(sourceID: sourceID, group: group, groupDetails: byHash)
+                    }
+                } catch {
+                    guard !Task.isCancelled, !(error is CancellationError) else { return }
+                    groupDetailsError = error.localizedDescription
+                }
+                do { try await Task.sleep(for: model.currentAutoRefreshInterval) }
+                catch { return }
             }
         }
         .task(id: selectionKey) {
@@ -155,7 +166,8 @@ struct TorrentInspectorView: View {
     }
 
     private var groupDetailLoadInput: TorrentGroupInspectorLoadInput {
-        TorrentGroupInspectorLoadInput(sourceID: sourceID, groupID: selectedTorrentGroup?.id, torrents: selectedTorrentGroup?.torrents ?? [], revision: model.fileMutationRevision)
+        TorrentGroupInspectorLoadInput(sourceID: sourceID, group: selectedTorrentGroup,
+            revision: model.fileMutationRevision, isActive: model.isApplicationActive)
     }
 }
 
@@ -249,7 +261,7 @@ private struct TorrentInspectorContent: View {
     }
 
     private func progressSummary(_ details: TorrentDetails) -> some View {
-        let torrent = model.torrentRecords.first { $0.sourceID == sourceID && $0.summary.hashString == details.hashString }?.summary
+        let torrent = model.allTorrentRecords.first { $0.sourceID == sourceID && $0.hashString == details.hashString }?.summary
         let progress = min(1, max(0, torrent?.percentDone ?? details.percentDone ?? 0))
         return VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -408,11 +420,27 @@ private struct TorrentInspectorDetailLoadInput: Equatable {
     let isLoading: Bool
 }
 
-private struct TorrentGroupInspectorLoadInput: Equatable {
+struct TorrentGroupInspectorLoadInput: Equatable {
+    struct Member: Equatable {
+        let hashString: String
+        let name: String
+        let directory: String?
+    }
     let sourceID: UUID
     let groupID: String?
-    let torrents: [TorrentSummary]
+    let displayName: String?
+    let members: [Member]
     let revision: Int
+    let isActive: Bool
+
+    init(sourceID: UUID, group: TorrentNameSequenceGroup?, revision: Int, isActive: Bool) {
+        self.sourceID = sourceID
+        groupID = group?.id
+        displayName = group?.displayName
+        members = group?.torrents.map { Member(hashString: $0.hashString, name: $0.name, directory: $0.downloadDir) } ?? []
+        self.revision = revision
+        self.isActive = isActive
+    }
 }
 
 extension TorrentDetails {

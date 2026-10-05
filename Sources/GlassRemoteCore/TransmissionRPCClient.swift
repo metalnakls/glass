@@ -152,16 +152,38 @@ public actor TransmissionRPCClient {
     }
 
     public func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        let fields = [
-            "id", "hashString", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
-            "leftUntilDone", "eta", "uploadRatio", "uploadedEver", "downloadedEver", "corruptEver",
-            "downloadDir", "addedDate", "activityDate", "startDate", "doneDate",
-            "secondsDownloading", "secondsSeeding", "downloadLimit", "downloadLimited", "uploadLimit",
-            "uploadLimited", "seedRatioLimit", "seedRatioMode", "bandwidthPriority", "queuePosition",
-            "honorsSessionLimits", "isPrivate"
-        ]
+        try await fetchTorrentDetails(hashString: hashString, fields: Self.coreDetailFields)
+    }
 
-        return try await fetchTorrentDetails(hashString: hashString, fields: fields)
+    private static let coreDetailFields = [
+        "id", "hashString", "name", "status", "percentDone", "totalSize", "sizeWhenDone",
+        "leftUntilDone", "eta", "uploadRatio", "uploadedEver", "downloadedEver", "corruptEver",
+        "downloadDir", "addedDate", "activityDate", "startDate", "doneDate",
+        "secondsDownloading", "secondsSeeding", "downloadLimit", "downloadLimited", "uploadLimit",
+        "uploadLimited", "seedRatioLimit", "seedRatioMode", "bandwidthPriority", "queuePosition",
+        "honorsSessionLimits", "isPrivate"
+    ]
+
+    /// A group inspector needs one response containing the core and visible
+    /// sections for every member, rather than a request per member and section.
+    public func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails] {
+        guard !hashStrings.isEmpty else { return [] }
+        var fields = Self.coreDetailFields
+        if sections.contains(.files) { fields += ["files", "fileStats"] }
+        if sections.contains(.peers) { fields.append("peers") }
+        if sections.contains(.trackers) { fields.append("trackerStats") }
+        if sections.contains(.pieces) { fields += ["pieces", "pieceCount", "pieceSize"] }
+        let envelope: RPCEnvelope<TorrentDetailsGetArgs> = try await request(method: "torrent-get", arguments: [
+            "ids": .array(hashStrings.map(JSONValue.string)),
+            "fields": .array(fields.map(JSONValue.string))
+        ])
+        let byHash = Dictionary(envelope.arguments.torrents.map { ($0.hashString, $0) }, uniquingKeysWith: { first, _ in first })
+        return try hashStrings.map { hash in
+            guard let details = byHash[hash] else {
+                throw TransmissionRPCError.serialization("Transmission RPC returned no details for a selected torrent.")
+            }
+            return details
+        }
     }
 
     public func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {

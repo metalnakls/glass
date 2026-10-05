@@ -189,7 +189,7 @@ public struct GlassRootView: View {
                 self.openURLRegistrationID = nil
             }
         }
-        .task(id: model.profiles) {
+        .task(id: TorrentAutoRefreshInput(profiles: model.profiles, isActive: model.isApplicationActive)) {
             await model.runAutoRefresh()
         }
         .onChange(of: model.selectedProfileID) { _, _ in
@@ -330,18 +330,9 @@ public struct GlassRootView: View {
 
     private func prepareTorrentFile(at url: URL) async -> TorrentFileAddDraft? {
         do {
-            let didAccess = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccess {
-                    url.stopAccessingSecurityScopedResource()
-                }
-            }
-            let data = try Data(contentsOf: url)
-            return TorrentFileAddDraft(
-                data: data,
-                preview: TorrentFilePreview(data: data, fallbackURL: url),
-                sourceURL: url
-            )
+            return try await TorrentFileAddDraft.load(from: url)
+        } catch is CancellationError {
+            return nil
         } catch {
             model.errorMessage = error.localizedDescription
             return nil
@@ -619,6 +610,11 @@ private struct TorrentListContent: View {
             return (TorrentRecord.identity(sourceID: pendingRename.key.sourceID, hashString: pendingRename.key.hashString), pendingRename.oldName)
         })
     }
+}
+
+private struct TorrentAutoRefreshInput: Equatable {
+    let profiles: [RemoteProfile]
+    let isActive: Bool
 }
 
 private struct TorrentSelectionInspector: View {
