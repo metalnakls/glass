@@ -271,7 +271,7 @@ final class HeaderBackdrop: NSView {
         host.frame = position
         host.setExitProgress(1, duration: settings.titleOut)
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : settings.titleOut
+            context.duration = ReduceMotion.enabled ? 0 : settings.titleOut
             host.animator().setFrameOrigin(CGPoint(x: position.minX, y: position.minY - 20))
         }
         Task { @MainActor in
@@ -293,7 +293,7 @@ final class HeaderBackdrop: NSView {
         // Only pin/unpin changes opacity. Scroll updates and section pushes
         // never restart this native, interruptible time-based transition.
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : (active ? settings.backgroundIn : settings.backgroundOut)
+            context.duration = ReduceMotion.enabled ? 0 : (active ? settings.backgroundIn : settings.backgroundOut)
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
             effect.animator().alphaValue = active ? settings.strength : 0
         }
@@ -367,12 +367,12 @@ final class TitleHost: NSView {
     func setExitProgress(_ progress: CGFloat, duration: Double) {
         guard exitProgress != progress else { return }
         exitProgress = progress
-        withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil :
+        withAnimation(ReduceMotion.enabled ? nil :
             .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: duration)) {
             hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset, exitBlur: Double(progress) * 8)
         }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : duration
+            context.duration = ReduceMotion.enabled ? 0 : duration
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
             animator().alphaValue = 1 - progress
         }

@@ -97,6 +97,47 @@ struct TorrentListElevationTests {
         #expect(shadow.frame == overlay.convert(surface.frame, from: table))
     }
 
+    @MainActor @Test("separator rules stay pinned to their rows while the viewport scrolls")
+    func separatorsTrackRows() async throws {
+        _ = NSApplication.shared
+        let rows = Rows()
+        let table = NSTableView(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let column = NSTableColumn(identifier: .init("name"))
+        column.width = 400
+        table.addTableColumn(column)
+        table.headerView = nil; table.rowHeight = 48; table.dataSource = rows
+        let scroll = NSScrollView(frame: table.frame)
+        let window = NSWindow(contentRect: table.frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(scroll); scroll.documentView = table; table.reloadData()
+        let controller = TorrentListElevationController()
+        controller.setRows(["a", "b", "c", "d", "e", "f", "g"])
+        controller.attach(table)
+        controller.configureGeometry(TorrentCardGeometry(leading: 20, trailing: 20, separatorInset: 62))
+        defer { controller.detach(); window.close() }
+        for _ in 0..<4 { await Task.yield() }
+        let canvas = try #require(table.subviews.first { String(describing: type(of: $0)).contains("SelectionSeparatorCanvas") })
+        let window0 = table.rows(in: table.visibleRect)
+        let first = try #require(canvas.layer?.sublayers?.first { $0.frame.height > 0 })
+        let startY = first.frame.minY
+        #expect(first.frame.minY > table.visibleRect.minY)
+
+        // Scrolling must not rebuild rule geometry: the same sublayer keeps its
+        // document-space position and simply leaves the viewport.
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 96))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(canvas.layer?.sublayers?.contains(first) == true)
+        #expect(first.frame.minY == startY)
+
+        // Coming back restores the identical rule set at the identical positions.
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 0))
+        NotificationCenter.default.post(name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        for _ in 0..<4 { await Task.yield() }
+        #expect(first.frame.minY == startY)
+        #expect(table.rows(in: table.visibleRect) == window0)
+    }
+
     @Test("swipe actions remain behind transparent artwork rather than a rectangular cutoff")
     func artworkSwipeBoundary() {
         let path = SwipeRevealMask(offset: 40, inset: 76, trailingInset: 24)

@@ -16,6 +16,7 @@ struct GlassApp: App {
 
     init() {
         GlassAppearanceDefaults.register()
+        ReduceMotion.startObserving()
         let sparklePublicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
         if let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
             updaterController = SPUStandardUpdaterController(

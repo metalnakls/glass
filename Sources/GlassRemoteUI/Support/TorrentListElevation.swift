@@ -1,6 +1,27 @@
 import AppKit
 import SwiftUI
 
+/// `accessibilityDisplayShouldReduceMotion` is an Objective-C property read that
+/// crosses into AppKit on every call. The scroll paths below ask for it once per
+/// visible row per frame, so the answer is cached and refreshed only when the
+/// system setting actually changes.
+@MainActor
+enum ReduceMotion {
+    private static var cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    static var enabled: Bool { cached }
+    /// Call when the accessibility display options change notification arrives.
+    static func refresh() { cached = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// Observe `NSWorkspace.accessibilityDisplayOptionsDidChangeNotification`.
+    static func startObserving() {
+        let center = NotificationCenter.default
+        if let token { center.removeObserver(token) }
+        token = center.addObserver(forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification,
+                                   object: nil, queue: .main) { _ in refresh() }
+        refresh()
+    }
+    private static var token: Any?
+}
+
 struct TorrentShadowSettings: Equatable {
     var topStrength = 0.12
     var topSoftness = 8.0
@@ -102,6 +123,7 @@ final class TorrentListElevationController: NSObject {
     private var refreshTask: Task<Void, Never>?
     private var lastSurfaceSettings: TorrentShadowSettings?
     private var separatorGeometry: (x: CGFloat, width: CGFloat, inset: CGFloat)?
+    private var separatorGeometryCache: (geometry: (x: CGFloat, width: CGFloat, inset: CGFloat), range: Range<Int>, rows: [SelectionSeparatorCanvas.Row])?
     func setRows(_ ids: [String?]) {
         guard rowIDs != ids else { return }
         rowIDs = ids
@@ -204,6 +226,7 @@ final class TorrentListElevationController: NSObject {
         refreshTask?.cancel()
         refreshTask = nil
         separatorGeometry = nil
+        separatorGeometryCache = nil
         lastSurfaceSettings = nil
         NotificationCenter.default.removeObserver(self)
         movementViews.removeAll()
@@ -285,10 +308,10 @@ final class TorrentListElevationController: NSObject {
         }
         lastSurfaceSettings = settings
         CATransaction.commit()
-        if visible, animateMovement, wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if visible, animateMovement, wasVisible, !ReduceMotion.enabled {
             surface.layer?.removeAnimation(forKey: "appear")
             animateFrame(surface.layer, from: previous, fromPosition: previousPosition, to: surfaceRect, duration: settings.easeIn)
-        } else if visible, !wasVisible, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        } else if visible, !wasVisible, !ReduceMotion.enabled {
             surface.layer?.removeAnimation(forKey: "glide")
             let fade = CABasicAnimation(keyPath: "opacity")
             fade.fromValue = 0
@@ -324,15 +347,27 @@ final class TorrentListElevationController: NSObject {
             separators.update([], selectedID: highlightID, settings: settings)
             return
         }
+        // Scrolling reuses a row's rule as long as its geometry and neighbors are
+        // unchanged. Rebuilding every visible row on each frame was the last
+        // per-scroll allocation in this path; the canvas only needs the rows whose
+        // rect actually moved, which is only rows entering or leaving the window.
         let end = min(rowIDs.count, NSMaxRange(visibleRows))
-        let rows = (min(visibleRows.location, end)..<end).compactMap { index -> SelectionSeparatorCanvas.Row? in
-            guard let id = rowIDs[index] else { return nil }
+        let range = min(visibleRows.location, end)..<end
+        if let cached = separatorGeometryCache, cached.geometry == geometry, cached.range == range {
+            separators.update(cached.rows, selectedID: highlightID, settings: settings)
+            return
+        }
+        var rows: [SelectionSeparatorCanvas.Row] = []
+        rows.reserveCapacity(range.count)
+        for index in range {
+            guard let id = rowIDs[index] else { continue }
             let nativeRect = table.rect(ofRow: index)
             let nextID = index + 1 < rowIDs.count ? rowIDs[index + 1] : nil
             let rect = CGRect(x: geometry.x, y: nativeRect.minY + 3,
                               width: geometry.width, height: max(0, nativeRect.height - 6))
-            return SelectionSeparatorCanvas.Row(id: id, rect: rect, leadingInset: geometry.inset, nextID: nextID)
+            rows.append(SelectionSeparatorCanvas.Row(id: id, rect: rect, leadingInset: geometry.inset, nextID: nextID))
         }
+        separatorGeometryCache = (geometry: geometry, range: range, rows: rows)
         separators.update(rows, selectedID: highlightID, settings: settings)
     }
 
@@ -410,13 +445,13 @@ private struct SelectionSurfaceContent: View {
             }
             .blur(radius: entranceBlur)
             .keyframeAnimator(initialValue: 0.0, trigger: motion) { content, blur in
-                content.blur(radius: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : blur)
+                content.blur(radius: ReduceMotion.enabled ? 0 : blur)
             } keyframes: { _ in
                 CubicKeyframe(4, duration: max(settings.easeIn / 2, 0.001))
                 CubicKeyframe(0, duration: max(settings.easeIn / 2, 0.001))
             }
             .onAppear {
-                withAnimation(NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? nil :
+                withAnimation(ReduceMotion.enabled ? nil :
                     .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: settings.easeIn)) {
                     entranceBlur = 0
                 }
@@ -466,7 +501,7 @@ private final class ElevationOverlay: NSView {
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
         defer { CATransaction.commit() }
         guard let rect, rect.intersects(bounds) else {
-            if animated, displayedRect != nil, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            if animated, displayedRect != nil, !ReduceMotion.enabled {
                 layer.mask = nil
                 fadePreviousRow(in: layer, duration: settings.easeOut)
                 top.shadowOpacity = 0
@@ -505,7 +540,7 @@ private final class ElevationOverlay: NSView {
         mask.path = path
         mask.fillRule = .evenOdd
         layer.mask = mask
-        if moving && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if moving && !ReduceMotion.enabled {
             for (index, shadow) in [top, bottom].enumerated() {
                 shadow.removeAnimation(forKey: "shadowOpacity")
                 shadow.removeAnimation(forKey: "shadowRadius")
@@ -530,7 +565,7 @@ private final class ElevationOverlay: NSView {
             cutout.duration = settings.easeIn
             cutout.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
             mask.add(cutout, forKey: "glide")
-        } else if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        } else if animated && !ReduceMotion.enabled {
             for shadow in [top, bottom] {
                 animate(shadow, key: "shadowOpacity", from: 0, to: Double(shadow.shadowOpacity), duration: settings.easeIn)
                 animate(shadow, key: "shadowRadius", from: shadow.shadowRadius + 12, to: shadow.shadowRadius, duration: settings.easeIn)
@@ -633,7 +668,7 @@ private final class SelectionSeparatorCanvas: NSView {
                                 width: max(0, row.rect.width - row.leadingInset - 14), height: 1 / (window?.backingScaleFactor ?? 2))
             line.backgroundColor = (settings.isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.12).cgColor
             line.opacity = opacity
-            if changed && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            if changed && !ReduceMotion.enabled {
                 let fade = CABasicAnimation(keyPath: "opacity")
                 fade.fromValue = previous
                 fade.toValue = opacity
