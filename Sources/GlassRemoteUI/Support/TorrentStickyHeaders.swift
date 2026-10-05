@@ -131,6 +131,15 @@ private struct HeaderAnchor: NSViewRepresentable {
 @MainActor
 final class TorrentStickyHeaders: NSObject {
     struct Header { var id: String; var title: String; var index: Int; var inset: CGFloat }
+    /// Identity of the section layout: only this invalidates the derived
+    /// float-permission and release points, never a scroll offset.
+    private struct SectionStructure: Equatable {
+        let indices: [Int]
+        let rowCount: Int
+        let pushLead: CGFloat
+    }
+    private var structureCache: (structure: SectionStructure, stickyAllowed: [Bool], releases: [CGFloat])?
+
     private struct Measurement: Equatable {
         let leading: CGFloat
         let trailing: CGFloat
@@ -182,6 +191,7 @@ final class TorrentStickyHeaders: NSObject {
         NotificationCenter.default.removeObserver(self)
         overlay.removeFromSuperview()
         self.table = table
+        structureCache = nil
         table.floatsGroupRows = false
         scroll.addSubview(overlay, positioned: .above, relativeTo: nil)
         scroll.contentView.postsBoundsChangedNotifications = true
@@ -225,15 +235,25 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        let stickyAllowed = ordered.enumerated().map { offset, header in
-            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            return endIndex - header.index - 1 > 2
+        // Which titles may float, and where each one releases, depend only on the
+        // section indices and the row count. Both change on structure, not on
+        // scroll, so they are resolved once per layout instead of once per frame.
+        let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows,
+                                         pushLead: appearance.pushLead)
+        if structureCache?.structure != structure {
+            structureCache = (structure: structure,
+                              stickyAllowed: ordered.enumerated().map { offset, header in
+                                  let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
+                                  return endIndex - header.index - 1 > 2
+                              },
+                              releases: ordered.enumerated().map { offset, header -> CGFloat in
+                                  let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
+                                  let row = max(header.index + 1, endIndex - 2)
+                                  return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
+                              })
         }
-        let releases = ordered.enumerated().map { offset, header -> CGFloat in
-            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            let row = max(header.index + 1, endIndex - 2)
-            return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
-        }
+        let stickyAllowed = structureCache?.stickyAllowed ?? []
+        let releases = structureCache?.releases ?? []
         let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
         // The overlay owns inline and pinned titles alike. Scroll changes only
