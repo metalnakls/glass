@@ -175,6 +175,8 @@ public struct GlassRootView: View {
             model.selectedTorrentGroup = .all
             persistSelectedSourceID()
             model.setApplicationActive(isTestWorkspace || scenePhase == .active)
+            // Artwork previews resolve the file list for torrents whose name carries no media suffix.
+            TorrentThumbnailService.shared.attach(model: model)
             if !isTestWorkspace, openURLRegistrationID == nil {
                 openURLRegistrationID = GlassOpenURLRouter.shared.register { urls in
                     openURLs(urls)

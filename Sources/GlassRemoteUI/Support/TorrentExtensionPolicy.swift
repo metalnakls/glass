@@ -5,7 +5,8 @@ enum TorrentExtensionPolicy {
     /// Playable media containers only. Subtitles, artwork, disc images and archives are never hidden.
     ///
     /// Video entries mirror `TorrentNameCleaner.mediaExtensions`; `divx` and `xvid` cover the
-    /// legacy peers of `avi`, and `wav`/`flac`/`mp3` cover audio.
+    /// legacy peers of `avi`, and `wav`/`flac`/`mp3` cover audio. Artwork extraction reuses the
+    /// video subset via `TorrentThumbnailInput.previewableExtensions`, minus audio.
     static let mediaExtensions: Set<String> = [
         "avi", "divx", "flac", "m2ts", "m4v", "mkv", "mov", "mp3", "mp4",
         "mpeg", "mpg", "ts", "wav", "webm", "xvid"

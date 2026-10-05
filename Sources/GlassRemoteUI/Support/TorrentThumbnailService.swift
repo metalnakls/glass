@@ -6,6 +6,7 @@ import CryptoKit
 import Darwin
 import Foundation
 import GlassRemoteCore
+import GlassRemoteServices
 import Observation
 @preconcurrency import QuickLookThumbnailing
 
@@ -23,14 +24,49 @@ struct TorrentThumbnailInput: Hashable, Sendable {
         return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Resolves the video path for a row without touching the network or the disk.
+    ///
+    /// A torrent name such as `Mosquito Coast` carries no media suffix, and multi-file torrents
+    /// nest the movie under a folder, so the resolved file list is consulted first. The torrent's
+    /// own name is used only when it already names a supported video. Nothing is ever guessed.
     static func movie(_ torrent: TorrentSummary, sourceID: UUID, isLocal: Bool = false) -> Self? {
-        guard torrent.fileCount.map({ $0 <= 1 }) ?? true,
-              let directory = torrent.downloadDir,
-              ["mkv", "mp4", "m4v", "mov", "avi", "webm", "ts", "m2ts", "mpeg", "mpg"].contains(
-                URL(fileURLWithPath: torrent.name).pathExtension.lowercased()
-              ) else { return nil }
+        guard let directory = torrent.downloadDir else { return nil }
+        let resolved = isPreviewableVideo(torrent.name) ? torrent.name : nil
+        guard let path = resolved, isSafeRelativePath(path) else { return nil }
         return Self(sourceID: sourceID, hashString: torrent.hashString, downloadDirectory: directory,
-                    filePath: torrent.name, length: torrent.sizeWhenDone, isComplete: torrent.isCompleted, isLocal: isLocal)
+                    filePath: path, length: torrent.sizeWhenDone, isComplete: torrent.isCompleted, isLocal: isLocal)
+    }
+
+    /// Previewable video only. Subtitles, artwork, disc images and archives are never eligible, and
+    /// audio is deliberately excluded because artwork extraction needs video frames.
+    static let previewableExtensions: Set<String> = [
+        "avi", "divx", "m2ts", "m4v", "mkv", "mov", "mp4", "mpeg", "mpg", "ts", "webm", "xvid"
+    ]
+
+    static func isPreviewableVideo(_ path: String) -> Bool {
+        previewableExtensions.contains(URL(fileURLWithPath: path).pathExtension.lowercased())
+    }
+
+    /// A path only reaches `TorrentThumbnailFolderLink.fileURL` when it is relative and free of `..`.
+    /// That function stays the single traversal guard for every resolved file.
+    static func isSafeRelativePath(_ path: String) -> Bool {
+        !path.isEmpty && !path.hasPrefix("/") && !path.split(separator: "/").contains("..")
+    }
+
+    /// The largest playable video inside a torrent. Sidecars and samples lose on eligibility before
+    /// size is considered, so a bundled trailer never outranks the feature presentation.
+    static func bestVideoPath(in files: [TorrentFile]) -> String? {
+        files.filter { file in
+            isPreviewableVideo(file.name) && isSafeRelativePath(file.name) && !isSample(file.name)
+        }.max { $0.length < $1.length }?.name
+    }
+
+    private static let sampleTokens: Set<String> = ["sample", "trailer", "preview", "teaser", "proof"]
+
+    private static func isSample(_ path: String) -> Bool {
+        let stem = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent.lowercased()
+        let tokens = Set(stem.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+        return !tokens.isDisjoint(with: sampleTokens)
     }
 }
 
@@ -81,6 +117,9 @@ final class TorrentThumbnailService {
     @ObservationIgnored private let images = NSCache<NSString, CachedThumbnail>()
     // Stable keys avoid repeating SHA-256 and hex formatting during row updates.
     @ObservationIgnored private var lookupKeys: [TorrentThumbnailInput: String] = [:]
+    /// Video path per torrent, filled in the background by the preloader. `nil` means "not resolved yet"
+    /// and `""` means "resolved, nothing previewable inside" so a torrent is only asked once.
+    @ObservationIgnored private var videoPaths: [String: String] = [:]
     @ObservationIgnored private var failures: [String: Date] = [:]
     @ObservationIgnored private var pending: [String: Work] = [:]
     @ObservationIgnored private var queue: [String] = []
@@ -146,6 +185,56 @@ final class TorrentThumbnailService {
 
     func link(for sourceID: UUID) -> TorrentThumbnailFolderLink? { links[sourceID.uuidString] }
 
+    /// The library model, used only to reach a torrent's file list off the viewport path.
+    /// Held weakly: the model owns the view that owns this service.
+    @ObservationIgnored private weak var model: RemoteAppModel?
+
+    func attach(model: RemoteAppModel?) { self.model = model }
+
+    /// Resolves one torrent's file list without touching the inspector's selection cache.
+    func resolveFileList(hashString: String, sourceID: UUID) async {
+        guard let model, let files = try? await model.fetchFilesOnly(hashString: hashString, sourceID: sourceID) else { return }
+        noteFileList(files, forHashString: hashString, sourceID: sourceID)
+    }
+
+    private static func videoKey(sourceID: UUID, hashString: String) -> String { "\(sourceID.uuidString)|\(hashString)" }
+
+    private static let videoPathLimit = 2048
+
+    /// The cached path takes precedence over a bare torrent name, so a torrent whose movie sits
+    /// inside a folder resolves from its file list instead of pointing at the folder itself.
+    func thumbnailInput(for torrent: TorrentSummary, sourceID: UUID, isLocal: Bool = false) -> TorrentThumbnailInput? {
+        guard let directory = torrent.downloadDir else { return nil }
+        let path = resolvedVideoPath(for: torrent.hashString, sourceID: sourceID)
+            ?? (TorrentThumbnailInput.isPreviewableVideo(torrent.name) ? torrent.name : nil)
+        guard let path, TorrentThumbnailInput.isSafeRelativePath(path) else { return nil }
+        return TorrentThumbnailInput(sourceID: sourceID, hashString: torrent.hashString,
+            downloadDirectory: directory, filePath: path, length: torrent.sizeWhenDone,
+            isComplete: torrent.isCompleted, isLocal: isLocal)
+    }
+
+    /// Stores the best video path for a torrent. Opportunistic: rows never wait on it, and the
+    /// revision only moves when a row that previously showed a generic icon gains a real path.
+    @discardableResult
+    func noteFileList(_ files: [TorrentFile], forHashString hashString: String, sourceID: UUID) -> Bool {
+        let key = Self.videoKey(sourceID: sourceID, hashString: hashString)
+        let path = TorrentThumbnailInput.bestVideoPath(in: files) ?? ""
+        guard videoPaths[key] != path else { return false }
+        if videoPaths.count >= Self.videoPathLimit, videoPaths[key] == nil {
+            videoPaths.removeAll(keepingCapacity: true)
+        }
+        videoPaths[key] = path
+        revision &+= 1
+        return true
+    }
+
+    /// A torrent whose name carries no media suffix needs its file list before a preview can resolve.
+    func needsFileList(_ torrent: TorrentSummary, sourceID: UUID) -> Bool {
+        guard torrent.fileCount != 1, torrent.downloadDir != nil else { return false }
+        guard !TorrentThumbnailInput.isPreviewableVideo(torrent.name) else { return false }
+        return videoPaths[Self.videoKey(sourceID: sourceID, hashString: torrent.hashString)] == nil
+    }
+
     func isShareUnavailable(sourceID: UUID, directory: String?, isLocal: Bool) -> Bool {
         let path: String
         if isLocal {
@@ -209,6 +298,7 @@ final class TorrentThumbnailService {
         defaults.set(try JSONEncoder().encode(updated), forKey: Self.defaultsKey)
         links = updated
         lookupKeys.removeAll(keepingCapacity: true)
+        videoPaths.removeAll(keepingCapacity: true)
         images.removeAllObjects()
         failures.removeAll()
         cancelAll()
@@ -249,9 +339,26 @@ final class TorrentThumbnailService {
         revision &+= 1
     }
 
-    func cachedImage(for input: TorrentThumbnailInput) -> NSImage? { images.object(forKey: cacheKey(input) as NSString)?.image }
+    /// Rows pass the torrent-shaped input they were built with; the cached file list may point it
+    /// at the real video instead, so resolve before the cache key is derived.
+    private func resolved(_ input: TorrentThumbnailInput) -> TorrentThumbnailInput {
+        guard let path = resolvedVideoPath(for: input.hashString, sourceID: input.sourceID),
+              path != input.filePath else { return input }
+        return TorrentThumbnailInput(sourceID: input.sourceID, hashString: input.hashString,
+            downloadDirectory: input.downloadDirectory, filePath: path, length: input.length,
+            isComplete: input.isComplete, isLocal: input.isLocal)
+    }
+
+    private func resolvedVideoPath(for hashString: String, sourceID: UUID) -> String? {
+        guard let path = videoPaths[Self.videoKey(sourceID: sourceID, hashString: hashString)],
+              !path.isEmpty else { return nil }
+        return path
+    }
+
+    func cachedImage(for input: TorrentThumbnailInput) -> NSImage? { images.object(forKey: cacheKey(resolved(input)) as NSString)?.image }
 
     func image(for input: TorrentThumbnailInput) async -> NSImage? {
+        let input = resolved(input)
         let key = cacheKey(input)
         if let cached = images.object(forKey: key as NSString), Date().timeIntervalSince(cached.stamp.checked) < Self.freshness {
             return cached.image
@@ -279,6 +386,7 @@ final class TorrentThumbnailService {
     }
 
     func refresh(_ input: TorrentThumbnailInput) async {
+        let input = resolved(input)
         let key = cacheKey(input)
         images.removeObject(forKey: key as NSString)
         failures[key] = nil

@@ -1,6 +1,7 @@
 import AppKit
 import Foundation
 @testable import GlassRemoteUI
+import GlassRemoteCore
 import Testing
 
 @MainActor
@@ -95,6 +96,102 @@ struct TorrentThumbnailTests {
         #expect(await service.image(for: remote) == nil)
         #expect(await service.image(for: remote) == nil)
         #expect(await counter.count == 0)
+    }
+
+
+    @Test("a folder-named torrent resolves to the video inside its file list")
+    func folderNamedTorrent() {
+        let sourceID = UUID()
+        let torrent = summary(name: "Mosquito Coast", fileCount: 1)
+        // Without the file list there is nothing real to point at, so no path is fabricated.
+        #expect(TorrentThumbnailInput.movie(torrent, sourceID: sourceID) == nil)
+
+        let service = makeService()
+        #expect(service.noteFileList([file("Mosquito Coast/Mosquito Coast.mkv", 1_400_000_000)],
+            forHashString: torrent.hashString, sourceID: sourceID))
+        let input = service.thumbnailInput(for: torrent, sourceID: sourceID)
+        #expect(input?.filePath == "Mosquito Coast/Mosquito Coast.mkv")
+        #expect(input?.downloadDirectory == "/downloads")
+    }
+
+    @Test("a multi-file torrent prefers the largest video and skips sidecars and samples")
+    func largestVideoWins() {
+        let sourceID = UUID()
+        let service = makeService()
+        let hash = "multi"
+        service.noteFileList([
+            file("Show/S01E01.mkv", 700_000_000),
+            file("Show/S01E01.srt", 40_000),
+            file("Show/Sample/S01E01-sample.mkv", 900_000_000),
+            file("Show/cover.jpg", 2_000_000),
+            file("Show/readme.nfo", 1_000),
+            file("Show/S01E02.mkv", 750_000_000),
+        ], forHashString: hash, sourceID: sourceID)
+        let input = service.thumbnailInput(for: summary(name: "Show", fileCount: 6, hash: hash), sourceID: sourceID)
+        // The 900 MB sample loses on eligibility even though it is the largest file.
+        #expect(input?.filePath == "Show/S01E02.mkv")
+    }
+
+    @Test("non-media suffixes never resolve to a preview")
+    func nonMediaRejected() {
+        for suffix in ["srt", "sub", "idx", "txt", "nfo", "jpg", "png", "iso", "zip"] {
+            #expect(!TorrentThumbnailInput.isPreviewableVideo("File.\(suffix)"))
+            #expect(TorrentThumbnailInput.bestVideoPath(in: [file("File.\(suffix)", 9_000_000_000)]) == nil)
+        }
+        #expect(TorrentThumbnailInput.bestVideoPath(in: []) == nil)
+        // Audio is never an artwork source even though the display policy treats it as media.
+        #expect(!TorrentThumbnailInput.isPreviewableVideo("Track.mp3"))
+    }
+
+    @Test("only relative, traversal-free paths are cached and resolved")
+    func traversalSafe() {
+        #expect(TorrentThumbnailInput.isSafeRelativePath("Mosquito Coast/Mosquito Coast.mkv"))
+        #expect(!TorrentThumbnailInput.isSafeRelativePath("/etc/passwd.mkv"))
+        #expect(!TorrentThumbnailInput.isSafeRelativePath("../../etc/passwd.mkv"))
+        #expect(!TorrentThumbnailInput.isSafeRelativePath("Mosquito Coast/../../passwd.mkv"))
+        #expect(TorrentThumbnailInput.bestVideoPath(in: [file("../Escape.mkv", 9_000_000_000)]) == nil)
+        #expect(TorrentThumbnailInput.bestVideoPath(in: [file("/etc/passwd.mkv", 9_000_000_000)]) == nil)
+        // A traversal attempt still dies on the existing share guard.
+        #expect(TorrentThumbnailFolderLink.fileURL(remoteRoot: "/downloads", localRoot: URL(fileURLWithPath: "/Volumes/and"),
+            directory: "/downloads", filePath: "../Escape.mkv") == nil)
+    }
+
+    @Test("the cache reports change once and remembers resolved torrents")
+    func cacheRevisionAndBounding() {
+        let service = makeService()
+        let sourceID = UUID()
+        let torrent = summary(name: "Mosquito Coast", fileCount: 1)
+        let revision = service.revision
+        let files = [file("Mosquito Coast/Mosquito Coast.mkv", 1_000)]
+        #expect(!service.needsFileList(torrent, sourceID: sourceID))
+        #expect(service.needsFileList(summary(name: "Mosquito Coast", fileCount: nil), sourceID: sourceID))
+        #expect(service.noteFileList(files, forHashString: torrent.hashString, sourceID: sourceID))
+        #expect(service.revision == revision + 1)
+        // The same list again must not invalidate rows.
+        #expect(!service.noteFileList(files, forHashString: torrent.hashString, sourceID: sourceID))
+        #expect(service.revision == revision + 1)
+        #expect(!service.needsFileList(torrent, sourceID: sourceID))
+        // Named videos and single-file torrents never need the list in the first place.
+        #expect(!service.needsFileList(summary(name: "Movie.mkv", fileCount: 1), sourceID: sourceID))
+        #expect(!service.needsFileList(summary(name: "Single", fileCount: 1), sourceID: sourceID))
+    }
+
+    private func makeService() -> TorrentThumbnailService {
+        let suite = "Glass-preview-resolve-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return TorrentThumbnailService(defaults: defaults,
+            diskDirectory: FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString))
+    }
+
+    private func file(_ name: String, _ length: UInt64) -> TorrentFile {
+        TorrentFile(name: name, length: length, bytesCompleted: length)
+    }
+
+    private func summary(name: String, fileCount: Int?, hash: String = "hash") -> TorrentSummary {
+        TorrentSummary(id: 1, hashString: hash, name: name, status: 0, percentDone: 1,
+            rateDownload: 0, rateUpload: 0, sizeWhenDone: 1_400_000_000, leftUntilDone: 0, eta: -1,
+            uploadRatio: 0, peersConnected: 0, downloadDir: "/downloads", fileCount: fileCount)
     }
 
     private func input(directory: String, isLocal: Bool = false) -> TorrentThumbnailInput {

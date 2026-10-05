@@ -6,6 +6,8 @@ import AppKit
     private var inputs: [TorrentThumbnailInput?] = []
     private var requested: [TorrentThumbnailInput] = []
     private var task: Task<Void, Never>?
+    private var fileListTask: Task<Void, Never>?
+    private var requestedFileLists: Set<String> = []
 
     func setInputs(_ inputs: [TorrentThumbnailInput?]) {
         guard self.inputs != inputs else { return }
@@ -36,6 +38,7 @@ import AppKit
     func detach() {
         NotificationCenter.default.removeObserver(self)
         task?.cancel(); task = nil
+        fileListTask?.cancel(); fileListTask = nil
         table = nil
         requested = []
     }
@@ -66,6 +69,7 @@ import AppKit
 
     private func request(visible: NSRange) {
         let targets = Self.indices(visible: visible, count: inputs.count).compactMap { inputs[$0] }
+        resolveFileLists(for: targets)
         guard targets != requested else { return }
         requested = targets
         task?.cancel()
@@ -77,8 +81,28 @@ import AppKit
         }
     }
 
+    /// Rows whose input still points at the torrent itself rather than a video are resolved by
+    /// fetching the file list. This is opportunistic: nothing here is awaited by the row, and a
+    /// row keeps its generic icon until (and unless) the list arrives.
+    private func resolveFileLists(for targets: [TorrentThumbnailInput]) {
+        let service = TorrentThumbnailService.shared
+        let pending = targets.filter { input in
+            guard requestedFileLists.insert("\(input.sourceID.uuidString)|\(input.hashString)").inserted else { return false }
+            return !TorrentThumbnailInput.isPreviewableVideo(input.filePath)
+        }
+        guard !pending.isEmpty else { return }
+        fileListTask?.cancel()
+        fileListTask = Task { @MainActor in
+            for input in pending {
+                guard !Task.isCancelled else { return }
+                await service.resolveFileList(hashString: input.hashString, sourceID: input.sourceID)
+            }
+        }
+    }
+
     isolated deinit {
         NotificationCenter.default.removeObserver(self)
         task?.cancel()
+        fileListTask?.cancel()
     }
 }

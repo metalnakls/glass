@@ -736,6 +736,16 @@ public final class RemoteAppModel {
         return details
     }
 
+    /// Files for one torrent, independent of the inspector selection.
+    ///
+    /// Artwork resolution reads this off the viewport path, so it must never populate or clear
+    /// `selectedTorrentDetails`; a dedicated `torrent-get` keeps the selection cache untouched.
+    public func fetchFilesOnly(hashString: String, sourceID requestedSourceID: UUID? = nil) async throws -> [TorrentFile] {
+        let sourceID = requestedSourceID ?? selectedSourceID
+        let provider = try self.provider(for: sourceID)
+        return try await provider.fetchTorrentFiles(hashString: hashString).files
+    }
+
     public func fetchDetails(
         for torrents: [TorrentSummary],
         including sections: Set<TorrentDetailSection>,
