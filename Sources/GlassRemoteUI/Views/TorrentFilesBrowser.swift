@@ -265,29 +265,6 @@ struct TorrentFilesBrowser: View {
     }
 }
 
-private struct FilePriorityIcon: View {
-    let high: Bool
-
-    var body: some View {
-        ZStack(alignment: .center) {
-            if high {
-                Image(systemName: "star.fill")
-                    .font(.caption)
-                    .fixedSize()
-                    // SF Symbols carry baseline padding below the visible star.
-                    .offset(y: -1)
-            } else {
-                Text(":(")
-                    .font(.system(size: 10))
-                    .fixedSize()
-                    .rotationEffect(.degrees(90))
-            }
-        }
-        .frame(width: 12, height: 16, alignment: .center)
-        .fixedSize()
-    }
-}
-
 struct TorrentFileTreeRow: Identifiable {
     let id: String
     let name: String
