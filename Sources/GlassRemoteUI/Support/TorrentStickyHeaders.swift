@@ -133,7 +133,7 @@ private struct HeaderAnchor: NSViewRepresentable {
 
 @MainActor
 final class TorrentStickyHeaders: NSObject {
-    struct Header { var id: String; var title: String; var index: Int; var inset: CGFloat }
+    struct Header { var id: String; var title: String; var index: Int; var inset: CGFloat; var stickyAllowed = false }
     /// Identity of the section layout: only this invalidates the derived
     /// float-permission and release points, never a scroll offset.
     private struct SectionStructure: Equatable {
@@ -141,6 +141,7 @@ final class TorrentStickyHeaders: NSObject {
         let rowCount: Int
         let releasePoints: [CGFloat]
         let pushLead: CGFloat
+        let stickyAllowed: [Bool]
     }
     private var structureCache: (structure: SectionStructure, stickyAllowed: [Bool], releases: [CGFloat])?
 
@@ -185,7 +186,7 @@ final class TorrentStickyHeaders: NSObject {
                                       top: measured.minY - row.minY, height: measured.height)
         let changed = measurements[id] != measurement || headers[id].map { $0.title != title || $0.index != index || $0.inset != inset } ?? true
         measurements[id] = measurement
-        headers[id] = Header(id: id, title: title, index: index, inset: inset)
+        headers[id] = Header(id: id, title: title, index: index, inset: inset, stickyAllowed: headers[id]?.stickyAllowed ?? false)
         let needsAttach = self.table !== table
         attach(table)
         if changed || needsAttach { scheduleUpdate() }
@@ -226,7 +227,7 @@ final class TorrentStickyHeaders: NSObject {
             if let host = titleHosts.removeValue(forKey: id) { overlay.retire(id: id, host: host) }
         }
         headers = Dictionary(uniqueKeysWithValues: sections.map { section in
-            (section.id, Header(id: section.id, title: section.title, index: layout.headerIndices[section.id]!, inset: inset))
+            (section.id, Header(id: section.id, title: section.title, index: layout.headerIndices[section.id]!, inset: inset, stickyAllowed: section.allowsStickyHeader))
         })
         measurements = measurements.filter { headers[$0.key] != nil }
         for header in headers.values { _ = titleHost(id: header.id, title: header.title, inset: header.inset) }
@@ -252,22 +253,18 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        // Pinning belongs to a nonempty section, not its expanded row count.
-        // Release at the next section boundary so expansion cannot switch a
-        // short section from inline to pinned or move an early release point.
+        // Pinning follows logical top-level items, never expanded child rows.
+        // Release follows the next section boundary, not a child-row offset.
         let releasePoints = ordered.enumerated().map { offset, header -> CGFloat in
             let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
             let boundary = endIndex < table.numberOfRows ? table.rect(ofRow: endIndex).minY : table.bounds.maxY
             return boundary - appearance.pushLead
         }
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
-                                         pushLead: appearance.pushLead)
+                                         pushLead: appearance.pushLead, stickyAllowed: ordered.map(\.stickyAllowed))
         if structureCache?.structure != structure {
             structureCache = (structure: structure,
-                              stickyAllowed: ordered.enumerated().map { offset, header in
-                                  let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-                                  return endIndex - header.index - 1 > 0
-                              },
+                              stickyAllowed: ordered.map(\.stickyAllowed),
                               releases: releasePoints)
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []

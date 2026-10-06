@@ -39,6 +39,12 @@ struct TorrentListSection: Identifiable {
     let title: String
     let rows: [TorrentListRowPresentation]
 
+    /// Expanded children belong to their group and do not make a short section sticky.
+    var allowsStickyHeader: Bool {
+        let childIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
+        return rows.filter { !childIDs.contains($0.id) }.count > 2
+    }
+
     static func sections(for rows: [TorrentListRowPresentation], lowercase: Bool = false) -> [Self] {
         let unfinishedMembers = Set(rows.flatMap { row -> [String] in
             guard case let .group(members, _, _) = row.kind,
