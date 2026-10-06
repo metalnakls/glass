@@ -11,6 +11,7 @@ struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
     private let platformIntegration: GlassMacPlatformIntegration
     private let updaterController: SPUStandardUpdaterController?
+    private let updaterDelegate: GlassUpdaterDelegate?
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: RemoteAppModel
 
@@ -19,12 +20,16 @@ struct GlassApp: App {
         ReduceMotion.startObserving()
         let sparklePublicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
         if let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
+            let delegate = GlassUpdaterDelegate()
+            // SPUStandardUpdaterController keeps its updater delegate weakly referenced.
+            updaterDelegate = delegate
             updaterController = SPUStandardUpdaterController(
                 startingUpdater: true,
-                updaterDelegate: nil,
+                updaterDelegate: delegate,
                 userDriverDelegate: nil
             )
         } else {
+            updaterDelegate = nil
             // Local builds have no SPARKLE_PUBLIC_ED_KEY injected, so the updater
             // stays off rather than failing to verify anything it downloads.
             updaterController = nil
@@ -89,6 +94,13 @@ struct GlassApp: App {
         )
     }
 
+}
+
+@MainActor
+private final class GlassUpdaterDelegate: NSObject, SPUUpdaterDelegate {
+    func allowedSystemProfileKeys(for updater: SPUUpdater) -> [String]? {
+        ["appName", "appVersion", "osVersion"]
+    }
 }
 
 private struct GlassCommands: Commands {

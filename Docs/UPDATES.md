@@ -64,11 +64,17 @@ modifies the repository.
 Installed copies read the stable feed URL:
 
 ```
-https://github.com/metalnakls/glass/releases/latest/download/appcast.xml
+https://glass.metalnakls.workers.dev
 ```
 
+The Worker records weekly aggregate counts by Glass and macOS version, then
+passes through the appcast hosted on GitHub Releases. Sparkle sends only
+`appName`, `appVersion`, and `osVersion`; the service does not store IP
+addresses or a per-install identifier. See the [privacy page](../site/privacy.html).
+
 The download asset is always named `Glass.zip`, so the link never changes.
-Glass checks hourly and installs and relaunches updates on its own.
+Glass checks hourly and installs and relaunches updates on its own. Sparkle
+sends the profile once a week, regardless of the hourly check interval.
 
 ## First launch
 

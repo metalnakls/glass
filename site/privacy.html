@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glass privacy</title>
+  <style>
+    body { max-width: 42rem; margin: 3rem auto; padding: 0 1.25rem; color: #222; font: 16px/1.6 -apple-system, BlinkMacSystemFont, sans-serif; }
+    @media (prefers-color-scheme: dark) { body { color: #eee; background: #000; } }
+    a { color: inherit; }
+  </style>
+</head>
+<body>
+  <h1>Glass privacy</h1>
+  <p>Glass uses Sparkle to check for updates. Once per week, Sparkle sends the Glass version and macOS version with an update check. Glass uses aggregate counts of these checks to understand which versions are in use and support updates. This is a count of update-checking installations, not people or app launches.</p>
+  <p>Glass does not send a persistent device identifier. The metrics database stores only weekly counts grouped by Glass version and macOS version, without IP addresses or detailed hardware information. Cloudflare processes the network request to serve updates; its Worker invocation logs are disabled.</p>
+  <p><a href="index.html">Back to Glass</a></p>
+</body>
+</html>
