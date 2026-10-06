@@ -1,6 +1,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "glass",
+  "account_id": "d371342a8a1cd2c90d59197c48720736",
   "main": "src/index.js",
   "compatibility_date": "2026-10-06",
   "observability": {
@@ -10,7 +11,7 @@
     {
       "binding": "DB",
       "database_name": "glass-sparkle-stats",
-      "database_id": "48343097-75f9-447b-80d6-307a4917741f"
+      "database_id": "c2285bdc-56c3-450d-9e86-e864e2ad45bc"
     }
   ]
 }
