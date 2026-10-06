@@ -436,20 +436,18 @@ struct AddTorrentFileView: View {
         guard canAdd else { return }
         addErrorMessage = nil
         isAdding = true
-        let didAdd = await submit(
-            sourceID,
-            normalizedName,
-            resolvedDownloadDirectory,
-            fileSelection,
-            resolvedAutoCleanPlan
-        )
-        isAdding = false
-        if didAdd {
-            dismiss()
-        } else {
-            addErrorMessage = model.errorMessage ?? "Glass couldn’t add this torrent."
-            model.errorMessage = nil
-        }
+        let destinationSource = sourceID
+        model.prepareTorrentAddition(id: draft.id, sourceID: destinationSource, name: normalizedName,
+            size: draft.preview.size, fileCount: draft.preview.files.count,
+            downloadDirectory: resolvedDownloadDirectory,
+            namingPlan: resolvedAutoCleanPlan ?? (normalizedName == draft.preview.name ? nil : TorrentAddNamingPlan(rootName: normalizedName, pathRenames: [])),
+            data: draft.data, fileSelection: fileSelection, sourceURL: draft.sourceURL, trashSourceOnSuccess: true,
+            renameDuplicateRoot: resolvedAutoCleanPlan == nil && normalizedName != draft.preview.name)
+        model.selectedProfileID = destinationSource
+        model.selectedTorrentGroup = .all
+        dismiss()
+        _ = await submit(destinationSource, normalizedName, resolvedDownloadDirectory, fileSelection, resolvedAutoCleanPlan)
+
     }
 
     private func requestAdd() {

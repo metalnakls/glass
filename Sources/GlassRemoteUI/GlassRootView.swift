@@ -405,7 +405,9 @@ public struct GlassRootView: View {
     }
 
     private func removeSelectedTorrent(deleteData: Bool) {
-        if let record = selectedRecord {
+        if let id = model.allTorrentRecords.first(where: { $0.id == selectedTorrentID })?.additionID {
+            model.cancelTorrentAddition(id)
+        } else if let record = selectedRecord {
             scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData)
         } else if let row = presentation.rows.first(where: { $0.id == selectedTorrentID }),
                   case let .group(records, _, _) = row.kind {

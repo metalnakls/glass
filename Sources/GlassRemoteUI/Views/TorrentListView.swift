@@ -39,6 +39,12 @@ struct TorrentListView: View {
     @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
     private var grid: Bool { enableIconView && storedGrid }
     private var densityLevel: Int { enableCompactView ? storedDensityLevel : max(1, storedDensityLevel) }
+    private struct RetryFailure {
+        let id: UUID
+        let message: String
+        let isRemote: Bool
+    }
+    @State private var retryFailure: RetryFailure?
     @State private var columnWidth: CGFloat = 0
     @State private var stickyHeaders = TorrentStickyHeaders()
     @AppearanceStorage("GlassList.headerFadeStrengthLight") private var headerFadeStrengthLight = UserDefaults.standard.object(forKey: "GlassList.headerFadeStrength") as? Double ?? 0.75
@@ -214,6 +220,21 @@ struct TorrentListView: View {
             .background(listSurface)
             }
             }
+        }
+        .alert("Couldn’t Add Torrent", isPresented: Binding(
+            get: { retryFailure != nil }, set: { if !$0 { retryFailure = nil } }
+        ), presenting: retryFailure) { failure in
+            Button("OK", role: .cancel) {}
+            if failure.isRemote {
+                Button("Download Locally") {
+                    Task {
+                        let succeeded = await model.downloadTorrentAdditionLocally(failure.id)
+                        if !succeeded { presentRetryFailure(failure.id) }
+                    }
+                }
+            }
+        } message: { failure in
+            Text(failure.message)
         }
         .onAppear {
             elevationController.setRows(layout.nativeRowIDs)
@@ -452,7 +473,11 @@ struct TorrentListView: View {
     private func toggleTransfers(for row: TorrentListRowPresentation) async -> Bool {
         switch row.kind {
         case let .torrent(record, _):
-            guard !record.isAdding else { return false }
+            if let id = record.additionID {
+                let succeeded = await model.retryTorrentAddition(id)
+                if !succeeded { presentRetryFailure(id) }
+                return succeeded
+            }
             let torrent = record.summary
             if torrent.canStopTransfer {
                 return await model.stop(torrent, sourceID: record.sourceID)
@@ -462,6 +487,14 @@ struct TorrentListView: View {
         case let .group(records, _, _):
             return await toggleGroupTransfers(records.filter { !$0.isAdding })
         }
+    }
+
+    private func presentRetryFailure(_ id: UUID) {
+        guard let record = model.allTorrentRecords.first(where: { $0.additionID == id }) else { return }
+        retryFailure = RetryFailure(id: id,
+            message: record.additionError ?? "Transmission RPC is unavailable. Check your connection and try again.",
+            isRemote: record.sourceID != model.localSourceID)
+        model.errorMessage = nil
     }
 
     private func isUnavailable(_ record: TorrentRecord) -> Bool {
@@ -545,13 +578,16 @@ private struct TorrentListLiveRow: View {
             toggleGroupExpansion: toggleGroupExpansion,
             pendingOldName: pendingOldName,
             isAdding: isAdding,
+            additionPhase: row.torrentRecord?.additionPhase,
+            additionError: row.torrentRecord?.additionError,
+            additionAccepted: row.torrentRecord?.additionAccepted ?? false,
             shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             fileAction: fileAction,
             toggleTransfer: toggleTransfers
         )
         .equatable()
-        .allowsHitTesting(!isAdding)
+        .allowsHitTesting(!isAdding || row.torrentRecord?.additionPhase == .failed)
         // Native List can reuse the tuned height without measuring this whole
         // swipe/glass/icon hierarchy for each row entering the viewport.
         .frame(height: grid ? 164 : max(density.showsIcon ? 48 : 28, rowHeight))
@@ -580,7 +616,13 @@ private struct TorrentListLiveRow: View {
 
     @ViewBuilder
     var contextMenuContent: some View {
-        if let record = row.torrentRecord {
+        if let record = row.torrentRecord, let id = record.additionID {
+            if record.additionPhase == .failed {
+                Button("Retry") { Task { _ = await toggleTransfers() } }
+            }
+            Button("Remove from Queue", role: .destructive) { model.cancelTorrentAddition(id) }
+                .disabled(record.additionPhase == .adding || record.additionPhase == .queued)
+        } else if let record = row.torrentRecord {
             torrentContextMenu(for: record.summary)
             if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
                 Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }

@@ -75,7 +75,7 @@ struct RemoteAppModelTests {
         #expect(model.allTorrentRecords.filter { $0.hashString == "hash-1" }.count == 1)
     }
 
-    @Test("failed additions remove only their own pending row")
+    @Test("failed additions retain their row and leave other pending rows alone")
     func failedPendingAddition() async throws {
         let profile = makeProfile()
         let client = StubRPCClient()
@@ -89,9 +89,168 @@ struct RemoteAppModelTests {
         let added = await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
             sourceID: profile.id, pendingAdditionID: first)
         #expect(!added)
-        #expect(model.allTorrentRecords.count == 1)
-        #expect(model.allTorrentRecords.first?.hashString == "adding:\(second.uuidString)")
+        #expect(model.allTorrentRecords.count == 2)
+        #expect(model.allTorrentRecords.contains { $0.hashString == "adding:\(first.uuidString)" })
+        #expect(model.allTorrentRecords.contains { $0.hashString == "adding:\(second.uuidString)" })
         #expect(model.errorMessage != nil)
+    }
+
+    @Test("failed queue preserves complete submissions across relaunch")
+    func failedQueueSurvivesRelaunch() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let profile = makeProfile()
+        let store = FileProfileStore(fileURL: directory.appendingPathComponent("profiles.json"))
+        try store.saveProfiles([profile])
+        let client = StubRPCClient()
+        await client.setAddTorrentError(URLError(.notConnectedToInternet))
+        let factory = StubRPCClientFactory { _ in client }
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: factory.make(config:))
+        let id = UUID(), next = UUID()
+        let selection = TorrentAddFileSelection(filesWanted: [0], filesUnwanted: [1], priorityHigh: [0])
+        let plan = TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [TorrentPathRename(path: "Spider-Noir/01.mkv", name: "Episode 1.mkv")])
+        let data = Data("d4:infod4:name11:Spider-Noiree".utf8)
+        for job in [id, next] {
+            #expect(model.prepareTorrentAddition(id: job, sourceID: profile.id, name: "Spider-Noir", size: 100,
+                fileCount: 2, downloadDirectory: "/nas/movies", namingPlan: plan, data: data,
+                fileSelection: selection, sourceURL: directory.appendingPathComponent("source.torrent")))
+        }
+        #expect(!(await model.retryTorrentAddition(id)))
+        let restored = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: factory.make(config:))
+        #expect(restored.allTorrentRecords.count == 2)
+        #expect(restored.allTorrentRecords.allSatisfy { $0.additionPhase == .failed })
+        let saved = try store.loadTorrentAddQueue()
+        #expect(saved.count == 2)
+        #expect(saved[0].data == data)
+        #expect(saved[0].fileSelection == selection)
+        #expect(saved[0].namingPlan == plan)
+        #expect(saved[0].sourceID == profile.id)
+        #expect(saved[0].downloadDirectory == "/nas/movies")
+        #expect(!(await restored.retryTorrentAddition(id)))
+        #expect(restored.allTorrentRecords.filter { $0.isAdding }.count == 2)
+        await client.setAddTorrentError(nil)
+        #expect(await restored.retryTorrentAddition(id))
+        #expect(try store.loadTorrentAddQueue().map(\.id) == [next])
+        #expect(await client.addedFiles.last?.data == data)
+        #expect(await client.addedFiles.last?.selection == selection)
+    }
+
+    @Test("a lost add reply is recovered from the server and finishes Smart Rename without re-adding")
+    func lateAcceptedAdditionKeepsNamingPlan() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let data = Data("d4:infod4:name11:Spider-Noiree".utf8)
+        // Use an identity derived from the original metainfo, not its display name.
+        let expectedHash = "aeddfc3b841a0eb14bbb58bc1517c9a78ec5e4b9"
+        await client.configureQueuedAdd(hash: expectedHash, visible: false, acceptsBeforeThrow: true)
+        await client.setAddTorrentError(URLError(.timedOut))
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID()
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Spider-Noir", size: 100, fileCount: 1,
+            downloadDirectory: "/nas", namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: []), data: data)
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(model.allTorrentRecords.first?.additionPhase == .failed)
+        await model.refresh(sourceID: profile.id)
+        await client.waitForRename()
+        #expect(await model.retryTorrentAddition(id))
+        #expect(await client.addedFiles.count == 1)
+        #expect(await client.renamedPaths == [TorrentPathRename(path: "Spider-Noir", name: "Spider Noir")])
+        #expect(model.allTorrentRecords.filter { $0.hashString == expectedHash }.count == 1)
+        #expect(!model.allTorrentRecords.contains(where: { $0.isAdding }))
+    }
+
+    @Test("retry resumes failed renames without repeating the add or completed children")
+    func retryContinuesAcceptedRename() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        await client.setRenameFailurePath("Spider-Noir")
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID(), child = TorrentPathRename(path: "Spider-Noir/Old.mkv", name: "New.mkv")
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Spider-Noir", size: 100, fileCount: 1,
+            downloadDirectory: nil, namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [child]), data: Data([1]))
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(model.allTorrentRecords.first?.additionPhase == .failed)
+        await client.setRenameFailurePath(nil)
+        #expect(await model.retryTorrentAddition(id))
+        #expect(await client.addedFiles.count == 1)
+        #expect(await client.renamedPaths.filter { $0 == child }.count == 1)
+        #expect(!model.allTorrentRecords.contains(where: { $0.isAdding }))
+    }
+
+    @Test("download locally keeps the submission but uses the Mac destination")
+    func failedRemoteAdditionDownloadsLocally() async throws {
+        let profile = makeProfile(), client = StubRPCClient(), local = StubLocalTransmissionSession()
+        await client.setAddTorrentError(URLError(.cannotConnectToHost))
+        let model = makeModel(profiles: [profile], factory: StubRPCClientFactory { _ in client }, localSession: local)
+        let id = UUID(), data = Data([1, 2, 3])
+        let selection = TorrentAddFileSelection(filesUnwanted: [1])
+        let plan = TorrentAddNamingPlan(rootName: "Local movie", pathRenames: [])
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Movie", size: 100, fileCount: 2,
+            downloadDirectory: "/nas/Ultra/Movies", namingPlan: plan, data: data, fileSelection: selection)
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(await model.downloadTorrentAdditionLocally(id))
+        #expect(model.selectedSourceID == model.localSourceID)
+        #expect(await local.addedFiles.first?.data == data)
+        #expect(await local.addedFiles.first?.selection == selection)
+        #expect(await local.addedFiles.first?.directory == "/Users/me/Downloads")
+        #expect(await local.renamedPaths == [TorrentPathRename(path: "Local", name: "Local movie")])
+        #expect(await client.addedFiles.count == 1)
+    }
+
+    @Test("concurrent retry clicks share one model-owned add")
+    func concurrentRetryUsesOneRequest() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        await client.holdAdd()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID()
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Movie", size: 100, fileCount: 1,
+            downloadDirectory: nil, namingPlan: nil, data: Data([1]))
+        let first = Task { await model.retryTorrentAddition(id) }
+        await client.waitForAdd()
+        let second = Task { await model.retryTorrentAddition(id) }
+        await Task.yield()
+        await client.releaseAdd()
+        #expect(await first.value)
+        #expect(await second.value)
+        #expect(await client.addedFiles.count == 1)
+    }
+
+    @Test("a queue write failure retains the row and prevents any RPC submission")
+    func unsavedQueueDoesNotSubmit() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let store = MemoryProfileStore(profiles: [profile])
+        store.rejectQueueWrites()
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            rpcClientFactory: { _ in client })
+        #expect(!(await model.addTorrentFile(Data([1]), downloadDirectory: nil)))
+        #expect(model.allTorrentRecords.first?.additionPhase == .failed)
+        #expect(await client.addedFiles.isEmpty)
+        let id = try #require(model.allTorrentRecords.first?.additionID)
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(await client.addedFiles.isEmpty)
+        model.cancelTorrentAddition(id)
+        #expect(model.allTorrentRecords.count == 1)
+    }
+
+    @Test("an applied rename with a lost reply is confirmed rather than reported failed")
+    func queuedRenameLostReply() async {
+        let profile = makeProfile(), client = StubRPCClient()
+        await client.setRenameBehavior(error: URLError(.timedOut), appliesBeforeThrow: true)
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        #expect(await model.addTorrentFile(Data([1]), downloadDirectory: nil,
+            namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [])))
+        #expect(!model.allTorrentRecords.contains { $0.isAdding })
+        #expect(await client.addedFiles.count == 1)
+    }
+
+    @Test("manual duplicate names still rename while Smart Rename leaves preexisting duplicates alone")
+    func duplicateNamingChoices() async {
+        for manual in [false, true] {
+            let profile = makeProfile(), client = StubRPCClient()
+            await client.setAddTorrentWasDuplicate(true)
+            let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+            #expect(await model.addTorrentFile(Data([1]), torrentName: manual ? "Chosen name" : nil,
+                downloadDirectory: nil, namingPlan: manual ? nil : TorrentAddNamingPlan(rootName: "Smart name", pathRenames: [])))
+            #expect(await client.renamedPaths.count == (manual ? 1 : 0))
+        }
     }
 
     @Test("file priority updates before the server responds and rolls back on rejection", arguments: [false, true])
@@ -975,6 +1134,29 @@ private actor StubRPCClient: TransmissionRPCServicing {
         if let queuePositionError { throw queuePositionError }
     }
 
+    private var torrentHash = "hash-1"
+    private var torrentVisible = true
+    private var acceptsAddBeforeThrow = false
+    private var renameFailurePath: String?
+    private var holdingAdd = false
+    private var addContinuation: CheckedContinuation<Void, Never>?
+    private var addWaiter: CheckedContinuation<Void, Never>?
+    private var renameWaiter: CheckedContinuation<Void, Never>?
+    private(set) var addedFiles: [(data: Data, directory: String?, selection: TorrentAddFileSelection?)] = []
+    func configureQueuedAdd(hash: String, visible: Bool, acceptsBeforeThrow: Bool) {
+        torrentHash = hash; torrentVisible = visible; acceptsAddBeforeThrow = acceptsBeforeThrow
+    }
+    func setRenameFailurePath(_ path: String?) { renameFailurePath = path }
+    func holdAdd() { holdingAdd = true }
+    func waitForAdd() async {
+        if !addedFiles.isEmpty { return }
+        await withCheckedContinuation { addWaiter = $0 }
+    }
+    func releaseAdd() { holdingAdd = false; addContinuation?.resume(); addContinuation = nil }
+    func waitForRename() async {
+        if !renamedPaths.isEmpty { return }
+        await withCheckedContinuation { renameWaiter = $0 }
+    }
     private var addTorrentWasDuplicate = false
     private(set) var fetchTorrentsCount = 0
     private(set) var fetchSessionStatsCount = 0
@@ -1069,10 +1251,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
         if let fetchTorrentsError {
             throw fetchTorrentsError
         }
+        guard torrentVisible else { return [] }
         return [
             TorrentSummary(
                 id: 1,
-                hashString: "hash-1",
+                hashString: torrentHash,
                 name: torrentName,
                 status: TransmissionTorrentStatus.downloading.rawValue,
                 percentDone: 0.5,
@@ -1119,7 +1302,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
         return TorrentDetails(
             id: 1,
             hashString: hashString,
-            name: "Spider-Noir",
+            name: torrentName,
             files: [
                 TorrentFile(
                     name: "Episode.mkv",
@@ -1146,11 +1329,14 @@ private actor StubRPCClient: TransmissionRPCServicing {
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult? {
-        if let addTorrentError {
-            throw addTorrentError
-        }
+        addedFiles.append((data, downloadDirectory, fileSelection))
+        addWaiter?.resume(); addWaiter = nil
+        if holdingAdd { await withCheckedContinuation { addContinuation = $0 } }
+        if acceptsAddBeforeThrow { torrentVisible = true }
+        if let addTorrentError { throw addTorrentError }
+        torrentVisible = true
         return TorrentAddResult(
-            hashString: "hash-1",
+            hashString: torrentHash,
             name: torrentName ?? self.torrentName,
             wasDuplicate: addTorrentWasDuplicate
         )
@@ -1170,6 +1356,8 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func queueMoveBottom(ids: [String]) async throws {}
     func renamePath(id: String, path: String, name: String) async throws {
         renamedPaths.append(TorrentPathRename(path: path, name: name))
+        renameWaiter?.resume(); renameWaiter = nil
+        if renameFailurePath == path { throw TestError.failed }
         if renameAppliesBeforeThrow {
             torrentName = name
         }
@@ -1191,6 +1379,8 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private(set) var fetchSnapshotCount = 0
+    private(set) var addedFiles: [(data: Data, directory: String?, selection: TorrentAddFileSelection?)] = []
+    private(set) var renamedPaths: [TorrentPathRename] = []
     private(set) var addTorrentFileCount = 0
     private(set) var movedData: [String: String] = [:]
 
@@ -1234,6 +1424,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult? {
         addTorrentFileCount += 1
+        addedFiles.append((data, downloadDirectory, fileSelection))
         return TorrentAddResult(hashString: "local-hash", name: torrentName ?? "Local", wasDuplicate: false)
     }
 
@@ -1249,7 +1440,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     func moveData(id: String, to downloadDirectory: String) async throws {
         movedData[id] = downloadDirectory
     }
-    func renamePath(id: String, path: String, name: String) async throws {}
+    func renamePath(id: String, path: String, name: String) async throws { renamedPaths.append(TorrentPathRename(path: path, name: name)) }
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {}
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {}
     func setTorrentPriority(ids: [String], priority: Int) async throws {}
@@ -1280,11 +1471,22 @@ private final class MemoryProfileStore: ProfileStore, @unchecked Sendable {
     private var preferences = GlassRemotePreferences()
     private var torrentCache: [CachedTorrentList] = []
     private var torrentCacheSaveCounter = 0
+    private var addQueue: [TorrentAddQueueEntry] = []
+    private var refusesQueueWrites = false
+    func rejectQueueWrites() { lock.withLock { refusesQueueWrites = true } }
     private var history: [DownloadDirectoryHistory] = []
     private var displayNames: [String: TorrentStoredDisplayName] = [:]
 
     init(profiles: [RemoteProfile]) {
         self.profiles = profiles
+    }
+
+    func loadTorrentAddQueue() throws -> [TorrentAddQueueEntry] { lock.withLock { addQueue } }
+    func saveTorrentAddQueue(_ queue: [TorrentAddQueueEntry]) throws {
+        try lock.withLock {
+            if refusesQueueWrites { throw TestError.failed }
+            addQueue = queue
+        }
     }
 
     func loadProfiles() throws -> [RemoteProfile] {

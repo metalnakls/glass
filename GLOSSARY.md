@@ -15,3 +15,6 @@ The connection to a remote Transmission instance. Its configured download folder
 
 **Recent folder**:
 A previously used download folder on this Mac, available when choosing a local destination.
+
+**Add queue**:
+A saved list of submissions Glass is adding or needs to retry. Each item retains its destination, original torrent or magnet, file choices, and naming plan until Transmission confirms it and setup finishes, or the user removes it.

@@ -29,7 +29,7 @@ enum TorrentLibraryFilter {
                 : members.allSatisfy { !$0.isUnfinished }
             if matches { included.formUnion(members.map(\.id)) }
         }
-        return records.filter { included.contains($0.id) }
+        return records.filter { $0.isAdding || included.contains($0.id) }
     }
 }
 
@@ -299,10 +299,14 @@ struct TorrentListRowPresentation: Identifiable {
     }
 
     private static func rowsForSource(
-        records: [TorrentRecord],
+        records allRecords: [TorrentRecord],
         pendingRenameNames: [String: String],
         expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
+        let queuedRows = allRecords.filter(\.isAdding).map { record in
+            TorrentListRowPresentation(id: record.id, kind: .torrent(record: record, displayName: record.displayName))
+        }
+        let records = allRecords.filter { !$0.isAdding }
         let summaries = records.map { record in
             if pendingRenameNames[record.id] == nil, let season = record.season {
                 return record.summary.renamedForPresentation(to: "\(season.title) \(season.season)")
@@ -346,7 +350,7 @@ struct TorrentListRowPresentation: Identifiable {
                 }
             }
         }
-        return rows
+        return queuedRows + rows
     }
 
     static func groupMemberDisplayName(_ record: TorrentRecord, groupName: String) -> String {

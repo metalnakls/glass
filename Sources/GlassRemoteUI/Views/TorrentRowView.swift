@@ -28,6 +28,9 @@ struct TorrentRowView: View, Equatable {
     var toggleGroupExpansion: (() -> Void)?
     var pendingOldName: String?
     var isAdding = false
+    var additionPhase: TorrentAdditionPhase?
+    var additionError: String?
+    var additionAccepted = false
     var shareUnavailable = false
     var thumbnailInput: TorrentThumbnailInput?
     var fileAction: ((TorrentFileActions.Action) -> Void)?
@@ -100,6 +103,9 @@ struct TorrentRowView: View, Equatable {
             && lhs.groupCount == rhs.groupCount
             && lhs.pendingOldName == rhs.pendingOldName
             && lhs.isAdding == rhs.isAdding
+            && lhs.additionPhase == rhs.additionPhase
+            && lhs.additionError == rhs.additionError
+            && lhs.additionAccepted == rhs.additionAccepted
             && lhs.shareUnavailable == rhs.shareUnavailable
             && lhs.thumbnailInput == rhs.thumbnailInput
     }
@@ -210,13 +216,23 @@ struct TorrentRowView: View, Equatable {
 
     private var sizeLabel: some View {
         HStack(spacing: 3) {
-            if !torrent.isCompleted { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
-            Text(torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload))
+            if additionPhase == nil && !torrent.isCompleted { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
+            Text(additionStatus ?? (torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload)))
         }
             .font(.caption)
             .foregroundStyle(.secondary)
             .lineLimit(1)
             .fixedSize(horizontal: true, vertical: false)
+    }
+
+    private var additionStatus: String? {
+        switch additionPhase {
+        case .queued: "Queued"
+        case .adding: "Adding…"
+        case .failed: additionAccepted ? "Finish setup" : "Add failed"
+        case .confirming: "Confirming…"
+        case nil: nil
+        }
     }
 
     private var stateDiameter: CGFloat { density == .compact && !grid ? 24 : 36 }
@@ -249,7 +265,18 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var stateControl: some View {
-        if isAdding {
+        if additionPhase == .failed {
+            Button {
+                commandTask = Task { _ = await toggleTransfer() }
+            } label: {
+                Image(systemName: "arrow.clockwise")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: stateDiameter, height: stateDiameter)
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: .circle)
+            .help(additionError ?? "Retry adding torrent")
+        } else if isAdding {
             GlassActivityIndicator(label: "Adding torrent")
                 .frame(width: stateDiameter, height: stateDiameter)
         } else if stateGlass {
@@ -320,6 +347,8 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateLabel: String {
+        if additionPhase == .failed { return "Retry adding torrent" }
+        if additionPhase == .queued { return "Queued torrent" }
         if isAdding { return "Adding torrent" }
         if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
         if torrent.isCompleted { return "Finished" }

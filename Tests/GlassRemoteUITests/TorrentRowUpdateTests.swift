@@ -42,6 +42,20 @@ struct TorrentRowUpdateTests {
         #expect(unavailable != original)
     }
 
+    @Test("queue state and failure changes redraw the retry control")
+    func queueStateChanges() {
+        var queued = view(summary())
+        queued.isAdding = true
+        queued.additionPhase = .queued
+        var failed = queued
+        failed.additionPhase = .failed
+        failed.additionError = "RPC unavailable"
+        #expect(queued != failed)
+        var differentError = failed
+        differentError.additionError = "Offline"
+        #expect(failed != differentError)
+    }
+
     private func view(_ torrent: TorrentSummary) -> TorrentRowView {
         TorrentRowView(torrent: torrent, toggleTransfer: { true })
     }

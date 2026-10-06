@@ -7,6 +7,23 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
+    @Test("queued seasons stay visible outside collapsed groups and completed filters")
+    func queuedSeasonsStayVisible() throws {
+        let source = UUID()
+        let existing = [filterRecord(source, season: 1, complete: true), filterRecord(source, season: 2, complete: true)]
+        let pending = TorrentRecord(filterRecord(source, season: 3, complete: false).summary,
+            sourceID: source, isAdding: true, additionID: UUID())
+        pending.updateAddition(phase: .failed, error: "RPC unavailable")
+        let records = existing + [pending]
+        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+        #expect(rows.filter { $0.id == pending.id }.count == 1)
+        #expect(rows.first?.id == pending.id)
+        #expect(rows.count == 2)
+        for filter in [TorrentGroup.all, .downloading, .completed] {
+            #expect(TorrentLibraryFilter.records(records, group: filter).contains { $0 === pending })
+        }
+    }
+
     @Test("one snapshot supplies native indices, section boundaries and selection neighbors")
     func sharedLayoutBoundaries() throws {
         let source = UUID()

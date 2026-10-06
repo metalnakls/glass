@@ -64,18 +64,13 @@ struct AddMagnetView: View {
         addErrorMessage = nil
         isAdding = true
         let sourceID = destinationID
-        let didAdd = await model.addMagnet(
-            magnet,
-            downloadDirectory: downloadDirectory,
-            sourceID: sourceID
-        )
-        isAdding = false
-        if didAdd {
-            model.selectedProfileID = sourceID
-            dismiss()
-        } else {
-            addErrorMessage = model.errorMessage ?? "Glass couldn’t add this torrent."
-            model.errorMessage = nil
-        }
+        model.selectedProfileID = sourceID
+        model.selectedTorrentGroup = .all
+        // The model persists the submission synchronously before its first RPC wait.
+        let request = Task { await model.addMagnet(magnet, downloadDirectory: downloadDirectory, sourceID: sourceID) }
+        await Task.yield()
+        dismiss()
+        _ = await request.value
+
     }
 }

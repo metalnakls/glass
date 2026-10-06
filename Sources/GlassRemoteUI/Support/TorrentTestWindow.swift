@@ -29,6 +29,7 @@ private struct TorrentTestWorkspace: View {
                 Text("Test Torrents").font(.headline)
                 Toggle("Fun mode", isOn: $funMode).toggleStyle(.switch).controlSize(.small)
                 Spacer()
+                Button("Failed remote add") { Task { await library.addOfflineFixture() } }
                 Button("Complete downloads") { Task { await library.session.completeAll(); await library.model.refresh() } }
                 Button("Reset") { library = TorrentTestLibrary() }
                 Button("Appearance…") { SelectionAppearanceWindow.show() }
@@ -46,8 +47,30 @@ private struct TorrentTestWorkspace: View {
     init() {
         let session = self.session
         model = RemoteAppModel(profileStore: TestProfileStore(), credentialStore: TestCredentials(),
-            localSessionFactory: { session })
+            rpcClientFactory: { config in
+                let configuration = URLSessionConfiguration.ephemeral
+                configuration.protocolClasses = [OfflineTestRPCProtocol.self]
+                return TransmissionRPCClient(config: config, session: URLSession(configuration: configuration))
+            }, localSessionFactory: { session })
     }
+    func addOfflineFixture() async {
+        let profile = RemoteProfile(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!,
+            name: "Offline sample NAS", rpcURL: URL(string: "http://offline.invalid/transmission/rpc")!, username: "")
+        model.saveProfile(profile, password: "")
+        let id = UUID()
+        model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Queued Movie.mkv", size: 1_000_000_000,
+            fileCount: 1, downloadDirectory: "/Sample/NAS", namingPlan: nil, data: Data([1]))
+        _ = await model.retryTorrentAddition(id)
+    }
+
+}
+
+/// All remote traffic in the test workspace fails here, without reaching any server.
+private final class OfflineTestRPCProtocol: URLProtocol, @unchecked Sendable {
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() { client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet)) }
+    override func stopLoading() {}
 }
 
 /// Disposable in-memory provider: every action is confined to these fixtures.
@@ -68,6 +91,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
         Fixture(id: 10, name: "Velvet Waves.flac", progress: 1, count: 1),
         Fixture(id: 11, name: "Lost Studio.mkv", progress: 1, count: 1, missing: true)
     ]
+    private var addedFixtures: [Fixture] = []
     private var statuses: [Int: Int] = [:]
     private var completed = Set<Int>()
     private var removed = Set<Int>()
@@ -86,7 +110,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
     }
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         TorrentProviderSnapshot(stats: SessionStats(downloadSpeed: 1_800_000, uploadSpeed: 0),
-            torrents: Self.fixtures.filter { !removed.contains($0.id) }.map(summary),
+            torrents: (Self.fixtures + addedFixtures).filter { !removed.contains($0.id) }.map(summary),
             freeSpace: ServerFreeSpace(path: "/Sample/Downloads", sizeBytes: 185_000_000_000))
     }
     func fetchDefaultDownloadDirectory() async throws -> String? { "/Sample/Downloads" }
@@ -95,7 +119,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
     }
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        guard let item = Self.fixtures.first(where: { "glass-sample-\($0.id)" == hashString }) else {
+        guard let item = (Self.fixtures + addedFixtures).first(where: { "glass-sample-\($0.id)" == hashString }) else {
             throw LocalTransmissionSessionError.unavailable("Sample removed")
         }
         let torrent = summary(item)
@@ -130,7 +154,12 @@ actor TorrentTestSession: LocalTransmissionServicing {
         for id in ids { for index in fileIndices { priorities[id, default: [:]][index] = priority } }
     }
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? { nil }
-    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws -> TorrentAddResult? { nil }
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws -> TorrentAddResult? {
+        let id = 12 + addedFixtures.count
+        let name = torrentName ?? "Queued Movie.mkv"
+        addedFixtures.append(Fixture(id: id, name: name, progress: 0, count: 1))
+        return TorrentAddResult(hashString: "glass-sample-\(id)", name: name, wasDuplicate: false)
+    }
     func verify(ids: [String]) async throws {}
     func reannounce(ids: [String]) async throws {}
     func queueMoveTop(ids: [String]) async throws {}
@@ -142,6 +171,8 @@ actor TorrentTestSession: LocalTransmissionServicing {
 }
 
 private struct TestProfileStore: ProfileStore {
+    func loadTorrentAddQueue() throws -> [TorrentAddQueueEntry] { [] }
+    func saveTorrentAddQueue(_ queue: [TorrentAddQueueEntry]) throws {}
     func loadProfiles() throws -> [RemoteProfile] { [] }
     func saveProfiles(_ profiles: [RemoteProfile]) throws {}
     func loadPreferences() throws -> GlassRemotePreferences { .init() }

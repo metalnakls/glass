@@ -28,7 +28,11 @@ public final class TorrentRecord: Identifiable {
     public let id: String
     public let hashString: String
     public let sourceID: UUID
-    public let isAdding: Bool
+    public var isAdding: Bool { additionPhase != nil }
+    public let additionID: UUID?
+    public private(set) var additionPhase: TorrentAdditionPhase?
+    public private(set) var additionError: String?
+    public private(set) var additionAccepted = false
     public private(set) var summary: TorrentSummary
     public private(set) var status: Int
     public private(set) var name: String
@@ -38,8 +42,9 @@ public final class TorrentRecord: Identifiable {
     public private(set) var isCompleted: Bool
     public private(set) var isUnfinished: Bool
 
-    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil, isAdding: Bool = false) {
-        self.isAdding = isAdding
+    init(_ summary: TorrentSummary, sourceID: UUID, displayName: String? = nil, season: TorrentSeasonDescriptor? = nil, isAdding: Bool = false, additionID: UUID? = nil) {
+        self.additionID = additionID
+        self.additionPhase = isAdding ? .queued : nil
         self.sourceID = sourceID
         id = Self.identity(sourceID: sourceID, hashString: summary.hashString, torrentID: summary.id)
         hashString = summary.hashString
@@ -51,6 +56,12 @@ public final class TorrentRecord: Identifiable {
         isDownloading = summary.isDownloading
         isCompleted = summary.isCompleted
         isUnfinished = summary.isUnfinished
+    }
+
+    func updateAddition(phase: TorrentAdditionPhase, error: String?, accepted: Bool = false) {
+        additionPhase = phase
+        additionError = error
+        additionAccepted = accepted
     }
 
     public static func identity(sourceID: UUID, hashString: String, torrentID: Int = 0) -> String {
@@ -102,51 +113,150 @@ public final class RemoteAppModel {
     public var selectedProfileID: UUID?
     public private(set) var sources: [TorrentSourceState] = []
     private struct PendingAddition {
-        let id: UUID
+        var entry: TorrentAddQueueEntry
         let record: TorrentRecord
-        var confirmedHash: String?
+        let expectedHashes: Set<String>
+        var id: UUID { entry.id }
     }
     private var pendingAdditions: [PendingAddition] = []
     private var pendingAdditionRevision = 0
+    @ObservationIgnored private var additionTasks: [UUID: Task<Bool, Never>] = [:]
+    @ObservationIgnored private var additionTail: Task<Bool, Never>?
+    @ObservationIgnored private var additionResults: [UUID: TorrentAddResult] = [:]
+    @ObservationIgnored private var addQueueLoadError: String?
+
     public var allTorrentRecords: [TorrentRecord] {
-        sources.flatMap(\.records) + pendingAdditions.map(\.record)
+        // A confirmed submission and its server record are one visible item while
+        // the rename plan finishes. Never show a second, untracked download row.
+        let owned = Set(pendingAdditions.compactMap { pending -> String? in
+            guard let receipt = pending.entry.receipt else { return nil }
+            return TorrentRecord.identity(sourceID: pending.entry.sourceID, hashString: receipt.hashString)
+        })
+        return pendingAdditions.map(\.record) + sources.flatMap(\.records).filter { !owned.contains($0.id) }
     }
 
-    /// Present every batch member before any request can suspend the add flow.
+    /// Persist every batch member, including its bytes and options, before any RPC.
+    @discardableResult
     public func prepareTorrentAddition(id: UUID, sourceID: UUID, name: String,
                                       size: UInt64, fileCount: Int, downloadDirectory: String?,
-                                      namingPlan: TorrentAddNamingPlan?) {
-        guard !pendingAdditions.contains(where: { $0.id == id }) else { return }
-        let summary = TorrentSummary(id: -1, hashString: "adding:\(id.uuidString)",
-            name: namingPlan?.rootName ?? name, status: 0, percentDone: 0,
+                                      namingPlan: TorrentAddNamingPlan?, data: Data? = nil,
+                                      fileSelection: TorrentAddFileSelection? = nil,
+                                      sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
+                                      renameDuplicateRoot: Bool = false) -> Bool {
+        guard !pendingAdditions.contains(where: { $0.id == id }) else { return true }
+        var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: size,
+            fileCount: fileCount, data: data, downloadDirectory: downloadDirectory,
+            fileSelection: fileSelection, namingPlan: namingPlan, sourceURL: sourceURL,
+            trashSourceOnSuccess: trashSourceOnSuccess)
+        entry.renameDuplicateRoot = renameDuplicateRoot
+        let expectedHashes = entry.expectedHashes
+        entry.existedBeforeSubmission = sourceState(for: sourceID).records.contains {
+            expectedHashes.contains($0.hashString.lowercased())
+        }
+        appendAddition(entry)
+        do { try persistAddQueue(); return true }
+        catch { failAddition(id, error: error); return false }
+    }
+
+    private func appendAddition(_ entry: TorrentAddQueueEntry) {
+        let summary = TorrentSummary(id: -1, hashString: "adding:\(entry.id.uuidString)",
+            name: entry.namingPlan?.rootName ?? entry.name, status: 0, percentDone: 0,
             metadataPercentComplete: 1, rateDownload: 0, rateUpload: 0,
-            sizeWhenDone: size, leftUntilDone: max(1, size), eta: -1, uploadRatio: 0,
-            peersConnected: nil, downloadDir: downloadDirectory, fileCount: fileCount)
-        let record = TorrentRecord(summary, sourceID: sourceID,
-            displayName: namingPlan?.displayName, season: namingPlan?.season, isAdding: true)
-        pendingAdditions.append(PendingAddition(id: id, record: record))
+            sizeWhenDone: entry.size, leftUntilDone: max(1, entry.size), eta: -1, uploadRatio: 0,
+            peersConnected: nil, downloadDir: entry.downloadDirectory, fileCount: entry.fileCount)
+        let record = TorrentRecord(summary, sourceID: entry.sourceID,
+            displayName: entry.namingPlan?.displayName, season: entry.namingPlan?.season,
+            isAdding: true, additionID: entry.id)
+        record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil)
+        pendingAdditions.append(PendingAddition(entry: entry, record: record, expectedHashes: entry.expectedHashes))
         pendingAdditionRevision &+= 1
     }
 
-    private func finishTorrentAddition(id: UUID?, result: TorrentAddResult?, succeeded: Bool) {
-        guard let id, let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
-        if succeeded, let result, !result.hashString.isEmpty {
-            pendingAdditions[index].confirmedHash = result.hashString
-            reconcilePendingAdditions()
-        } else {
-            pendingAdditions.remove(at: index)
-            pendingAdditionRevision &+= 1
+    private func restoreAddQueue() {
+        do {
+            for var entry in try profileStore.loadTorrentAddQueue() {
+                guard !pendingAdditions.contains(where: { $0.id == entry.id }) else { continue }
+                if entry.phase != .failed {
+                    entry.phase = .failed
+                    entry.error = "The previous add was interrupted. Retry to finish it."
+                }
+                appendAddition(entry)
+            }
+        } catch {
+            addQueueLoadError = "The saved add queue couldn’t be read: \(error.localizedDescription)"
+            errorMessage = addQueueLoadError
         }
     }
 
+    private func persistAddQueue() throws {
+        // Do not overwrite an unreadable queue with an empty/new one.
+        if let addQueueLoadError { throw AdditionError.message(addQueueLoadError) }
+        try profileStore.saveTorrentAddQueue(pendingAdditions.map(\.entry))
+    }
+
+    private func updateAddition(_ id: UUID, _ change: (inout TorrentAddQueueEntry) -> Void) {
+        guard let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
+        change(&pendingAdditions[index].entry)
+        let entry = pendingAdditions[index].entry
+        pendingAdditions[index].record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil)
+    }
+
+    private func failAddition(_ id: UUID, error: any Error, reportError: Bool = true) {
+        let accepted = pendingAdditions.first { $0.id == id }?.entry.receipt != nil
+        let message = accepted
+            ? "Transmission accepted this torrent, but Glass couldn’t finish setting it up.\n\n" + error.localizedDescription
+            : error.localizedDescription
+        updateAddition(id) { $0.phase = .failed; $0.error = message }
+        if reportError { errorMessage = message }
+        try? persistAddQueue()
+    }
+
     private func reconcilePendingAdditions() {
-        let records = sources.flatMap(\.records)
-        let oldCount = pendingAdditions.count
-        pendingAdditions.removeAll { pending in
-            guard let hash = pending.confirmedHash else { return false }
-            return records.contains { $0.sourceID == pending.record.sourceID && $0.hashString == hash }
+        for pending in pendingAdditions {
+            let entry = pending.entry
+            guard let record = sourceState(for: entry.sourceID).records.first(where: {
+                $0.hashString.lowercased() == entry.receipt?.hashString.lowercased()
+                    || (entry.attempts > 0 && pending.expectedHashes.contains($0.hashString.lowercased()))
+            }) else { continue }
+            if entry.receipt != nil, entry.namingComplete {
+                do { try retireAddition(entry.id) }
+                catch { failAddition(entry.id, error: error) }
+            } else if entry.receipt == nil, entry.attempts > 0, additionTasks[entry.id] == nil {
+                updateAddition(entry.id) {
+                    $0.receipt = TorrentAddResult(hashString: record.hashString, name: record.name,
+                        wasDuplicate: $0.existedBeforeSubmission)
+                }
+                // Recover an accepted request whose reply never reached Glass.
+                Task { await retryTorrentAddition(entry.id) }
+            }
         }
-        if oldCount != pendingAdditions.count { pendingAdditionRevision &+= 1 }
+    }
+
+    private func retireAddition(_ id: UUID) throws {
+        guard let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
+        let pending = pendingAdditions.remove(at: index)
+        do { try persistAddQueue() }
+        catch { pendingAdditions.insert(pending, at: index); throw error }
+        pendingAdditionRevision &+= 1
+        if pending.entry.trashSourceOnSuccess {
+            torrentSourceFileDisposer.trashTorrentFileIfNeeded(pending.entry.sourceURL)
+        }
+    }
+
+    public func cancelTorrentAddition(_ id: UUID) {
+        guard additionTasks[id] == nil else { return }
+        do { try retireAdditionWithoutDisposal(id) }
+        catch { failAddition(id, error: error) }
+    }
+
+    private func retireAdditionWithoutDisposal(_ id: UUID) throws {
+        updateAddition(id) { $0.trashSourceOnSuccess = false }
+        try retireAddition(id)
+    }
+
+    private enum AdditionError: LocalizedError {
+        case message(String)
+        var errorDescription: String? { if case let .message(message) = self { return message }; return nil }
     }
     public private(set) var fileMutationRevision = 0
     public var libraryStructureRevision: Int { sources.reduce(pendingAdditionRevision) { $0 &+ $1.structureRevision } }
@@ -244,6 +354,7 @@ public final class RemoteAppModel {
         self.completionPollingInterval = completionPollingInterval
         loadProfiles(initialSourceID: initialSourceID)
         synchronizeSources()
+        restoreAddQueue()
     }
 
     public var localSourceName: String {
@@ -523,88 +634,185 @@ public final class RemoteAppModel {
     @discardableResult
     public func addMagnet(_ magnet: String, downloadDirectory: String?, sourceID requestedSourceID: UUID? = nil) async -> Bool {
         let sourceID = requestedSourceID ?? selectedSourceID
-        var addedTorrent: TorrentAddResult?
-        let didAdd = await performProviderAction(sourceID: sourceID) { provider in
-            addedTorrent = try await provider.addMagnet(magnet, downloadDirectory: downloadDirectory)
+        let name = URLComponents(string: magnet)?.queryItems?.first { $0.name == "dn" }?.value ?? "Magnet download"
+        let id = UUID()
+        var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: 0, fileCount: 1,
+            magnet: magnet, downloadDirectory: downloadDirectory, namingPlan: nil)
+        let expectedHashes = entry.expectedHashes
+        entry.existedBeforeSubmission = sourceState(for: sourceID).records.contains {
+            expectedHashes.contains($0.hashString.lowercased())
         }
-        if didAdd {
-            rememberDownloadDirectory(downloadDirectory, for: sourceID)
-            watchAddedTorrent(addedTorrent, sourceID: sourceID)
-        }
-        return didAdd
+        appendAddition(entry)
+        let succeeded = await retryTorrentAddition(id)
+        if !succeeded { errorMessage = pendingAdditions.first { $0.id == id }?.entry.error }
+        additionResults[id] = nil
+        return succeeded
     }
 
     @discardableResult
     public func addTorrentFile(
-        _ data: Data,
-        torrentName: String? = nil,
-        downloadDirectory: String?,
-        fileSelection: TorrentAddFileSelection? = nil,
-        namingPlan: TorrentAddNamingPlan? = nil,
-        sourceID: UUID? = nil,
-        sourceURL: URL? = nil,
-        trashSourceOnSuccess: Bool = false,
-        pendingAdditionID: UUID? = nil,
-        onSuccess: ((TorrentAddResult?) -> Void)? = nil
+        _ data: Data, torrentName: String? = nil, downloadDirectory: String?,
+        fileSelection: TorrentAddFileSelection? = nil, namingPlan: TorrentAddNamingPlan? = nil,
+        sourceID: UUID? = nil, sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
+        pendingAdditionID: UUID? = nil, onSuccess: ((TorrentAddResult?) -> Void)? = nil
     ) async -> Bool {
+        let id = pendingAdditionID ?? UUID()
         let sourceID = sourceID ?? selectedSourceID
-        var renameWarnings: [String] = []
-        var navigationResult: TorrentAddResult?
-        var addedTorrent: TorrentAddResult?
-        let didAdd = await performProviderAction(sourceID: sourceID) { provider in
-            let result = try await provider.addTorrentFile(
-                data: data,
-                torrentName: namingPlan == nil ? torrentName : nil,
-                downloadDirectory: downloadDirectory,
-                fileSelection: fileSelection
-            )
-            navigationResult = result
-            addedTorrent = result
+        let plan = namingPlan ?? torrentName.map { TorrentAddNamingPlan(rootName: $0, pathRenames: []) }
+        if !pendingAdditions.contains(where: { $0.id == id }) {
+            guard prepareTorrentAddition(id: id, sourceID: sourceID,
+                name: plan?.suggestedName ?? sourceURL?.deletingPathExtension().lastPathComponent ?? "Torrent download",
+                size: 0, fileCount: 1, downloadDirectory: downloadDirectory, namingPlan: plan,
+                data: data, fileSelection: fileSelection, sourceURL: sourceURL,
+                trashSourceOnSuccess: trashSourceOnSuccess,
+                renameDuplicateRoot: namingPlan == nil && torrentName != nil) else { return false }
+        } else if let index = pendingAdditions.firstIndex(where: { $0.id == id }), pendingAdditions[index].entry.data == nil {
+            // Compatibility for callers that prepared the visual row first.
+            var entry = pendingAdditions[index].entry
+            entry.data = data; entry.fileSelection = fileSelection; entry.namingPlan = plan
+            entry.sourceURL = sourceURL; entry.trashSourceOnSuccess = trashSourceOnSuccess
+            entry.renameDuplicateRoot = namingPlan == nil && torrentName != nil
+            pendingAdditions[index] = PendingAddition(entry: entry, record: pendingAdditions[index].record,
+                                                      expectedHashes: entry.expectedHashes)
+        }
+        let succeeded = await retryTorrentAddition(id)
+        if succeeded { onSuccess?(additionResults.removeValue(forKey: id)) }
+        else { errorMessage = pendingAdditions.first { $0.id == id }?.entry.error }
+        return succeeded
+    }
 
-            guard let namingPlan, let result, !result.wasDuplicate else { return }
-            for rename in namingPlan.pathRenames {
-                do {
-                    try await provider.renamePath(id: result.hashString, path: rename.path, name: rename.name)
-                } catch {
-                    renameWarnings.append("\(rename.path): \(error.localizedDescription)")
+    /// Model-owned, serialized work survives modal dismissal and duplicate clicks.
+    @discardableResult
+    public func retryTorrentAddition(_ id: UUID) async -> Bool {
+        if let running = additionTasks[id] { return await running.value }
+        guard pendingAdditions.contains(where: { $0.id == id }) else { return true }
+        updateAddition(id) { $0.phase = .queued; $0.error = nil }
+        do { try persistAddQueue() }
+        catch { failAddition(id, error: error, reportError: false); return false }
+        let previous = additionTail
+        let task = Task { [self] in
+            _ = await previous?.value
+            let result = await performQueuedAddition(id)
+            additionTasks[id] = nil
+            return result
+        }
+        additionTasks[id] = task
+        additionTail = task
+        return await task.value
+    }
+
+    @discardableResult
+    public func downloadTorrentAdditionLocally(_ id: UUID) async -> Bool {
+        guard additionTasks[id] == nil,
+              let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return false }
+        // Change only the destination. The original file choices and rename plan travel with it.
+        var entry = pendingAdditions[index].entry
+        entry.sourceID = localSourceID
+        entry.downloadDirectory = nil
+        entry.receipt = nil; entry.completedRenames = []; entry.namingComplete = false
+        entry.attempts = 0; entry.existedBeforeSubmission = false
+        entry.phase = .queued; entry.error = nil
+        pendingAdditions.remove(at: index)
+        appendAddition(entry)
+        do { try persistAddQueue() }
+        catch { failAddition(id, error: error, reportError: false); return false }
+        selectedProfileID = localSourceID
+        selectedTorrentGroup = .all
+        let directory = await defaultDownloadDirectory(for: localSourceID)
+        updateAddition(id) { $0.downloadDirectory = directory }
+        return await retryTorrentAddition(id)
+    }
+
+    private func performQueuedAddition(_ id: UUID) async -> Bool {
+        guard let pending = pendingAdditions.first(where: { $0.id == id }) else { return true }
+        let sourceID = pending.entry.sourceID
+        do {
+            updateAddition(id) { $0.phase = .adding; $0.error = nil }
+            try persistAddQueue()
+            let provider = try self.provider(for: sourceID)
+            var entry = pending.entry
+            // A retry checks the server first: a timeout is not proof that an add failed.
+            if entry.receipt == nil, entry.attempts > 0, !pending.expectedHashes.isEmpty {
+                await refresh(sourceID: sourceID)
+                if let error = sourceState(for: sourceID).refreshErrorMessage { throw AdditionError.message(error) }
+                let existing = sourceState(for: sourceID).records.map(\.summary)
+                if let torrent = existing.first(where: { pending.expectedHashes.contains($0.hashString.lowercased()) }) {
+                    entry.receipt = TorrentAddResult(hashString: torrent.hashString, name: torrent.name,
+                                                    wasDuplicate: entry.existedBeforeSubmission)
                 }
             }
-
-            if namingPlan.rootName != result.name {
-                do {
-                    try await provider.renamePath(
-                        id: result.hashString,
-                        path: result.name,
-                        name: namingPlan.rootName
-                    )
-                } catch {
-                    renameWarnings.append("\(result.name): \(error.localizedDescription)")
-                    return
+            if entry.receipt == nil {
+                entry.attempts += 1
+                updateAddition(id) { $0.attempts = entry.attempts }
+                try persistAddQueue()
+                let result: TorrentAddResult?
+                if let data = entry.data {
+                    result = try await provider.addTorrentFile(data: data, torrentName: nil,
+                        downloadDirectory: entry.downloadDirectory, fileSelection: entry.fileSelection)
+                } else if let magnet = entry.magnet {
+                    result = try await provider.addMagnet(magnet, downloadDirectory: entry.downloadDirectory)
+                } else {
+                    throw AdditionError.message("The original torrent is missing from this queued add.")
                 }
+                guard let result, !result.hashString.isEmpty else {
+                    throw AdditionError.message("Transmission didn’t confirm the add. Retry to check it.")
+                }
+                entry.receipt = TorrentAddResult(hashString: result.hashString, name: result.name,
+                    wasDuplicate: result.wasDuplicate && (entry.attempts == 1 || entry.existedBeforeSubmission))
             }
-            if let displayName = namingPlan.displayName {
-                let key = TorrentRecord.identity(sourceID: sourceID, hashString: result.hashString)
-                torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: namingPlan.rootName, displayName: displayName, season: namingPlan.season)
-                do {
+            guard let receipt = entry.receipt else { return false }
+            updateAddition(id) { $0.receipt = receipt }
+            try persistAddQueue() // Save the receipt before any rename can fail.
+            if let plan = entry.namingPlan, (!receipt.wasDuplicate || entry.renameDuplicateRoot), !entry.namingComplete {
+                for rename in plan.pathRenames where !entry.completedRenames.contains(rename) {
+                    try await completeQueuedRename(rename, hash: receipt.hashString, provider: provider)
+                    entry.completedRenames.append(rename)
+                    updateAddition(id) { $0.completedRenames = entry.completedRenames }
+                    try persistAddQueue()
+                }
+                if plan.rootName != receipt.name {
+                    let root = TorrentPathRename(path: receipt.name, name: plan.rootName)
+                    if !entry.completedRenames.contains(root) {
+                        try await completeQueuedRename(root, hash: receipt.hashString, provider: provider)
+                        entry.completedRenames.append(root)
+                        updateAddition(id) { $0.completedRenames = entry.completedRenames }
+                        try persistAddQueue()
+                    }
+                }
+                if let displayName = plan.displayName {
+                    let key = TorrentRecord.identity(sourceID: sourceID, hashString: receipt.hashString)
+                    torrentDisplayNames[key] = TorrentStoredDisplayName(rootName: plan.rootName,
+                        displayName: displayName, season: plan.season)
                     try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
-                } catch {
-                    renameWarnings.append("\(displayName): \(error.localizedDescription)")
                 }
             }
+            updateAddition(id) { $0.namingComplete = true; $0.phase = .confirming; $0.error = nil }
+            try persistAddQueue()
+            additionResults[id] = receipt
+            rememberDownloadDirectory(entry.downloadDirectory, for: sourceID)
+            watchAddedTorrent(receipt, sourceID: sourceID)
+            await refresh(sourceID: sourceID)
+            reconcilePendingAdditions()
+            return true
+        } catch {
+            failAddition(id, error: error, reportError: false)
+            return false
         }
-        finishTorrentAddition(id: pendingAdditionID, result: addedTorrent, succeeded: didAdd)
-        if didAdd {
-            onSuccess?(navigationResult)
-            rememberDownloadDirectory(downloadDirectory, for: sourceID)
-            watchAddedTorrent(addedTorrent, sourceID: sourceID)
+    }
+
+    private func completeQueuedRename(_ rename: TorrentPathRename, hash: String, provider: any TorrentProvider) async throws {
+        do { try await provider.renamePath(id: hash, path: rename.path, name: rename.name) }
+        catch {
+            // A rename can also succeed before its reply is lost.
+            if let details = try? await provider.fetchTorrentFiles(hashString: hash) {
+                let parent = (rename.path as NSString).deletingLastPathComponent
+                let destination = parent.isEmpty ? rename.name : parent + "/" + rename.name
+                if details.name == destination || details.files.contains(where: {
+                    $0.name == destination || $0.name.hasPrefix(destination + "/")
+                }) { return }
+            }
+            throw error
         }
-        if didAdd, trashSourceOnSuccess {
-            torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL)
-        }
-        if didAdd, !renameWarnings.isEmpty {
-            errorMessage = "The torrent was added, but some names could not be cleaned.\n\n" + renameWarnings.joined(separator: "\n")
-        }
-        return didAdd
     }
 
     public func downloadDirectoriesForSelectedProfile() -> [String] {

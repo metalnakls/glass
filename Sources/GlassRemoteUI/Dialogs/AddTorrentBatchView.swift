@@ -185,7 +185,11 @@ struct AddTorrentBatchView: View {
         for (item, name, directory, plan) in jobs {
             model.prepareTorrentAddition(id: item.draft.id, sourceID: destinationSource,
                 name: name, size: item.draft.preview.size, fileCount: item.draft.preview.files.count,
-                downloadDirectory: directory, namingPlan: plan)
+                downloadDirectory: directory,
+                namingPlan: plan ?? (name == item.draft.preview.name ? nil : TorrentAddNamingPlan(rootName: name, pathRenames: [])),
+                data: item.draft.data, fileSelection: item.fileSelection,
+                sourceURL: item.draft.sourceURL, trashSourceOnSuccess: true,
+                renameDuplicateRoot: plan == nil && name != item.draft.preview.name)
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all

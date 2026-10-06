@@ -488,7 +488,7 @@ public struct TorrentFileStats: Sendable, Hashable, Codable {
     }
 }
 
-public struct TorrentAddFileSelection: Sendable, Hashable {
+public struct TorrentAddFileSelection: Codable, Sendable, Hashable {
     public var filesWanted: [Int]
     public var filesUnwanted: [Int]
     public var priorityHigh: [Int]
@@ -518,7 +518,7 @@ public struct TorrentAddFileSelection: Sendable, Hashable {
     }
 }
 
-public struct TorrentAddResult: Sendable, Hashable {
+public struct TorrentAddResult: Codable, Sendable, Hashable {
     public let hashString: String
     public let name: String
     public let wasDuplicate: Bool
@@ -530,7 +530,7 @@ public struct TorrentAddResult: Sendable, Hashable {
     }
 }
 
-public struct TorrentPathRename: Sendable, Hashable, Identifiable {
+public struct TorrentPathRename: Codable, Sendable, Hashable, Identifiable {
     public let path: String
     public let name: String
 
@@ -542,7 +542,7 @@ public struct TorrentPathRename: Sendable, Hashable, Identifiable {
     public var id: String { path }
 }
 
-public struct TorrentAddNamingPlan: Sendable, Hashable {
+public struct TorrentAddNamingPlan: Codable, Sendable, Hashable {
     public let rootName: String
     public let pathRenames: [TorrentPathRename]
     public let season: TorrentSeasonDescriptor?

@@ -1,6 +1,8 @@
 import Foundation
 
 public protocol ProfileStore: Sendable {
+    func loadTorrentAddQueue() throws -> [TorrentAddQueueEntry]
+    func saveTorrentAddQueue(_ queue: [TorrentAddQueueEntry]) throws
     func loadProfiles() throws -> [RemoteProfile]
     func saveProfiles(_ profiles: [RemoteProfile]) throws
     func loadPreferences() throws -> GlassRemotePreferences
@@ -14,6 +16,7 @@ public protocol ProfileStore: Sendable {
 }
 
 public struct FileProfileStore: ProfileStore {
+    private let addQueueURL: URL
     private let fileURL: URL
     private let preferencesURL: URL
     private let torrentCacheURL: URL
@@ -23,6 +26,7 @@ public struct FileProfileStore: ProfileStore {
     private let decoder = JSONDecoder()
 
     public init(fileURL: URL) {
+        self.addQueueURL = fileURL.deletingLastPathComponent().appendingPathComponent("add-queue.json")
         self.fileURL = fileURL
         self.preferencesURL = fileURL.deletingLastPathComponent().appendingPathComponent("preferences.json")
         self.torrentCacheURL = fileURL.deletingLastPathComponent().appendingPathComponent("torrent-cache.json")
@@ -38,6 +42,17 @@ public struct FileProfileStore: ProfileStore {
             create: true
         )
         return FileProfileStore(fileURL: baseURL.appendingPathComponent(appName).appendingPathComponent("profiles.json"))
+    }
+
+    public func loadTorrentAddQueue() throws -> [TorrentAddQueueEntry] {
+        guard FileManager.default.fileExists(atPath: addQueueURL.path) else { return [] }
+        return try decoder.decode([TorrentAddQueueEntry].self, from: Data(contentsOf: addQueueURL))
+    }
+
+    public func saveTorrentAddQueue(_ queue: [TorrentAddQueueEntry]) throws {
+        let data = try encoder.encode(queue)
+        try FileManager.default.createDirectory(at: addQueueURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: addQueueURL, options: .atomic)
     }
 
     public func loadProfiles() throws -> [RemoteProfile] {
