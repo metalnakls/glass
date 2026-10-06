@@ -57,6 +57,9 @@ public final class GlassTuningUpdates {
         let name = String(key.dropFirst("GlassList.".count))
         switch name {
         case "iconGlassFrost", "iconGlassBrightness", "iconGlassTintStrength": return 0...1
+        case "iconShadowStrength": return 0...0.65
+        case "iconShadowSoftness": return 0...32
+        case "iconShadowOffset": return 0...24
         case "iconGlassOpacity": return 0.1...1
         case "iconGlassBlur": return 0...6
         case "iconGlassHDRLight", "iconGlassHDRDark": return 0...3

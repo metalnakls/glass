@@ -14,6 +14,10 @@ struct GlassIconAppearanceControls: View {
     @AppearanceStorage("GlassList.iconGlassHDRSoftness") private var hdrSoftness = 0.35
     @AppearanceStorage("GlassList.iconGlassHDRWidth") private var hdrWidth = 1.5
 
+    @AppearanceStorage("GlassList.iconShadowStrength") private var shadowStrength = 0.12
+    @AppearanceStorage("GlassList.iconShadowSoftness") private var shadowSoftness = 5.0
+    @AppearanceStorage("GlassList.iconShadowOffset") private var shadowOffset = 3.0
+
     private var tintColor: Binding<Color> {
         Binding(get: { Color(nsColor: HeaderFadeColor.decode(tint)) },
                 set: { tint = HeaderFadeColor.encode(NSColor($0)) })
@@ -42,6 +46,11 @@ struct GlassIconAppearanceControls: View {
             slider("Opacity", value: $opacity, range: 0.1...1, percent: true)
             slider("Brightness", value: $brightness, range: 0...1, percent: true)
             Divider()
+            Text("Icon shadows").font(.subheadline.weight(.semibold))
+            slider("Shadow strength", value: $shadowStrength, range: 0...0.65, percent: true)
+            slider("Shadow softness", value: $shadowSoftness, range: 0...32)
+            slider("Shadow offset", value: $shadowOffset, range: 0...24)
+            Divider()
             Text("Colour").font(.subheadline.weight(.semibold))
             ColorPicker("Tint", selection: tintColor, supportsOpacity: false)
             slider("Tint strength", value: $tintStrength, range: 0...1, percent: true)
@@ -54,7 +63,7 @@ struct GlassIconAppearanceControls: View {
             Text("HDR brightens reflections. Extra brightness depends on your display.")
                 .font(.caption).foregroundStyle(.secondary)
             Button("Reset Glass Icons") {
-                for (key, value) in GlassAppearanceDefaults.effective where key.hasPrefix("GlassList.iconGlass") {
+                for (key, value) in GlassAppearanceDefaults.effective where key.hasPrefix("GlassList.iconGlass") || key.hasPrefix("GlassList.iconShadow") {
                     AppearancePreferences.shared.set(value, for: key)
                 }
             }

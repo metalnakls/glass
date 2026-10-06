@@ -43,6 +43,8 @@ struct TorrentFolderMotionTests {
         #expect(liveViews.count == 2)
         #expect(liveViews.contains { $0 === originalIcon })
         #expect(source.subviews.isEmpty)
+        #expect(liveViews.allSatisfy { !$0.clipsToBounds && $0.layer?.masksToBounds != true })
+        #expect(liveViews.flatMap(\.subviews).allSatisfy { !$0.clipsToBounds })
         #expect(liveViews.allSatisfy { $0.window === window && $0.layer?.contents == nil })
         motion.animateAfterLayout(indices: ["group": 1, "first": 2, "second": 3], expectedRows: 4)
         rows.count = 4; table.reloadData()
@@ -67,10 +69,9 @@ struct TorrentFolderMotionTests {
         #expect(flights.count == 2)
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
         #expect(animation.duration == 0.30)
-        let pose = landing.pose
-        #expect(abs(flights[0].position.x + 18 - (landing.frame.midX + pose.x)) < 0.1)
+        #expect(abs(flights[0].position.x + 18 - destination.frame.midX) < 0.1)
         #expect(abs(flights[0].position.y + 18 - landing.frame.midY) < 0.1)
-        #expect(abs(hypot(flights[0].sublayerTransform.m11, flights[0].sublayerTransform.m12) - pose.scale) < 0.001)
+        #expect(abs(hypot(flights[0].sublayerTransform.m11, flights[0].sublayerTransform.m12) - 1) < 0.001)
         #expect(motion.flyingIDs.count == 2)
         // Row geometry can finish changing after the initial flight starts.
         // Keep the overlay alive for a separate, remeasured settle tail.
@@ -86,7 +87,7 @@ struct TorrentFolderMotionTests {
         #expect(tail != nil)
         #expect(motion.flyingIDs.count == 2)
         // A late host movement must get a final landing, not a snap on reveal.
-        landing.setFrameOrigin(CGPoint(x: landing.frame.minX + 26, y: landing.frame.minY))
+        destination.setFrameOrigin(CGPoint(x: destination.frame.minX + 26, y: destination.frame.minY))
         var finalLanding: CAAnimation?
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(10))
@@ -96,7 +97,7 @@ struct TorrentFolderMotionTests {
         }
         #expect(finalLanding != nil)
         #expect(motion.flyingIDs.count == 2)
-        #expect(abs(flights[0].position.x + 18 - (landing.frame.midX + pose.x)) < 0.1)
+        #expect(abs(flights[0].position.x + 18 - destination.frame.midX) < 0.1)
         // The exact original material returns to the landing container. No
         // duplicate static icon exists and no render-ack fade is needed.
         for _ in 0..<100 {
@@ -147,6 +148,14 @@ struct TorrentFolderMotionTests {
         motion.place(container)
         #expect(container.subviews.isEmpty)
         #expect(replacement.subviews.first === current)
+        motion.unregister(replacement)
+        #expect(container.subviews.first === current)
+        replacement.isActive = false
+        replacement.removeFromSuperview()
+        motion.place(container)
+        #expect(container.subviews.count == 1)
+        #expect(container.subviews.first?.isHidden == false)
+        #expect(container.subviews.first?.layer?.zPosition == 0)
     }
 
     @MainActor @Test("all visible members fly, extra leaves emerge behind the fan, and unacknowledged overlays retire")

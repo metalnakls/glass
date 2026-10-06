@@ -71,6 +71,7 @@ struct NativeGlassIcon: View {
         // retained glass render nodes must not keep the previous theme.
         .id(colorScheme)
         .frame(width: size, height: size)
+        .modifier(TorrentIconShadow())
         .accessibilityHidden(true)
     }
 }
@@ -176,5 +177,17 @@ extension EnvironmentValues {
     private static func context(_ data: UnsafeMutableRawPointer?, size: Int) -> CGContext? {
         CGContext(data: data, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+    }
+}
+
+/// One appearance policy for native icons in rows, groups, inspector, and flight.
+struct TorrentIconShadow: ViewModifier {
+    var tint: Color = .black
+    @AppearanceStorage("GlassList.funMode") private var enabled = false
+    @AppearanceStorage("GlassList.iconShadowStrength") private var strength = 0.12
+    @AppearanceStorage("GlassList.iconShadowSoftness") private var softness = 5.0
+    @AppearanceStorage("GlassList.iconShadowOffset") private var offset = 3.0
+    func body(content: Content) -> some View {
+        content.shadow(color: tint.opacity(enabled ? strength : 0), radius: softness, y: offset)
     }
 }

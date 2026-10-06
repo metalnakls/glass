@@ -12,6 +12,7 @@ final class TorrentFolderMotion {
     @ObservationIgnored private var views: [String: FolderFlightView] = [:]
     @ObservationIgnored private var icons: [String: FolderFlightView] = [:]
     @ObservationIgnored private let containers = NSMapTable<NSString, TorrentFolderIconContainer>(keyOptions: .strongMemory, valueOptions: .weakMemory)
+    @ObservationIgnored private var placeholders: [String: NSHashTable<TorrentFolderIconContainer>] = [:]
     @ObservationIgnored private var members: [String] = []
     @ObservationIgnored private var groupID = ""
     @ObservationIgnored private var expanding = false
@@ -23,20 +24,33 @@ final class TorrentFolderMotion {
     @ObservationIgnored private let anchors = NSMapTable<NSString, TorrentFolderLandingAnchor.Anchor>(keyOptions: .strongMemory, valueOptions: .weakMemory)
     @ObservationIgnored private var scrollOrigin = CGPoint.zero
     func register(_ container: TorrentFolderIconContainer) {
-        guard !container.id.isEmpty, container.window != nil else { return }
+        guard !container.id.isEmpty, container.window != nil, container.isActive else { return }
+        let candidates = placeholders[container.id] ?? NSHashTable<TorrentFolderIconContainer>.weakObjects()
+        candidates.add(container); placeholders[container.id] = candidates
         containers.setObject(container, forKey: container.id as NSString)
         place(container)
     }
 
     func unregister(_ container: TorrentFolderIconContainer) {
+        placeholders[container.id]?.remove(container)
         guard containers.object(forKey: container.id as NSString) === container else { return }
         containers.removeObject(forKey: container.id as NSString)
+        if let replacement = placeholders[container.id]?.allObjects.first(where: { $0.isActive && $0.window != nil }) {
+            containers.setObject(replacement, forKey: container.id as NSString)
+            place(replacement)
+            return
+        }
         guard views[container.id] == nil else { return }
         icons.removeValue(forKey: container.id)?.removeFromSuperview()
     }
 
     func place(_ container: TorrentFolderIconContainer) {
-        guard views[container.id] == nil, container.window != nil,
+        // A recycled owner can disappear after its replacement was laid out.
+        // Let the still-live placeholder recover an unclaimed icon.
+        if containers.object(forKey: container.id as NSString) == nil, container.window != nil, container.isActive {
+            containers.setObject(container, forKey: container.id as NSString)
+        }
+        guard views[container.id] == nil, container.window != nil, container.isActive,
               containers.object(forKey: container.id as NSString) === container else { return }
         let icon = artwork(for: container.id)
         for child in container.subviews where child !== icon { child.removeFromSuperview() }
@@ -45,6 +59,7 @@ final class TorrentFolderMotion {
         icon.setFrameOrigin(CGPoint(x: container.bounds.midX - 18, y: container.bounds.midY - 18))
         icon.layer?.sublayerTransform = Self.transform(scale: container.size / 36)
         icon.pose.rotation = container.rotation
+        icon.layer?.zPosition = 0
         icon.isHidden = false; icon.alphaValue = 1
         CATransaction.commit()
     }
@@ -253,6 +268,17 @@ final class TorrentFolderMotion {
 
     private func endpoint(row: Int, slot: Int, fan: Bool, id: String) -> (center: CGPoint, size: CGSize, angle: Double) {
         guard let table else { return (.zero, .zero, 0) }
+        // The native destination is authoritative. Estimated anchor geometry
+        // can differ from the actual recycled host and snap during reparenting.
+        if let container = containers.object(forKey: (fan ? (members.indices.contains(slot) ? members[slot] : "") : id) as NSString),
+           container.isActive, container.window === table.window, container.bounds.width > 0,
+           container.size == (fan ? 27 : 36) {
+            let rect = CGRect(x: container.bounds.midX - container.size / 2,
+                              y: container.bounds.midY - container.size / 2,
+                              width: container.size, height: container.size)
+            let landing = container.convert(rect, to: overlay)
+            return (CGPoint(x: landing.midX, y: landing.midY), landing.size, container.rotation)
+        }
         let rowFrame = table.rect(ofRow: row)
         let fanCount = min(members.count, 3)
         let progress = slot >= 3 || fanCount < 2 ? 0.5 : Double(slot) / Double(fanCount - 1)
@@ -299,7 +325,7 @@ final class TorrentFolderMotion {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         scrollObserver = nil
         for icon in icons.values { icon.removeFromSuperview() }
-        icons.removeAll(); containers.removeAllObjects()
+        icons.removeAll(); containers.removeAllObjects(); placeholders.removeAll()
         overlay.removeFromSuperview(); table = nil
     }
 }
@@ -327,6 +353,9 @@ private final class FolderFlightView: NSView {
         let host = NSHostingView(rootView: FolderFlightArtwork(pose: pose))
         host.frame = rect
         host.sizingOptions = []
+        host.clipsToBounds = false
+        clipsToBounds = false
+        layer?.masksToBounds = false
         addSubview(host)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -378,6 +407,7 @@ struct TorrentFolderGlassIcon: NSViewRepresentable {
         view.configure(controller: controller, id: id, size: size, rotation: rotation + inheritedRotation)
     }
     static func dismantleNSView(_ view: TorrentFolderIconContainer, coordinator: ()) {
+        view.isActive = false
         view.controller?.unregister(view)
     }
 }
@@ -387,8 +417,12 @@ final class TorrentFolderIconContainer: NSView {
     var id = ""
     var size: CGFloat = 36
     var rotation: Double = 0
+    var isActive = true
     func configure(controller: TorrentFolderMotion, id: String, size: CGFloat, rotation: Double) {
         if self.id != id || self.controller !== controller { self.controller?.unregister(self) }
+        isActive = true
+        clipsToBounds = false
+        layer?.masksToBounds = false
         self.controller = controller; self.id = id; self.size = size; self.rotation = rotation
         controller.register(self)
     }

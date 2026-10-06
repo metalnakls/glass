@@ -415,7 +415,6 @@ struct TorrentFileIcon: View {
     @Environment(\.glassSampleArtwork) private var sampleArtwork
     @State private var thumbnail: NSImage?
     @State private var artworkTint = Color.black
-    @AppearanceStorage("GlassList.funMode") private var funMode = false
     @AppearanceStorage("GlassList.posterColoredShadows") private var coloredShadows = true
 
     @ViewBuilder
@@ -424,17 +423,16 @@ struct TorrentFileIcon: View {
             // Folder flights need only the cached system image. Visibility tracking
             // and thumbnail revisions otherwise invalidate every moving folder.
             NativeGlassIcon(image: nativeIcon, size: size, isFolder: true)
-                .shadow(color: .black.opacity(funMode ? 0.10 : 0), radius: 3, y: 2)
         } else {
         Group {
             if let displayedThumbnail {
                 Image(nsImage: displayedThumbnail).resizable().aspectRatio(contentMode: .fit)
                     .frame(width: size, height: size)
+                    .modifier(TorrentIconShadow(tint: coloredShadows ? artworkTint : .black))
             } else {
                 NativeGlassIcon(image: nativeIcon, size: size)
             }
         }
-            .shadow(color: (coloredShadows && displayedThumbnail != nil ? artworkTint : .black).opacity(funMode ? 0.12 : 0), radius: 5, y: 3)
             // List already realizes a viewport buffer and the shared preloader
             // warms nearby artwork. Load once on realization rather than adding
             // a visibility observer and a second state/layout update per icon.
