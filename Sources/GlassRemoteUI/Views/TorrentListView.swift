@@ -499,10 +499,7 @@ struct TorrentListView: View {
     }
 
     private func isUnavailable(_ record: TorrentRecord) -> Bool {
-        record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
-            sourceID: record.sourceID, directory: record.summary.downloadDir,
-            isLocal: record.sourceID == model.localSourceID
-        )
+        record.summary.hasStorageError
     }
 
     private func toggleGroupTransfers(_ records: [TorrentRecord]) async -> Bool {
@@ -670,10 +667,8 @@ private struct TorrentListLiveRow: View {
     private var shareUnavailable: Bool {
         func isUnavailable(_ record: TorrentRecord) -> Bool {
             if record.isAdding { return false }
-            return record.summary.hasStorageError || TorrentThumbnailService.shared.isShareUnavailable(
-                sourceID: record.sourceID, directory: record.summary.downloadDir,
-                isLocal: record.sourceID == model.localSourceID
-            )
+            // Finder mount reachability affects previews/reveal, not Transmission RPC.
+            return record.summary.hasStorageError
         }
         switch row.kind {
         case let .torrent(record, _):
