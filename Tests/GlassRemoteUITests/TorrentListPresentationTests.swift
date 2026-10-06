@@ -125,8 +125,13 @@ struct TorrentListPresentationTests {
         let mixed = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1), torrent(2, progress: 0.99)])
         #expect(!mixed.summary.isCompleted)
         let unavailable = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1), torrent(2, progress: 1, error: 3)])
-        #expect(unavailable.summary.hasStorageError)
-        #expect(unavailable.summary.errorString == "No data found!")
+        #expect(!unavailable.summary.hasStorageError)
+        #expect(unavailable.summary.errorString == nil)
+        #expect(unavailable.locationErrors.isEmpty)
+        let missing = TorrentNameSequenceGroup(id: "group", displayName: "Show", torrents: [torrent(1, progress: 1, error: 3), torrent(2, progress: 1, error: 3)])
+        #expect(missing.summary.hasStorageError)
+        #expect(missing.summary.errorString == "No data found!")
+        #expect(missing.locationErrors.count == 2)
     }
 
     @Test("unfinished live seasons override missing completed seasons and seeding siblings")

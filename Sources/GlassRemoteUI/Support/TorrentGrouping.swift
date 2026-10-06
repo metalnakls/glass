@@ -25,6 +25,12 @@ struct TorrentNameSequenceGroup: Identifiable {
         torrents.filter { $0.isUnfinished && !$0.hasStorageError }
     }
 
+    var locationErrors: [String] {
+        let allMissing = !torrents.isEmpty && torrents.allSatisfy(\.hasStorageError)
+        return torrents.filter { allMissing || !$0.hasStorageError }
+            .compactMap(\.errorString).filter { !$0.isEmpty }
+    }
+
     var summary: TorrentSummary {
         let size = torrents.reduce(UInt64(0)) { $0 + $1.sizeWhenDone }
         let left = torrents.reduce(UInt64(0)) { $0 + $1.leftUntilDone }
@@ -36,7 +42,7 @@ struct TorrentNameSequenceGroup: Identifiable {
         let transfers = transferTorrents
         let stateTorrents = transfers.isEmpty ? torrents : transfers
         let activeTorrents = stateTorrents.filter(\.canStopTransfer)
-        let storageError = transfers.isEmpty ? torrents.first(where: \.hasStorageError) : nil
+        let storageError = !torrents.isEmpty && torrents.allSatisfy(\.hasStorageError) ? torrents.first : nil
         let eta = activeTorrents.map(\.eta).filter { $0 > 0 }.max() ?? -1
 
         return TorrentSummary(
