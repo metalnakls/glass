@@ -91,8 +91,8 @@ struct TorrentArtworkOverflow: NSViewRepresentable {
                 if view is NSTableRowView, !view.wantsLayer { view.wantsLayer = true }
                 if let layer = view.layer {
                     if layer.masksToBounds { layer.masksToBounds = false }
-                    if view is NSTableRowView, layer.zPosition != CGFloat(order + 1) {
-                        layer.zPosition = CGFloat(order + 1)
+                    if view is NSTableRowView, layer.zPosition != TorrentListRenderOrder.row(at: order) {
+                        layer.zPosition = TorrentListRenderOrder.row(at: order)
                     }
                 }
                 ancestor = view.superview

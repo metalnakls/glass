@@ -2,7 +2,7 @@ import AppKit
 import Observation
 import SwiftUI
 
-/// Live folder views move in the scroll overlay, independently of native row layout.
+/// The same live folder views fly above rows in the native scrolling document.
 @MainActor @Observable
 final class TorrentFolderMotion {
     private(set) var flyingIDs = Set<String>()
@@ -87,8 +87,8 @@ final class TorrentFolderMotion {
         if self.table != nil { detach() }
         self.table = table
         scrollOrigin = scroll.contentView.bounds.origin
-        overlay.frame = scroll.contentView.frame
-        scroll.addSubview(overlay, positioned: .above, relativeTo: scroll.contentView)
+        overlay.frame = table.bounds
+        table.addSubview(overlay, positioned: .above, relativeTo: nil)
         scrollObserver = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification,
             object: scroll.contentView, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated {
@@ -109,8 +109,8 @@ final class TorrentFolderMotion {
                 layer.sublayerTransform.m11, views[id]?.pose.rotation ?? 0, layer.opacity))
         })
         cancel()
-        guard !reduceMotion, let table, let scroll = table.enclosingScrollView else { return }
-        overlay.frame = scroll.contentView.frame
+        guard !reduceMotion, let table, table.enclosingScrollView != nil else { return }
+        overlay.frame = table.bounds
         self.groupID = groupID; self.members = members
         self.expanding = expanding; self.inset = inset
         poses = Dictionary(uniqueKeysWithValues: ([groupID] + self.members).map { ($0, TorrentIconPose.forRole($0 == groupID ? .fan : .folder)) })
@@ -164,6 +164,7 @@ final class TorrentFolderMotion {
                 self?.cancel(); return
             }
             table.layoutSubtreeIfNeeded()
+            self.overlay.frame = table.bounds
             for (slot, id) in self.members.enumerated() {
                 guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
@@ -207,6 +208,7 @@ final class TorrentFolderMotion {
             // Native rows have now settled. Re-measure the destination and give
             // the image a gentle tail from its current presentation position.
             table.layoutSubtreeIfNeeded()
+            self.overlay.frame = table.bounds
             var needsTail = false
             for (slot, id) in self.members.enumerated() {
                 guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
@@ -380,6 +382,7 @@ private final class FolderFlightOverlay: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layer?.zPosition = TorrentListRenderOrder.folderFlight
         layer?.isGeometryFlipped = true
         layer?.masksToBounds = true
     }

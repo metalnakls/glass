@@ -87,7 +87,8 @@ struct TorrentRowView: View, Equatable {
     }
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
-        lhs.torrent == rhs.torrent
+        TorrentRowDisplayState(lhs.torrent, shareUnavailable: lhs.shareUnavailable)
+            == TorrentRowDisplayState(rhs.torrent, shareUnavailable: rhs.shareUnavailable)
             && lhs.showsExtensions == rhs.showsExtensions
             && lhs.density == rhs.density
             && lhs.grid == rhs.grid
@@ -309,7 +310,7 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var progress: Double {
-        torrent.percentDone.isFinite ? min(max(torrent.percentDone, 0), 1) : 0
+        TorrentRowDisplayState.normalizedProgress(torrent.percentDone)
     }
 
     private var stateSymbol: String {
@@ -334,6 +335,42 @@ struct TorrentRowView: View, Equatable {
     private func displayName(_ name: String) -> String {
         guard !showsExtensions, groupIsExpanded == nil, torrent.fileCount.map({ $0 <= 1 }) ?? true else { return name }
         return TorrentExtensionPolicy.name(name, hiding: TorrentExtensionPolicy.hiddenExtension(paths: [name]))
+    }
+}
+
+/// Only values rendered or used by the row's controls participate in equality.
+/// Peer counts, upload telemetry, queue position and ETA belong to other views.
+private struct TorrentRowDisplayState: Equatable {
+    let id: Int
+    let hash: String
+    let name: String
+    let complete: Bool
+    let canStop: Bool
+    let downloadingMetadata: Bool
+    let progress: Double
+    let downloadRate: Double
+    let completedSize: UInt64
+    let priority: Int
+    let fileCount: Int?
+    let unavailableReason: String?
+
+    init(_ torrent: TorrentSummary, shareUnavailable: Bool) {
+        id = torrent.id
+        hash = torrent.hashString
+        name = torrent.name
+        complete = torrent.isCompleted
+        canStop = torrent.canStopTransfer
+        downloadingMetadata = torrent.isDownloadingMetadata
+        progress = Self.normalizedProgress(torrent.percentDone)
+        downloadRate = complete ? 0 : torrent.rateDownload
+        completedSize = complete ? torrent.sizeWhenDone : 0
+        priority = torrent.bandwidthPriority ?? 0
+        fileCount = torrent.fileCount
+        unavailableReason = shareUnavailable ? torrent.errorString : nil
+    }
+
+    static func normalizedProgress(_ value: Double) -> Double {
+        value.isFinite ? min(max(value, 0), 1) : 0
     }
 }
 

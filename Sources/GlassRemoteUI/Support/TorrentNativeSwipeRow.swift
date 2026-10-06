@@ -12,7 +12,7 @@ struct TorrentNativeSwipeRow<Content: View>: View {
 
     var body: some View {
         if enabled {
-            content()
+            TorrentSwipeContent(content: content)
                 .swipeActions(edge: .leading, allowsFullSwipe: false) {
                     swipeButtons
                 } onPresentationChanged: { presentationChanged($0) }
@@ -23,7 +23,7 @@ struct TorrentNativeSwipeRow<Content: View>: View {
                     NativeSwipeReleaseAnchor { deleteData in commit(deleteData) }
                 }
                 .onDisappear { presentationChanged(false) }
-        } else { content() }
+        } else { TorrentSwipeContent(content: content) }
     }
 
     private var swipeButtons: some View {
@@ -44,6 +44,13 @@ struct TorrentNativeSwipeRow<Content: View>: View {
         presentationChanged(false)
         remove(data)
     }
+}
+
+/// Read live telemetry in a child body. Evaluating the builder in the swipe
+/// wrapper would subscribe its buttons and AppKit anchors to every refresh.
+private struct TorrentSwipeContent<Content: View>: View {
+    let content: () -> Content
+    var body: some View { content() }
 }
 
 private struct NativeSwipeReleaseAnchor: NSViewRepresentable {

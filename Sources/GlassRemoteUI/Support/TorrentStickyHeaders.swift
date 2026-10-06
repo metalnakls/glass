@@ -32,6 +32,7 @@ enum TorrentStickyHeaderGeometry {
     struct Placement: Equatable {
         let index: Int
         let frame: CGRect
+        var pinned = false
         var retiring = false
         var exitProgress: CGFloat = 0
     }
@@ -57,7 +58,7 @@ enum TorrentStickyHeaderGeometry {
         pinned.origin.y = min(topInset, end - viewport.minY - original.height)
         func placement(_ index: Int, _ frame: CGRect) -> Placement {
             let progress = min(1, max(0, (topInset - frame.minY) / (topInset + frame.height)))
-            return Placement(index: index, frame: frame, retiring: progress > 0, exitProgress: progress)
+            return Placement(index: index, frame: frame, pinned: true, retiring: progress > 0, exitProgress: progress)
         }
         var titles = [placement(index, pinned)]
         // The incoming title pins at the breathing-room inset. The previous
@@ -197,9 +198,10 @@ final class TorrentStickyHeaders: NSObject {
         structureCache = nil
         table.floatsGroupRows = false
         // Inline titles move with the document in the native scroll transaction.
-        // Only the pinned title needs its position adjusted on a bounds change.
+        // Pinned titles live in the stationary viewport; only pushing moves them.
         table.addSubview(overlay, positioned: .above, relativeTo: nil)
         overlay.frame = table.bounds
+        overlay.attachViewport(to: scroll)
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
@@ -212,6 +214,7 @@ final class TorrentStickyHeaders: NSObject {
     func detach() {
         NotificationCenter.default.removeObserver(self)
         overlay.removeFromSuperview()
+        overlay.detachViewport()
         table = nil
         structureCache = nil
     }
@@ -271,20 +274,30 @@ final class TorrentStickyHeaders: NSObject {
         let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
         if overlay.frame != table.bounds { overlay.frame = table.bounds }
+        overlay.attachViewport(to: scroll)
         overlay.isHidden = false
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
                         backdropActive: sticky?.titles.contains { !$0.retiring } == true,
                         viewport: viewport)
     }
-    isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview() }
+    isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview(); overlay.detachViewport() }
 }
 
 final class HeaderBackdrop: NSView {
+    let pinnedSurface = HeaderViewportSurface()
     private let effect = NSView()
     private let fadeMask = CAGradientLayer()
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
     private var settings = TorrentHeaderAppearance()
+    func attachViewport(to scroll: NSScrollView) {
+        if pinnedSurface.superview !== scroll {
+            scroll.addSubview(pinnedSurface, positioned: .above, relativeTo: scroll.contentView)
+        }
+        if pinnedSurface.frame != scroll.contentView.frame { pinnedSurface.frame = scroll.contentView.frame }
+        pinnedSurface.isHidden = false
+    }
+    func detachViewport() { pinnedSurface.removeFromSuperview() }
     func configure(_ settings: TorrentHeaderAppearance) {
         let old = self.settings
         self.settings = settings
@@ -296,10 +309,11 @@ final class HeaderBackdrop: NSView {
     func retire(id: String, host: TitleHost) {
         titles[id] = nil
         guard host.window != nil else { return }
-        let position = convert(host.bounds, from: host)
+        let parent: NSView = host.superview === pinnedSurface ? pinnedSurface : self
+        let position = parent.convert(host.bounds, from: host)
         host.isRetiring = true
-        host.isPinned = true
-        addSubview(host)
+        host.isPinned = parent === pinnedSurface
+        if host.superview !== parent { parent.addSubview(host) }
         host.frame = position
         host.setExitProgress(1, duration: settings.titleOut)
         NSAnimationContext.runAnimationGroup { context in
@@ -342,6 +356,7 @@ final class HeaderBackdrop: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layer?.zPosition = TorrentListRenderOrder.sectionHeader
         layer?.masksToBounds = true
         effect.alphaValue = 0
         effect.wantsLayer = true
@@ -351,18 +366,19 @@ final class HeaderBackdrop: NSView {
         fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
         fadeMask.endPoint = CGPoint(x: 0.5, y: 0)
         effect.layer?.mask = fadeMask
-        addSubview(effect)
+        pinnedSurface.addSubview(effect)
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
     func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil) {
+        isHidden = false
         setBackdropActive(backdropActive)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Keep the last backdrop extent while its time-based fade finishes.
         let effectHeight = layout.backdropHeight > 0 ? layout.backdropHeight : effect.frame.height
         let viewport = viewport ?? bounds
-        let effectFrame = CGRect(x: viewport.minX, y: viewport.minY, width: viewport.width, height: effectHeight)
+        let effectFrame = CGRect(x: 0, y: 0, width: viewport.width, height: effectHeight)
         if effect.frame != effectFrame { effect.frame = effectFrame }
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
@@ -374,16 +390,17 @@ final class HeaderBackdrop: NSView {
         for placement in layout.titles {
             let header = headers[placement.index]
             guard let host = hosts[header.id] else { continue }
-            let reparented = host.superview !== self
-            if reparented { addSubview(host) }
-            host.isPinned = true
-            host.isHidden = false
-            titles[header.id] = host
-            let frame = placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
-            // Scrolling changes position only. Hosting layout never participates
-            // in the per-scroll movement and cannot resize a competing copy.
+            let parent: NSView = placement.pinned ? pinnedSurface : self
+            let frame = placement.pinned ? placement.frame
+                : placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
+            // Move the one cached title only when it pins or returns inline.
+            // A pinned title never counter-scrolls inside the moving document.
+            if host.superview !== parent { parent.addSubview(host) }
+            host.isPinned = placement.pinned
+            host.isHidden = false
+            titles[header.id] = host
             // Scroll coordinates must bypass any inherited AppKit animation
             // context. Only opacity and blur use the tuned transition duration.
             NSAnimationContext.runAnimationGroup { context in
@@ -394,10 +411,23 @@ final class HeaderBackdrop: NSView {
             }
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
-            // Position is tied directly to the scroll transaction. Fade and
-            // blur animate inside this overlay without invalidating row heights.
+            // Fade and blur animate inside the title without invalidating rows.
         }
     }
+}
+
+/// Stationary sibling of the native clip view. Elastic and concurrent document
+/// scrolling cannot move a pinned title before its next main-thread callback.
+final class HeaderViewportSurface: NSView {
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.zPosition = TorrentListRenderOrder.sectionHeader
+        layer?.masksToBounds = true
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
 
 final class TitleHost: NSView {

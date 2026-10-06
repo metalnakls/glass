@@ -9,6 +9,33 @@ struct TorrentStickyHeaderTests {
     let frames = [CGRect(x: 8, y: 6, width: 480, height: 48), CGRect(x: 8, y: 186, width: 480, height: 48)]
     func viewport(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 500, height: 600) }
 
+    @MainActor @Test("rows inserted after the header cannot paint over it")
+    func lateRowStacking() throws {
+        _ = NSApplication.shared
+        let frame = CGRect(x: 0, y: 0, width: 20, height: 20)
+        let window = NSWindow(contentRect: frame, styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let table = NSTableView(frame: frame)
+        table.wantsLayer = true
+        window.contentView = table
+        defer { window.close() }
+        let backdrop = HeaderBackdrop(frame: frame)
+        backdrop.isHidden = false
+        table.addSubview(backdrop)
+        // Native List realizes more cells after the header surface is attached.
+        let row = NSTableRowView(frame: frame)
+        row.wantsLayer = true
+        table.addSubview(row, positioned: .above, relativeTo: nil)
+        let overflow = TorrentArtworkOverflow.Anchor(frame: frame)
+        overflow.enabled = true
+        overflow.order = 10_000
+        row.addSubview(overflow)
+        overflow.configure()
+        let headerLayer = try #require(backdrop.layer)
+        let rowLayer = try #require(row.layer)
+        #expect(headerLayer.zPosition > rowLayer.zPosition)
+    }
+
     @MainActor @Test("inline titles scroll in the native document even before a header layout update")
     func inlineDocumentScrolling() throws {
         _ = NSApplication.shared
@@ -41,41 +68,91 @@ struct TorrentStickyHeaderTests {
         #expect(host.frame == frame)
     }
 
-    @MainActor @Test("pin and push never reparent titles into the list or change its slots")
+    @MainActor @Test("a pinned title stays still when native scrolling advances before header callbacks")
+    func pinnedViewportScrolling() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: 500, height: 300))
+        let table = NSTableView(frame: CGRect(x: 0, y: 0, width: 500, height: 1000))
+        table.headerView = nil
+        scroll.documentView = table
+        window.contentView?.addSubview(scroll)
+        let controller = TorrentStickyHeaders()
+        controller.attach(table)
+        defer { controller.detach(); window.close() }
+        // Reproduce an asynchronous scroll advancing while the main-thread
+        // pinning callback has not run. Neither title presentation nor its
+        // coordinates are updated again during these scroll steps.
+        NotificationCenter.default.removeObserver(controller)
+        let backdrop = try #require(table.subviews.compactMap { $0 as? HeaderBackdrop }.first)
+        let host = TitleHost(title: "Completed", inset: 40)
+        let header = TorrentStickyHeaders.Header(id: "finished", title: "Completed", index: 0, inset: 40)
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 200))
+        let viewport = scroll.contentView.bounds
+        let layout = try #require(TorrentStickyHeaderGeometry.layout(
+            frames: [CGRect(x: 0, y: 180, width: 500, height: 48)], viewport: viewport, topInset: 20))
+        backdrop.present(layout: layout, headers: [header], hosts: ["finished": host], viewport: viewport)
+        let position = host.convert(CGPoint.zero, to: window.contentView)
+        for y: CGFloat in [224, 210, 240, 220] {
+            scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+            #expect(host.convert(CGPoint.zero, to: window.contentView) == position)
+            #expect(!host.isHidden)
+        }
+    }
+
+    @MainActor @Test("pin and push move one title between document and viewport without changing its slots")
     func singleNativeOwner() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 600), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
+        defer { window.close() }
         let root = try #require(window.contentView)
+        let scroll = NSScrollView(frame: root.bounds)
+        let table = NSTableView(frame: CGRect(x: 0, y: 0, width: 500, height: 1000))
+        table.headerView = nil
+        scroll.documentView = table
+        root.addSubview(scroll)
         let firstInline = NSView(frame: frames[0])
         let secondInline = NSView(frame: frames[1])
         let first = TitleHost(title: "Downloading", inset: 40)
         let second = TitleHost(title: "Finished", inset: 40)
         first.isHidden = true; second.isHidden = true
-        root.addSubview(firstInline); root.addSubview(secondInline)
-        let backdrop = HeaderBackdrop(frame: root.bounds)
-        root.addSubview(backdrop)
+        table.addSubview(firstInline); table.addSubview(secondInline)
+        let backdrop = HeaderBackdrop(frame: table.bounds)
+        table.addSubview(backdrop)
+        backdrop.attachViewport(to: scroll)
         let headers = [TorrentStickyHeaders.Header(id: "first", title: "Downloading", index: 0, inset: 40),
                        TorrentStickyHeaders.Header(id: "second", title: "Finished", index: 1, inset: 40)]
         let hosts = ["first": first, "second": second]
         for y: CGFloat in [20, 150, 170, 187] {
-            let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(y)))
-            backdrop.present(layout: layout, headers: headers, hosts: hosts)
+            scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+            let viewport = scroll.contentView.bounds
+            let layout = try #require(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport))
+            backdrop.present(layout: layout, headers: headers, hosts: hosts, viewport: viewport)
             #expect(backdrop.backdropIsActive)
             for placement in layout.titles {
                 let host = placement.index == 0 ? first : second
-                #expect(host.superview === backdrop)
+                let parent: NSView = placement.pinned ? backdrop.pinnedSurface : backdrop
+                #expect(host.superview === parent)
                 #expect(!host.isHidden)
-                #expect(host.frame == placement.frame)
+                let expectedFrame = placement.pinned ? placement.frame
+                    : placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
+                #expect(host.frame == expectedFrame)
                 let label = try #require(host.subviews.first)
                 #expect(label.frame.width > 0)
                 #expect(label.frame.height > 0)
                 #expect(label.safeAreaInsets.top == 0)
                 #expect(label.safeAreaInsets.bottom == 0)
-                #expect(backdrop.subviews.filter { $0 === host }.count == 1)
+                #expect((backdrop.subviews + backdrop.pinnedSurface.subviews).filter { $0 === host }.count == 1)
             }
         }
-        #expect(first.superview === backdrop)
+        // Reversing back to the top returns the same cached objects inline.
+        scroll.contentView.scroll(to: .zero)
+        let inline = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: scroll.contentView.bounds, sticky: nil)
+        backdrop.present(layout: inline, headers: headers, hosts: hosts, backdropActive: false, viewport: scroll.contentView.bounds)
+        #expect(first.superview === backdrop && second.superview === backdrop)
+        #expect(first.frame == frames[0] && second.frame == frames[1])
         backdrop.dismiss()
         #expect(!backdrop.backdropIsActive)
         #expect(first.superview === backdrop)
@@ -83,7 +160,6 @@ struct TorrentStickyHeaderTests {
         #expect(first.isHidden && second.isHidden)
         #expect(firstInline.subviews.isEmpty && secondInline.subviews.isEmpty)
         #expect(firstInline.frame == frames[0] && secondInline.frame == frames[1])
-        window.close()
     }
 
     @Test("visible inline titles share the overlay without duplicate pinned copies")

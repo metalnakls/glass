@@ -27,6 +27,8 @@ struct TorrentFolderMotionTests {
         window.contentView?.addSubview(scroll)
         scroll.documentView = table
         table.reloadData()
+        let header = HeaderBackdrop(frame: table.bounds)
+        table.addSubview(header)
         let motion = TorrentFolderMotion()
         motion.attach(table)
         let source = TorrentFolderIconContainer(frame: CGRect(x: 20, y: 50, width: 27, height: 27))
@@ -38,11 +40,14 @@ struct TorrentFolderMotionTests {
         #expect(motion.flyingIDs == ["first", "second"])
         // Every flying icon is a live view in the same window, never a grey
         // image. There is exactly one host per visible member.
-        let liveViews = scroll.subviews.flatMap(\.subviews)
+        let liveViews = table.subviews.flatMap(\.subviews)
             .filter { $0.subviews.contains { $0 is NSHostingView<FolderFlightArtwork> } }
         #expect(liveViews.count == 2)
         #expect(liveViews.contains { $0 === originalIcon })
         #expect(source.subviews.isEmpty)
+        let flightSurface = try #require(originalIcon.superview)
+        #expect(flightSurface.superview === table)
+        #expect(try #require(flightSurface.layer).zPosition < #require(header.layer).zPosition)
         #expect(liveViews.allSatisfy { !$0.clipsToBounds && $0.layer?.masksToBounds != true })
         #expect(liveViews.flatMap(\.subviews).allSatisfy { !$0.clipsToBounds })
         #expect(liveViews.allSatisfy { $0.window === window && $0.layer?.contents == nil })
@@ -62,7 +67,7 @@ struct TorrentFolderMotionTests {
         var flights: [CALayer] = []
         for _ in 0..<25 {
             try await Task.sleep(for: .milliseconds(10))
-            flights = scroll.subviews.flatMap { $0.layer?.sublayers ?? [] }
+            flights = table.subviews.flatMap { $0.layer?.sublayers ?? [] }
                 .filter { $0.animation(forKey: "folderFlight") != nil }
             if flights.count == 2 { break }
         }
@@ -183,7 +188,7 @@ struct TorrentFolderMotionTests {
         #expect(visibleIDs.count < members.count)
         #expect(visibleIDs.contains("member-3"))
         #expect(!visibleIDs.contains("member-19"))
-        let flightViews = scroll.subviews.flatMap(\.subviews)
+        let flightViews = table.subviews.flatMap(\.subviews)
             .filter { $0.identifier?.rawValue.hasPrefix("member-") == true }
         let flights = flightViews.compactMap(\.layer)
         #expect(flightViews.count == visibleIDs.count)
@@ -216,7 +221,7 @@ struct TorrentFolderMotionTests {
             inset: 20, indices: indices, reduceMotion: false)
         #expect(motion.flyingIDs.count > 3)
         #expect(!motion.flyingIDs.contains("member-19"))
-        let returning = scroll.subviews.flatMap(\.subviews)
+        let returning = table.subviews.flatMap(\.subviews)
             .filter { $0.identifier?.rawValue.hasPrefix("member-") == true }.compactMap(\.layer)
         rows.count = 2; table.reloadData()
         motion.animateAfterLayout(indices: ["group": 1], expectedRows: 2)
