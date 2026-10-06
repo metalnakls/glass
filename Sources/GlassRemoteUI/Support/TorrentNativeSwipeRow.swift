@@ -28,9 +28,14 @@ struct TorrentNativeSwipeRow<Content: View>: View {
 
     private var swipeButtons: some View {
         Group {
-            Button { commit(true) } label: { Label("Delete Torrent + Data", systemImage: "trash") }
+            Button { commit(true) } label: { Label(glassText("Delete Torrent + Data"), systemImage: "trash") }
                 .tint(.red)
-            Button { commit(false) } label: { Label("Delete Torrent", systemImage: "xmark") }
+            Button { commit(false) } label: {
+                Image(systemName: "xmark")
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(.black)
+            }
+                .accessibilityLabel(glassText("Delete Torrent"))
                 .tint(.yellow)
         }
         .labelStyle(.iconOnly)
