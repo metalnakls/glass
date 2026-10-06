@@ -370,8 +370,14 @@ final class HeaderBackdrop: NSView {
             // in the per-scroll movement and cannot resize a competing copy.
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            if host.frame.size != placement.frame.size { host.setFrameSize(placement.frame.size) }
-            host.setFrameOrigin(placement.frame.origin)
+            // Scroll coordinates must bypass any inherited AppKit animation
+            // context. Only opacity and blur use the tuned transition duration.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                context.allowsImplicitAnimation = false
+                if host.frame.size != placement.frame.size { host.setFrameSize(placement.frame.size) }
+                if host.frame.origin != placement.frame.origin { host.setFrameOrigin(placement.frame.origin) }
+            }
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
             // Position is tied directly to the scroll transaction. Fade and

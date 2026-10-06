@@ -184,7 +184,6 @@ struct TorrentListView: View {
                 }.reorderable()
                     .listRowSeparator(.hidden)
                     .listRowSeparatorTint(.clear)
-                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowBackground(Color.clear)
             }
             .reorderContainer(for: TorrentListEntry.self) { difference in

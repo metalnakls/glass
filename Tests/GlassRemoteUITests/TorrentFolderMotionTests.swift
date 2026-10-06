@@ -68,19 +68,20 @@ struct TorrentFolderMotionTests {
         }
         #expect(flights.count == 2)
         let animation = try #require(flights.first?.animation(forKey: "folderFlight"))
-        #expect(animation.duration == 0.30)
+        #expect(animation.duration == 0.26)
         #expect(abs(flights[0].position.x + 18 - destination.frame.midX) < 0.1)
         #expect(abs(flights[0].position.y + 18 - landing.frame.midY) < 0.1)
         #expect(abs(hypot(flights[0].sublayerTransform.m11, flights[0].sublayerTransform.m12) - 1) < 0.001)
         #expect(motion.flyingIDs.count == 2)
         // Row geometry can finish changing after the initial flight starts.
         // Keep the overlay alive for a separate, remeasured settle tail.
+        destination.setFrameOrigin(CGPoint(x: destination.frame.minX, y: destination.frame.minY + 20))
         table.rowHeight = 60
         table.reloadData()
         var tail: CAAnimation?
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(10))
-            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.32 {
+            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.12 {
                 tail = candidate; break
             }
         }
@@ -91,7 +92,7 @@ struct TorrentFolderMotionTests {
         var finalLanding: CAAnimation?
         for _ in 0..<50 {
             try await Task.sleep(for: .milliseconds(10))
-            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.16 {
+            if let candidate = flights.first?.animation(forKey: "folderFlight"), candidate.duration == 0.08 {
                 finalLanding = candidate; break
             }
         }

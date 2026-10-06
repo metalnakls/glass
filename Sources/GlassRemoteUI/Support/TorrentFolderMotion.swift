@@ -55,12 +55,18 @@ final class TorrentFolderMotion {
         let icon = artwork(for: container.id)
         for child in container.subviews where child !== icon { child.removeFromSuperview() }
         if icon.superview !== container { container.addSubview(icon) }
+        let origin = CGPoint(x: container.bounds.midX - 18, y: container.bounds.midY - 18)
+        let transform = Self.transform(scale: container.size / 36)
+        let layer = icon.layer
+        guard icon.frame.origin != origin || layer.map({ !CATransform3DEqualToTransform($0.sublayerTransform, transform) || $0.zPosition != 0 }) == true
+            || icon.pose.rotation != container.rotation || icon.isHidden || icon.alphaValue != 1 else { return }
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        icon.setFrameOrigin(CGPoint(x: container.bounds.midX - 18, y: container.bounds.midY - 18))
-        icon.layer?.sublayerTransform = Self.transform(scale: container.size / 36)
-        icon.pose.rotation = container.rotation
-        icon.layer?.zPosition = 0
-        icon.isHidden = false; icon.alphaValue = 1
+        if icon.frame.origin != origin { icon.setFrameOrigin(origin) }
+        if let layer, !CATransform3DEqualToTransform(layer.sublayerTransform, transform) { layer.sublayerTransform = transform }
+        if icon.pose.rotation != container.rotation { icon.pose.rotation = container.rotation }
+        if layer?.zPosition != 0 { layer?.zPosition = 0 }
+        if icon.isHidden { icon.isHidden = false }
+        if icon.alphaValue != 1 { icon.alphaValue = 1 }
         CATransaction.commit()
     }
 
@@ -90,7 +96,7 @@ final class TorrentFolderMotion {
                     let origin = clip.bounds.origin
                     guard origin != self.scrollOrigin else { return }
                     self.scrollOrigin = origin
-                    self.cancel()
+                    if !self.views.isEmpty { self.cancel() }
                 }
             }
     }
@@ -161,7 +167,7 @@ final class TorrentFolderMotion {
             for (slot, id) in self.members.enumerated() {
                 guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
-                self.fly(id, to: target, duration: 0.30,
+                self.fly(id, to: target, duration: 0.26,
                     timing: CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1), fromPresentation: false)
                 if slot >= 3 {
                     let opacity = CABasicAnimation(keyPath: "opacity")
@@ -194,24 +200,30 @@ final class TorrentFolderMotion {
                 }
                 stableFrames = stable ? stableFrames + 1 : 0
                 lastTargets = targets
-                if stableFrames >= 3 { break }
+                if stableFrames >= 2 { break }
                 try? await Task.sleep(for: .milliseconds(16))
             }
             guard !Task.isCancelled, self.generation == token else { return }
             // Native rows have now settled. Re-measure the destination and give
             // the image a gentle tail from its current presentation position.
             table.layoutSubtreeIfNeeded()
+            var needsTail = false
             for (slot, id) in self.members.enumerated() {
-                guard self.layers[id] != nil, let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
+                guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
-                self.fly(id, to: target, duration: 0.32,
+                let current = layer.presentation() ?? layer
+                guard hypot(current.position.x + 18 - target.center.x, current.position.y + 18 - target.center.y) > 0.25
+                    || abs(36 * current.sublayerTransform.m11 - target.size.width) > 0.25
+                    || abs((self.views[id]?.pose.rotation ?? 0) - target.angle) > 0.005 else { continue }
+                needsTail = true
+                self.fly(id, to: target, duration: 0.12,
                     timing: CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1))
             }
-            try? await Task.sleep(for: .milliseconds(320))
+            if needsTail { try? await Task.sleep(for: .milliseconds(120)) }
             guard !Task.isCancelled, self.generation == token else { return }
             // A host can finish layout after the nominal tail. Do not hand off
             // to a different position, angle or size: settle there first.
-            for _ in 0..<3 {
+            for _ in 0..<2 {
                 var adjusted = false
                 for (slot, id) in self.members.enumerated() {
                     guard let layer = self.layers[id], let row = indices[self.expanding ? id : self.groupID], row < table.numberOfRows else { continue }
@@ -221,12 +233,12 @@ final class TorrentFolderMotion {
                     let scale = hypot(current.sublayerTransform.m11, current.sublayerTransform.m12)
                     guard hypot(current.position.x + 18 - target.center.x, current.position.y + 18 - target.center.y) > 0.25
                         || abs(36 * scale - target.size.width) > 0.25 || abs(angle - target.angle) > 0.005 else { continue }
-                    self.fly(id, to: target, duration: 0.16,
+                    self.fly(id, to: target, duration: 0.08,
                         timing: CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1))
                     adjusted = true
                 }
                 if !adjusted { break }
-                try? await Task.sleep(for: .milliseconds(160))
+                try? await Task.sleep(for: .milliseconds(80))
                 guard !Task.isCancelled, self.generation == token else { return }
             }
             // Reparent the original material into its landing container in
@@ -304,6 +316,7 @@ final class TorrentFolderMotion {
     }
 
     func cancel() {
+        guard completion != nil || !views.isEmpty || !layers.isEmpty || !flyingIDs.isEmpty else { return }
         generation += 1
         completion?.cancel(); completion = nil
         let returning = views
