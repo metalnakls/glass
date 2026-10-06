@@ -4,18 +4,35 @@ import SwiftUI
 struct TransientStatusText: View {
     let text: String
     let message: String?
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var body: some View {
-        ZStack(alignment: .leading) {
-            if reduceMotion {
-                Text(glassText(message ?? text)).id(message ?? text).transition(.opacity)
-            } else {
-                Text(glassText(message ?? text)).id(message ?? text).transition(.blurReplace)
-            }
+        BlurReplacementContent(identity: message ?? text) {
+            Text(glassText(message ?? text))
         }
         .foregroundStyle(message == nil ? Color.primary : Color.secondary)
         .glassTextStyle()
-        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.65), value: message ?? text)
     }
     static let displayDuration: Duration = .seconds(3)
+}
+
+/// Replace a label only when its role changes, without animating live numeric updates.
+struct BlurReplacementContent<Content: View>: View {
+    let identity: String
+    private let content: Content
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    init(identity: String, @ViewBuilder content: () -> Content) {
+        self.identity = identity
+        self.content = content()
+    }
+
+    var body: some View {
+        ZStack(alignment: .leading) {
+            if reduceMotion {
+                content.id(identity).transition(.opacity)
+            } else {
+                content.id(identity).transition(.blurReplace)
+            }
+        }
+        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.65), value: identity)
+    }
 }

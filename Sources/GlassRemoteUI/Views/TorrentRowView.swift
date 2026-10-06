@@ -220,15 +220,21 @@ struct TorrentRowView: View, Equatable {
         }
     }
 
+    private var showsDownloadSpeed: Bool {
+        additionPhase == nil && !torrent.isCompleted && (pendingRunning ?? torrent.canStopTransfer)
+    }
+
     private var sizeLabel: some View {
-        HStack(spacing: 3) {
-            if additionPhase == nil && !torrent.isCompleted { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
-            Text(additionStatus.map { glassText($0) } ?? (torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload))).textCase(nil)
+        BlurReplacementContent(identity: additionStatus ?? (showsDownloadSpeed ? "speed" : "size")) {
+            HStack(spacing: 3) {
+                if showsDownloadSpeed { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
+                Text(additionStatus.map { glassText($0) } ?? (showsDownloadSpeed ? formatRate(torrent.rateDownload) : formatBytes(torrent.sizeWhenDone))).textCase(nil)
+            }
         }
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(1)
+        .fixedSize(horizontal: true, vertical: false)
     }
 
     private var additionStatus: String? {
@@ -397,8 +403,8 @@ private struct TorrentRowDisplayState: Equatable {
         canStop = torrent.canStopTransfer
         downloadingMetadata = torrent.isDownloadingMetadata
         progress = Self.normalizedProgress(torrent.percentDone)
-        downloadRate = complete ? 0 : torrent.rateDownload
-        completedSize = complete ? torrent.sizeWhenDone : 0
+        downloadRate = !complete && canStop ? torrent.rateDownload : 0
+        completedSize = complete || !canStop ? torrent.sizeWhenDone : 0
         priority = torrent.bandwidthPriority ?? 0
         fileCount = torrent.fileCount
         unavailableReason = shareUnavailable ? torrent.errorString : nil
