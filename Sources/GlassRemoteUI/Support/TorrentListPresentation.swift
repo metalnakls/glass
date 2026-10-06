@@ -41,10 +41,9 @@ struct TorrentListSection: Identifiable {
     let title: String
     let rows: [TorrentListRowPresentation]
 
-    /// Expanded children belong to their group and do not make a short section sticky.
+    /// Pin only when the section displays more than two rows, including expanded seasons.
     var allowsStickyHeader: Bool {
-        let childIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
-        return rows.filter { !childIDs.contains($0.id) }.count > 2
+        rows.count > 2
     }
 
     static func sections(for rows: [TorrentListRowPresentation], lowercase: Bool = false) -> [Self] {
