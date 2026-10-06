@@ -60,6 +60,7 @@ public struct GlassRootView: View {
             )
 
         }
+        .environment(\.locale, GlassFormatting.shared.locale)
         .inspector(isPresented: $isInspectorPresented) {
             TorrentSelectionInspector(
                 model: model,

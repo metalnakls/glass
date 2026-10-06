@@ -148,6 +148,7 @@ public struct SelectionAppearanceView: View {
                 Toggle("Enable icon view (⌘1)", isOn: $enableIconView)
                 Toggle("Enable compact list", isOn: $enableCompactView)
                 Toggle("Lowercase section titles", isOn: $lowercaseTitles)
+                LocaleOverrideControl()
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
@@ -224,7 +225,7 @@ public struct SelectionAppearanceView: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text("\(value.wrappedValue.formatted(.number.precision(.fractionLength(2)))) s")
+                Text("\(formatNumber(value.wrappedValue)) s")
                     .monospacedDigit().foregroundStyle(.secondary)
             }.font(.caption)
             Slider(value: value, in: 0...1.5).accessibilityLabel(title)
@@ -236,7 +237,7 @@ public struct SelectionAppearanceView: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : decimal ? value.wrappedValue.formatted(.number.precision(.fractionLength(2))) : "\(Int(value.wrappedValue.rounded()))")
+                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : decimal ? formatNumber(value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))")
                     .monospacedDigit().foregroundStyle(.secondary)
             }
             .font(.caption)

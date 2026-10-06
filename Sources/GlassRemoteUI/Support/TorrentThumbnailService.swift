@@ -155,6 +155,7 @@ final class TorrentThumbnailService {
         self.defaults = defaults
         self.diskDirectory = diskDirectory ?? FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("Glass/Thumbnails", isDirectory: true)
+        _ = NativeLocationIconCache.shared
         images.totalCostLimit = 16 * 1024 * 1024
         images.countLimit = 512
         if let data = defaults.data(forKey: Self.defaultsKey),

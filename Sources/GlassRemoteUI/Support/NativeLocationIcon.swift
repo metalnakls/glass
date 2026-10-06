@@ -1,13 +1,21 @@
 import AppKit
 import SwiftUI
 
-/// Finder's actual icon, fetched off the UI thread for mounted network folders.
+/// Folder icons locally; Finder network-computer icons for remote authorities.
 struct NativeLocationIcon: View {
     let path: String?
+    var sourceID: UUID? = nil
+    var serverName = ""
     var size: CGFloat = 24
     @State private var image: NSImage?
     var body: some View {
-        NativeGlassIcon(image: image ?? TorrentFileIconCache.icon(fileName: "", isFolder: true), size: size, isFolder: true)
+        Group {
+            if let sourceID {
+                Image(nsImage: NativeLocationIconCache.shared.images[sourceID] ?? NSWorkspace.shared.icon(for: .init("public.computer") ?? .item))
+                    .resizable().scaledToFit().frame(width: size, height: size)
+                    .task(id: "\(sourceID)|\(serverName)|\(path ?? "")") { await NativeLocationIconCache.shared.register(sourceID: sourceID, serverName: serverName, path: path) }
+            } else {
+                NativeGlassIcon(image: image ?? TorrentFileIconCache.icon(fileName: "", isFolder: true), size: size, isFolder: true)
             .task(id: path) {
                 guard let path else { image = nil; return }
                 let data = await Task.detached(priority: .utility) {
@@ -16,5 +24,7 @@ struct NativeLocationIcon: View {
                 guard !Task.isCancelled else { return }
                 image = data.flatMap(NSImage.init(data:))
             }
+            }
+        }
     }
 }

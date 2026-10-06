@@ -1,14 +1,25 @@
 import Foundation
 import GlassRemoteCore
+import Observation
+
+/// One reversible app-level formatting policy; view reads observe changes immediately.
+@MainActor @Observable
+final class GlassFormatting {
+    static let shared = GlassFormatting()
+    @ObservationIgnored private let defaults: UserDefaults
+    var usesSystemLocale: Bool { didSet { defaults.set(usesSystemLocale, forKey: "Glass.Formatting.useSystemLocale") } }
+    var overrideIdentifier: String { didSet { defaults.set(overrideIdentifier, forKey: "Glass.Formatting.localeIdentifier") } }
+    var locale: Locale { usesSystemLocale ? .autoupdatingCurrent : Locale(identifier: overrideIdentifier) }
+
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        usesSystemLocale = defaults.bool(forKey: "Glass.Formatting.useSystemLocale")
+        overrideIdentifier = defaults.string(forKey: "Glass.Formatting.localeIdentifier") ?? "en_US"
+    }
+}
 
 @MainActor
 private enum SharedGlassFormatters {
-    static let byteCount: ByteCountFormatter = {
-        let formatter = ByteCountFormatter()
-        formatter.countStyle = .file
-        return formatter
-    }()
-
     static let shortDuration: DateComponentsFormatter = {
         let formatter = DateComponentsFormatter()
         formatter.allowedUnits = [.minute, .second]
@@ -26,7 +37,7 @@ private enum SharedGlassFormatters {
 
 @MainActor
 func formatBytes(_ bytes: UInt64) -> String {
-    SharedGlassFormatters.byteCount.string(fromByteCount: Int64(bytes))
+    Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(GlassFormatting.shared.locale))
 }
 
 @MainActor
@@ -38,11 +49,12 @@ func formatBytes(_ bytes: UInt64?) -> String {
 @MainActor
 func formatRate(_ bytesPerSecond: Double) -> String {
     guard bytesPerSecond > 0 else { return "0 KB/s" }
-    return "\(SharedGlassFormatters.byteCount.string(fromByteCount: Int64(bytesPerSecond)))/s"
+    return "\(Int64(bytesPerSecond).formatted(.byteCount(style: .file).locale(GlassFormatting.shared.locale)))/s"
 }
 
+@MainActor
 func formatPercent(_ value: Double) -> String {
-    value.formatted(.percent.precision(.fractionLength(0)))
+    value.formatted(.percent.precision(.fractionLength(0)).locale(GlassFormatting.shared.locale))
 }
 
 func formatStatus(_ status: Int) -> String {
@@ -66,14 +78,21 @@ func formatStatus(_ status: Int) -> String {
     }
 }
 
-func formatRatio(_ value: Double?) -> String {
-    guard let value, value >= 0 else { return "Unavailable" }
-    return value.formatted(.number.precision(.fractionLength(2)))
+@MainActor
+func formatNumber(_ value: Double) -> String {
+    value.formatted(.number.precision(.fractionLength(2)).locale(GlassFormatting.shared.locale))
 }
 
+@MainActor
+func formatRatio(_ value: Double?) -> String {
+    guard let value, value >= 0 else { return "Unavailable" }
+    return value.formatted(.number.precision(.fractionLength(2)).locale(GlassFormatting.shared.locale))
+}
+
+@MainActor
 func formatTimestamp(_ timestamp: Int?) -> String {
     guard let timestamp, timestamp > 0 else { return "Unavailable" }
-    return Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(date: .abbreviated, time: .shortened)
+    return Date(timeIntervalSince1970: TimeInterval(timestamp)).formatted(Date.FormatStyle(date: .abbreviated, time: .shortened).locale(GlassFormatting.shared.locale))
 }
 
 @MainActor
@@ -82,6 +101,9 @@ func formatDuration(_ seconds: Int?) -> String {
     let formatter = seconds >= 3_600
         ? SharedGlassFormatters.longDuration
         : SharedGlassFormatters.shortDuration
+    var calendar = Calendar.autoupdatingCurrent
+    calendar.locale = GlassFormatting.shared.locale
+    formatter.calendar = calendar
     return formatter.string(from: TimeInterval(seconds)) ?? "Unavailable"
 }
 

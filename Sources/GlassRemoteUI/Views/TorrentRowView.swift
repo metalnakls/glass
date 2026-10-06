@@ -256,7 +256,7 @@ struct TorrentRowView: View, Equatable {
             stateControl
                 .help(stateLabel)
                 .accessibilityLabel(stateLabel)
-                .accessibilityValue("\(progress.formatted(.percent.precision(.fractionLength(0)))) downloaded")
+                .accessibilityValue("\(formatPercent(progress)) downloaded")
         }
         .frame(width: stateDiameter, height: stateDiameter)
         .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)

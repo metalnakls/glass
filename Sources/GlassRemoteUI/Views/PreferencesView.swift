@@ -28,6 +28,9 @@ public struct PreferencesView: View {
                 }
                 Button("Add Server…") { profileEditor = ProfileEditorRequest(profile: nil) }
             }
+            Section("Numbers and Dates") {
+                LocaleOverrideControl()
+            }
             Section("Torrent Cache") {
                 Toggle("Cache torrent lists", isOn: $isTorrentCachingEnabled)
                 Stepper("Cached servers: \(cachedServerLimit)", value: $cachedServerLimit, in: 1...12)

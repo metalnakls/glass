@@ -154,7 +154,7 @@ struct TorrentListView: View {
                     switch entry {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
-                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? 16 : sectionSpacing)
+                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? TorrentInspectorLayout.listEdgePadding / 2 : sectionSpacing)
                             .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
                             // A section title is a label, not a row: it must not
@@ -164,7 +164,7 @@ struct TorrentListView: View {
                             // Room to breathe above the title. Zeroing the top
                             // inset is what made the header sit flush against
                             // the row before it.
-                            .listRowInsets(EdgeInsets(top: 16, leading: 0, bottom: 0, trailing: 0))
+                            .listRowInsets(EdgeInsets(top: TorrentInspectorLayout.listEdgePadding / 2, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                     case let .torrent(row):
                         liveRow(for: row)
@@ -203,6 +203,7 @@ struct TorrentListView: View {
             .scrollContentBackground(.hidden)
             .background(listSurface)
             .contentMargins(.horizontal, 0, for: .scrollContent)
+            .contentMargins(.bottom, TorrentInspectorLayout.listEdgePadding, for: .scrollContent)
             .background(GeometryReader { proxy in
                 Color.clear.preference(
                     key: TorrentListColumnWidthKey.self,

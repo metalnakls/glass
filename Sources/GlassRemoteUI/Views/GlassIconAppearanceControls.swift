@@ -82,7 +82,7 @@ struct GlassIconAppearanceControls: View {
             HStack {
                 Text(title)
                 Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : value.wrappedValue.formatted(.number.precision(.fractionLength(2))))
+                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : formatNumber(value.wrappedValue))
                     .monospacedDigit().foregroundStyle(.secondary)
             }.font(.caption)
             Slider(value: value, in: range).accessibilityLabel(title)

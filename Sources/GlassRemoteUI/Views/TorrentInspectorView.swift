@@ -25,23 +25,11 @@ struct TorrentInspectorView: View {
     var body: some View {
         Group {
             if let snapshot {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
-                        if let error = selectionError {
-                            Text(error).font(.callout).foregroundStyle(.secondary)
-                        }
-                        TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession)
-                            .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
-                            .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
-                    }
+                TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession)
+                    .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
+                    .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
                     .padding(.horizontal, 18)
                     .padding(.top, 18)
-                    .padding(.bottom, 20)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .contentMargins(.bottom, editSession.hasSelection || editSession.hasChanges ? 84 : 0, for: .scrollContent)
-                .scrollEdgeEffectHidden(true, for: .top)
-                .scrollEdgeEffectStyle(.soft, for: .bottom)
             } else if selectedTorrentHash == nil {
                 ContentUnavailableView("No Torrent Selected", systemImage: "info.circle", description: Text("Select a torrent to show details."))
             } else if let error = selectionError {
@@ -54,6 +42,7 @@ struct TorrentInspectorView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea(.container, edges: .top)
         .overlay(alignment: .bottom) {
             if editSession.hasSelection || editSession.hasChanges {
                 VStack(spacing: 8) {
@@ -98,6 +87,16 @@ struct TorrentInspectorView: View {
             model.setVisibleTorrentDetailSections([.files], forHashString: selectedTorrentHash, sourceID: sourceID)
             await model.loadDetailSection(.files, forHashString: selectedTorrentHash, sourceID: sourceID)
         }
+        .onChange(of: selectionKey, initial: true) { _, _ in
+            if let group = selectedTorrentGroup {
+                snapshot = TorrentInspectorSnapshot(sourceID: sourceID, group: group)
+            } else if let hash = selectedTorrentHash,
+                      let summary = model.allTorrentRecords.first(where: { $0.sourceID == sourceID && $0.hashString == hash })?.summary {
+                snapshot = TorrentInspectorSnapshot(sourceID: sourceID, details: TorrentDetails(
+                    id: summary.id, hashString: hash, name: summary.name, percentDone: summary.percentDone,
+                    sizeWhenDone: summary.sizeWhenDone, downloadDir: summary.downloadDir))
+            }
+        }
         .onChange(of: readyDetails, initial: true) { _, details in
             guard let details else { return }
             confirmFileEdits(details)
@@ -122,6 +121,7 @@ struct TorrentInspectorView: View {
                 } catch {
                     guard !Task.isCancelled, !(error is CancellationError) else { return }
                     groupDetailsError = error.localizedDescription
+                    snapshot?.filesError = error.localizedDescription
                 }
                 do { try await Task.sleep(for: model.currentAutoRefreshInterval) }
                 catch { return }
@@ -215,106 +215,76 @@ private struct TorrentInspectorContent: View {
             isComplete: entry.completedBytes >= entry.size, isLocal: sourceID == model.localSourceID)
     }
 
-    @ViewBuilder
-    var body: some View {
-        if let group = snapshot.group {
-            groupSection(group)
-        } else if let details = snapshot.details {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 16) {
-                    downloadLocation(details)
-                    progressSummary(details)
-                }
-                Divider()
-                VStack(alignment: .leading, spacing: 12) {
-                    if let error = snapshot.filesError, details.files.isEmpty {
-                        detailErrorView(error)
-                    } else {
-                        filesBrowser(details)
-                    }
-                }
-            }
-        }
+    private var members: [TorrentSummary] {
+        let fallback = snapshot.group?.torrents ?? snapshot.details.map { [$0.summaryFallback] } ?? []
+        let live = Dictionary(uniqueKeysWithValues: model.allTorrentRecords.filter { $0.sourceID == sourceID }.map { ($0.hashString, $0.summary) })
+        return fallback.map { live[$0.hashString] ?? $0 }
     }
 
-    private func groupSection(_ group: TorrentNameSequenceGroup) -> some View {
-        VStack(alignment: .leading, spacing: 24) {
-            if let details = group.torrents.first.flatMap({ groupDetails[$0.hashString] }) {
-                downloadLocation(details, torrentErrors: groupDetails.values
-                    .filter { $0.downloadDir == details.downloadDir }
-                    .compactMap(torrentError))
-                Divider()
+    private var selectedDetails: [TorrentDetails] {
+        if let group = snapshot.group { return group.torrents.compactMap { groupDetails[$0.hashString] } }
+        return snapshot.details.map { [$0] } ?? []
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            if let first = members.first {
+                TorrentDownloadLocationView(directory: first.downloadDir, itemPath: first.name,
+                    sourceID: sourceID, isLocal: sourceID == model.localSourceID,
+                    localName: model.localSourceName, serverName: model.sourceName(for: sourceID),
+                    availableBytes: model.serverFreeSpace[sourceID]?.availableBytes,
+                    torrentErrors: members.compactMap { $0.errorString }.filter { !$0.isEmpty },
+                    platformIntegration: platformIntegration)
             }
-            HStack(spacing: 10) {
-                Toggle("Select all files", isOn: Binding(get: {
-                    groupDetails.values.allSatisfy { details in
-                        details.files.indices.allSatisfy { index in
+            TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
+            Divider()
+            HStack(spacing: 8) {
+                Toggle("Download all files", isOn: Binding(get: {
+                    !selectedDetails.isEmpty && selectedDetails.allSatisfy { details in
+                        !details.files.isEmpty && details.files.indices.allSatisfy { index in
                             editSession.wanted[details.hashString]?[index] ?? (details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true)
                         }
                     }
                 }, set: { value in
-                    for details in groupDetails.values {
+                    for details in selectedDetails {
                         let current = Dictionary(uniqueKeysWithValues: details.files.indices.map { index in
                             (index, details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true)
                         })
                         editSession.stageAll(value, current: current, for: details.hashString)
                     }
                 })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                TorrentFilesBrowserControls(searchText: $fileSearchText, onSetAllWanted: setAllGroupFiles, isCompact: true)
+                TextField("Search Files", text: $fileSearchText)
+                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                    .focusedValue(\.glassInspectorFileFilterFocused, true)
             }
             .padding(.horizontal, 8)
-            ForEach(group.torrents, id: \.hashString) { torrent in
-                if let details = groupDetails[torrent.hashString] {
-                    VStack(alignment: .leading, spacing: 14) {
-                        // Distinguish members of a multi-torrent selection without repeating its title.
-                        Text(groupMemberName(torrent, group: group))
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(2)
-                        if details.downloadDir != group.torrents.first.flatMap({ groupDetails[$0.hashString]?.downloadDir }) {
-                            downloadLocation(details)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 20) {
+                    if let group = snapshot.group {
+                        ForEach(group.torrents, id: \.hashString) { torrent in
+                            if let details = groupDetails[torrent.hashString] {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text(groupMemberName(torrent, group: group)).font(.subheadline.weight(.semibold))
+                                    filesBrowser(details, showsControls: false)
+                                }
+                            }
                         }
-                        progressSummary(details)
-                        filesBrowser(details, showsControls: false)
+                        if groupDetails.isEmpty {
+                            if let error = snapshot.filesError { detailErrorView(error) }
+                            else { GlassActivityIndicator(label: "Loading files") }
+                        }
+                    } else if let details = snapshot.details {
+                        if let error = snapshot.filesError, details.files.isEmpty { detailErrorView(error) }
+                        else { filesBrowser(details, showsControls: false) }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.bottom, 20)
             }
+            .contentMargins(.bottom, editSession.hasSelection || editSession.hasChanges ? 84 : 0, for: .scrollContent)
+            .scrollEdgeEffectHidden(true, for: .top)
+            .scrollEdgeEffectStyle(.soft, for: .bottom)
         }
-    }
-
-    private func progressSummary(_ details: TorrentDetails) -> some View {
-        let torrent = model.allTorrentRecords.first { $0.sourceID == sourceID && $0.hashString == details.hashString }?.summary
-        let progress = min(1, max(0, torrent?.percentDone ?? details.percentDone ?? 0))
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(formatPercent(progress))
-                ProgressView(value: progress).progressViewStyle(.linear)
-                Text(formatBytes(torrent?.sizeWhenDone ?? details.sizeWhenDone ?? details.totalSize ?? 0))
-            }
-            .font(.callout).monospacedDigit()
-            if torrentError(details) == nil, let torrent, !torrent.isCompleted {
-                Text("\(formatRate(torrent.rateDownload)) · \(torrent.peersConnected ?? 0) peers")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func torrentError(_ details: TorrentDetails) -> String? {
-        let error = model.allTorrentRecords.first { $0.sourceID == sourceID && $0.hashString == details.hashString }?.summary.errorString
-        return error.flatMap { $0.isEmpty ? nil : $0 }
-    }
-
-    private func downloadLocation(_ details: TorrentDetails, torrentErrors: [String]? = nil) -> some View {
-        TorrentDownloadLocationView(
-            directory: details.downloadDir,
-            itemPath: details.files.first?.name.split(separator: "/").first.map(String.init) ?? details.name,
-            sourceID: sourceID,
-            isLocal: sourceID == model.localSourceID,
-            localName: model.localSourceName,
-            serverName: model.sourceName(for: sourceID),
-            availableBytes: model.serverFreeSpace[sourceID]?.availableBytes,
-            torrentErrors: torrentErrors ?? torrentError(details).map { [$0] } ?? [],
-            platformIntegration: platformIntegration
-        )
     }
 
     private func filesBrowser(_ details: TorrentDetails, showsControls: Bool = true) -> some View {
@@ -375,16 +345,6 @@ private struct TorrentInspectorContent: View {
         let suffix = torrent.name.replacingOccurrences(of: group.displayName, with: "").trimmingCharacters(in: .whitespaces)
         if let season = Int(suffix) { return "Season \(season)" }
         return torrent.name
-    }
-
-    private func setAllGroupFiles(wanted: Bool) {
-        for details in groupDetails.values {
-            let indices = Array(details.files.indices)
-            guard !indices.isEmpty else { continue }
-            Task {
-                await model.setFileWanted(details.summaryFallback, fileIndices: indices, wanted: wanted, sourceID: sourceID)
-            }
-        }
     }
 
     private func detailErrorView(_ error: String) -> some View {

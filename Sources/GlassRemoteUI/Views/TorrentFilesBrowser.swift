@@ -115,13 +115,13 @@ struct TorrentFilesBrowser: View {
                     })
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
-                            Label("Raise priority", systemImage: "arrow.up")
-                        }
+                            Image(nsImage: FilePriorityGlyph.image(high: true))
+                        }.accessibilityLabel("Raise priority").help("Raise priority")
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: false) } label: {
-                            Label("Lower priority", systemImage: "arrow.down")
-                        }
+                            Image(nsImage: FilePriorityGlyph.image(high: false))
+                        }.accessibilityLabel("Lower priority").help("Lower priority")
                     }
                     .tag(row.id)
                     .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))

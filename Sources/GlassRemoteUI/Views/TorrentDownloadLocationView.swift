@@ -42,7 +42,8 @@ struct TorrentDownloadLocationView: View {
     var availableBytes: UInt64?
     var torrentErrors: [String] = []
     let platformIntegration: any GlassPlatformIntegrating
-    @State private var errorMessage: String?
+    @State private var feedbackID: UUID?
+    @State private var feedback: String?
     @State private var isOpening = false
 
     var body: some View {
@@ -56,19 +57,19 @@ struct TorrentDownloadLocationView: View {
                         isOpening = true
                         defer { isOpening = false }
                         do {
-                            if !isLocal && (location.directoryURL == nil || NSEvent.modifierFlags.contains(.command)) {
+                            if !isLocal && NSEvent.modifierFlags.contains(.command) {
                                 guard let folder = try await platformIntegration.chooseThumbnailDirectory() else { return }
                                 try await TorrentThumbnailService.shared.setLink(sourceID: sourceID, remoteRoot: directory, localURL: folder)
                             }
                             try await TorrentThumbnailService.shared.openDownloadLocation(
                                 sourceID: sourceID, directory: directory, itemPath: itemPath, isLocal: isLocal
                             )
-                        } catch { errorMessage = error.localizedDescription }
+                        } catch { feedback = "Unavailable"; feedbackID = UUID() }
                     }
                 } label: {
                     HStack(spacing: 10) {
-                        NativeLocationIcon(path: location.directoryURL?.path, size: 28)
-                        Text(location.sourceName)
+                        NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: 28)
+                        TransientStatusText(text: location.sourceName, message: feedback)
                             .font(.headline)
                             .lineLimit(1).truncationMode(.middle)
                     }
@@ -79,11 +80,7 @@ struct TorrentDownloadLocationView: View {
                 .disabled(isOpening)
                 .help(isLocal ? directory : "\(serverName): \(directory)\nClick to open the share; ⌘-click to reconnect it.")
                 .accessibilityLabel(location.sourceName)
-                .alert("Couldn’t Open Download Location", isPresented: Binding(get: { errorMessage != nil }, set: { if !$0 { errorMessage = nil } })) {
-                    Button("OK") { errorMessage = nil }
-                } message: {
-                    Text(errorMessage ?? "")
-                }
+
             } else {
                 Label("Location unavailable", systemImage: "folder")
                     .font(.callout).foregroundStyle(.secondary)
@@ -93,7 +90,7 @@ struct TorrentDownloadLocationView: View {
                 if !torrentErrors.isEmpty {
                     Text(Array(Set(torrentErrors.map { $0.hasPrefix("No data found") ? "No data found" : $0 })).sorted().joined(separator: " · "))
                         .font(.caption).foregroundStyle(.red)
-                        .lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(1).fixedSize(horizontal: false, vertical: true)
                         .help(torrentErrors.joined(separator: "\n"))
                 }
                 if let availableBytes {
@@ -103,6 +100,14 @@ struct TorrentDownloadLocationView: View {
                 }
             }
         }
-        .padding(.vertical, 4)
+        .frame(minHeight: 36)
+        .task(id: feedbackID) {
+            guard feedbackID != nil else { return }
+            do { try await Task.sleep(for: TransientStatusText.displayDuration) } catch { return }
+            guard !Task.isCancelled else { return }
+            feedback = nil
+        }
+        .onChange(of: sourceID) { _, _ in feedbackID = nil; feedback = nil }
+        .onChange(of: directory) { _, _ in feedbackID = nil; feedback = nil }
     }
 }
