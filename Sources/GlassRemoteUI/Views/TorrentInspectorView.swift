@@ -41,7 +41,6 @@ struct TorrentInspectorView: View {
                 TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession, commandsEnabled: isVisible && !waitingForSelection, onApply: { wanted in Task { await applyFileEdits(selectionWanted: wanted) } })
                     .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                     .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
-                    .padding(.top, 18)
             } else if selectionKey == nil {
                 ContentUnavailableView(glassText("No Torrent Selected"), systemImage: "info.circle", description: Text(glassText("Select a torrent to show details.")))
             } else if waitingExpired, let error = selectionError {
@@ -242,7 +241,57 @@ private struct TorrentInspectorContent: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                if let group = snapshot.group {
+                    ForEach(group.torrents, id: \.hashString) { torrent in
+                        if let details = groupDetails[torrent.hashString] {
+                            Section {
+                                filesBrowser(details, showsControls: false)
+                                    .padding(.bottom, 16)
+                            } header: {
+                                HStack {
+                                    Text(groupMemberName(torrent, group: group)).textCase(nil).font(.subheadline.weight(.semibold))
+                                    Spacer()
+                                    Text("\(details.files.count) files").font(.caption).foregroundStyle(.secondary)
+                                }
+                                .padding(.leading, fileLayout.textLeadingInset)
+                                .padding(.trailing, fileLayout.outerInset)
+                                .padding(.vertical, 8)
+                                .frame(maxWidth: .infinity)
+                                .background(.ultraThinMaterial)
+                                .glassTextStyle()
+                                .zIndex(1)
+                            }
+                        }
+                    }
+                    if groupDetails.isEmpty {
+                        if let error = snapshot.filesError { detailErrorView(error) }
+                        else { GlassActivityIndicator(label: "Loading files") }
+                    }
+                } else if let details = snapshot.details {
+                    if let error = snapshot.filesError, details.files.isEmpty { detailErrorView(error) }
+                    else { filesBrowser(details, showsControls: false) }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.bottom, 20)
+        }
+        .contentMargins(.top, InspectorGlassPill.height + 34, for: .scrollContent)
+        .contentMargins(.bottom, footerHeight, for: .scrollContent)
+        .scrollEdgeEffectStyle(.soft, for: .top)
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
+        .overlay(alignment: .top) { topDock }
+        .overlay(alignment: .bottom) { bottomDock }
+        .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
+        .onChange(of: searchPresented) { _, presented in
+            searchFocused = presented
+            if !presented { fileSearchText = "" }
+        }
+    }
+
+    private var topDock: some View {
+        GlassEffectContainer(spacing: 8) {
             VStack(alignment: .leading, spacing: 16) {
                 if let first = members.first {
                     TorrentDownloadLocationView(directory: first.downloadDir, itemPath: first.name,
@@ -256,52 +305,18 @@ private struct TorrentInspectorContent: View {
                 }
             }
             .padding(.horizontal, fileLayout.outerInset)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-                    if let group = snapshot.group {
-                        ForEach(group.torrents, id: \.hashString) { torrent in
-                            if let details = groupDetails[torrent.hashString] {
-                                Section {
-                                    filesBrowser(details, showsControls: false)
-                                        .padding(.bottom, 16)
-                                } header: {
-                                    HStack {
-                                        Text(groupMemberName(torrent, group: group)).textCase(nil).font(.subheadline.weight(.semibold))
-                                        Spacer()
-                                        Text("\(details.files.count) files").font(.caption).foregroundStyle(.secondary)
-                                    }
-                                    .padding(.leading, fileLayout.textLeadingInset)
-                                    .padding(.trailing, fileLayout.outerInset)
-                                    .padding(.vertical, 8)
-                                    .frame(maxWidth: .infinity)
-                                    .background(.ultraThinMaterial)
-                                    .glassTextStyle()
-                                    .zIndex(1)
-                                }
-                            }
-                        }
-                        if groupDetails.isEmpty {
-                            if let error = snapshot.filesError { detailErrorView(error) }
-                            else { GlassActivityIndicator(label: "Loading files") }
-                        }
-                    } else if let details = snapshot.details {
-                        if let error = snapshot.filesError, details.files.isEmpty { detailErrorView(error) }
-                        else { filesBrowser(details, showsControls: false) }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.bottom, 20)
-            }
-            .contentMargins(.bottom, footerHeight, for: .scrollContent)
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectStyle(.soft, for: .bottom)
+            .padding(.top, 18).padding(.bottom, 16)
+            .background { edgeFade(top: true).padding(.bottom, -24).allowsHitTesting(false) }
         }
-        .overlay(alignment: .bottom) { bottomDock }
-        .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
-        .onChange(of: searchPresented) { _, presented in
-            searchFocused = presented
-            if !presented { fileSearchText = "" }
-        }
+    }
+
+    private func edgeFade(top: Bool) -> some View {
+        Rectangle().fill(.ultraThinMaterial)
+            .mask(LinearGradient(stops: [
+                .init(color: .clear, location: 0),
+                .init(color: .black.opacity(0.55), location: 0.45),
+                .init(color: .black, location: 1)
+            ], startPoint: top ? .bottom : .top, endPoint: top ? .top : .bottom))
     }
 
     private var footerHeight: CGFloat {
@@ -358,13 +373,7 @@ private struct TorrentInspectorContent: View {
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 22).padding(.bottom, 16)
             .background {
-                Rectangle().fill(.ultraThinMaterial)
-                    .mask(LinearGradient(stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black.opacity(0.55), location: 0.45),
-                        .init(color: .black, location: 1)
-                    ], startPoint: .top, endPoint: .bottom))
-                    .padding(.top, -24).allowsHitTesting(false)
+                edgeFade(top: false).padding(.top, -24).allowsHitTesting(false)
             }
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: searchPresented)
             .disabled(editSession.isApplying)
