@@ -64,7 +64,7 @@ modifies the repository.
 Installed copies read the stable feed URL:
 
 ```
-https://glass.metalnakls.workers.dev
+https://glass.metalglass.workers.dev
 ```
 
 The Worker records weekly aggregate counts by Glass and macOS version, then
