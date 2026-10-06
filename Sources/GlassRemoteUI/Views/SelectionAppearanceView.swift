@@ -4,6 +4,8 @@ import SwiftUI
 public struct SelectionAppearanceView: View {
     private let onClose: () -> Void
     public init(onClose: @escaping () -> Void = {}) { self.onClose = onClose }
+    @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
+    @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
     @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
     @AppearanceStorage("GlassList.funMode") private var funMode = false
     @AppearanceStorage("GlassList.funScale") private var funScale = 1.5
@@ -127,6 +129,29 @@ public struct SelectionAppearanceView: View {
 
     @ViewBuilder private var controls: some View {
         switch section {
+        case .sorting:
+            VStack(alignment: .leading, spacing: 12) {
+                Text(glassText("Loading")).font(.subheadline.weight(.semibold))
+                Picker(glassText("Sort by"), selection: $loadingSort) {
+                    ForEach([TorrentListSorting.Rule.priority, .oldestAdded, .newestAdded, .name, .transmission]) { rule in
+                        Text(glassText(rule.title)).tag(rule.rawValue)
+                    }
+                }
+                if loadingSort == "priority" {
+                    Text(glassText("High, normal, then low priority. New additions go to the bottom of their priority.")).font(.caption).foregroundStyle(.secondary)
+                }
+                Divider()
+                Text(glassText("Completed")).font(.subheadline.weight(.semibold))
+                Picker(glassText("Sort by"), selection: $completedSort) {
+                    ForEach([TorrentListSorting.Rule.lastDownloaded, .newestAdded, .oldestAdded, .name, .transmission]) { rule in
+                        Text(glassText(rule.title)).tag(rule.rawValue)
+                    }
+                }
+                if completedSort == "lastDownloaded" {
+                    Text(glassText("Most recently finished first. Seeding does not change the order.")).font(.caption).foregroundStyle(.secondary)
+                }
+                Text(glassText("Choose Transmission order to arrange items by dragging.")).font(.caption).foregroundStyle(.secondary)
+            }
         case .icons:
             GlassIconAppearanceControls()
             Divider()
@@ -276,7 +301,7 @@ public struct SelectionAppearanceView: View {
 }
 
 private enum TuningSection: String, CaseIterable, Identifiable {
-    case icons, selection, layout, headers, progress, inspector, motion
+    case icons, selection, layout, headers, progress, inspector, motion, sorting
     var id: Self { self }
     var title: String { rawValue.capitalized }
     var symbol: String {
@@ -288,6 +313,7 @@ private enum TuningSection: String, CaseIterable, Identifiable {
         case .progress: "arrow.down.circle"
         case .inspector: "sidebar.right"
         case .motion: "waveform.path"
+        case .sorting: "arrow.up.arrow.down"
         }
     }
 }

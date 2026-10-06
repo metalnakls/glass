@@ -10,10 +10,12 @@ public enum GlassAppearanceDefaults {
         guard let url = Bundle.module.url(forResource: "AppearanceDefaults", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let values = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return inspectorDefaults.merging(values) { _, saved in saved }
+        return fallbackDefaults.merging(values) { _, saved in saved }
     }
 
-    private static let inspectorDefaults: [String: Any] = [
+    private static let fallbackDefaults: [String: Any] = [
+        "GlassList.loadingSort": "priority",
+        "GlassList.completedSort": "lastDownloaded",
         "GlassInspector.blurEnabled": false,
         "GlassInspector.blurRadius": 6.0,
         "GlassInspector.blurEaseIn": 0.25,

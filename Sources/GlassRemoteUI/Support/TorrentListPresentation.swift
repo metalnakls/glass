@@ -9,6 +9,8 @@ struct TorrentListStructureInput: Equatable {
     let recordIDs: [String]
     let pendingRenameNames: [String: String]
     var unfinishedIDs: [String] = []
+    var sorting = TorrentListSorting.transmission
+    var sortInputs: [TorrentListSorting.Input] = []
 }
 
 @MainActor
@@ -94,9 +96,11 @@ struct TorrentListLayout {
     let iconPositions: [String: Int]
     let movingFolderIDs: Set<String>
 
-    init(rows: [TorrentListRowPresentation]) {
-        self.rows = rows
-        sections = TorrentListSection.sections(for: rows)
+    init(rows: [TorrentListRowPresentation], sorting: TorrentListSorting = .transmission) {
+        sections = TorrentListSection.sections(for: rows).map { section in
+            TorrentListSection(id: section.id, title: section.title, rows: sorting.sort(section.rows, section: section.id))
+        }
+        self.rows = sections.flatMap(\.rows)
         orderedEntries = sections.flatMap { [.header($0)] + $0.rows.map(TorrentListEntry.torrent) }
         var ids: [String?] = []
         var indices: [String: Int] = [:]
@@ -115,8 +119,8 @@ struct TorrentListLayout {
         rowIndices = indices
         headerIndices = headers
         nextRowIDs = neighbors
-        iconPositions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
-        movingFolderIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
+        iconPositions = Dictionary(uniqueKeysWithValues: self.rows.enumerated().map { ($0.element.id, $0.offset) })
+        movingFolderIDs = Set(self.rows.flatMap { $0.groupMemberIDs ?? [] })
     }
 
     func titledSections(lowercase: Bool) -> [TorrentListSection] {
@@ -146,6 +150,7 @@ final class TorrentListPresentationModel {
     var iconPositions: [String: Int] { layout.iconPositions }
     var movingFolderIDs: Set<String> { layout.movingFolderIDs }
 
+    @ObservationIgnored private var sorting = TorrentListSorting.transmission
     @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
 
     @discardableResult
@@ -153,8 +158,10 @@ final class TorrentListPresentationModel {
         records: [TorrentRecord],
         pendingRenameNames: [String: String],
         animated: Bool,
-        reduceMotion: Bool
+        reduceMotion: Bool,
+        sorting: TorrentListSorting? = nil
     ) -> [TorrentListRowPresentation] {
+        if let sorting { self.sorting = sorting }
         let updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,
@@ -229,13 +236,13 @@ final class TorrentListPresentationModel {
     ) {
         if animated, !reduceMotion {
             withAnimation(.smooth(duration: 0.26, extraBounce: 0)) {
-                layout = TorrentListLayout(rows: updatedRows)
+                layout = TorrentListLayout(rows: updatedRows, sorting: sorting)
             }
         } else {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                layout = TorrentListLayout(rows: updatedRows)
+                layout = TorrentListLayout(rows: updatedRows, sorting: sorting)
             }
         }
     }

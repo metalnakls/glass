@@ -33,6 +33,12 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
     @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
+    @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
+    @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
+    private var sorting: TorrentListSorting {
+        TorrentListSorting(loading: .init(rawValue: loadingSort) ?? .priority,
+                           completed: .init(rawValue: completedSort) ?? .lastDownloaded)
+    }
     @AppStorage("GlassList.grid") private var storedGrid = false
     @AppStorage("GlassList.density") private var storedDensityLevel = 1
     @AppStorage("GlassList.enableIconView") private var enableIconView = false
@@ -126,7 +132,7 @@ struct TorrentListView: View {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
-                                            .moveDisabled(rowIsAdding(row))
+                                            .moveDisabled(rowIsAdding(row) || !rowUsesManualOrder(row))
                                             .onScrollVisibilityChange(threshold: 0.1) { visible in
                                                 guard visible,
                                                       let index = layout.rowIndices[row.id] else { return }
@@ -320,6 +326,15 @@ struct TorrentListView: View {
         }
     }
 
+    private func rowUsesManualOrder(_ row: TorrentListRowPresentation) -> Bool {
+        let unfinished: Bool
+        switch row.kind {
+        case let .torrent(record, _): unfinished = record.isUnfinished
+        case let .group(records, _, _): unfinished = records.contains { $0.isUnfinished }
+        }
+        return (unfinished ? sorting.loading : sorting.completed) == .transmission
+    }
+
     private func rowIsAdding(_ row: TorrentListRowPresentation) -> Bool {
         switch row.kind {
         case let .torrent(record, _): record.isAdding
@@ -401,7 +416,8 @@ struct TorrentListView: View {
             revision: structureRevision,
             recordIDs: records.map(\.id),
             pendingRenameNames: pendingRenameNames,
-            unfinishedIDs: records.filter { $0.isUnfinished }.map(\.id)
+            unfinishedIDs: records.filter { $0.isUnfinished }.map(\.id),
+            sorting: sorting, sortInputs: records.map { sorting.input(for: $0) }
         )
     }
 
@@ -436,7 +452,8 @@ struct TorrentListView: View {
             records: records,
             pendingRenameNames: pendingRenameNames,
             animated: animated,
-            reduceMotion: accessibilityReduceMotion
+            reduceMotion: accessibilityReduceMotion,
+            sorting: sorting
         )
         reconcileSelection(with: updatedRows)
     }

@@ -65,6 +65,16 @@ struct TorrentListPresentationTests {
         #expect(!expanded.showsSeparator(after: complete.id, selection: complete.id))
         #expect(expanded.showsSeparator(after: complete.id, selection: "unmounted"))
         #expect(expanded.movingFolderIDs == [complete.id, partial.id])
+        let high = filterRecord(source, season: 10, complete: false, rawName: "High.mkv", priority: 1, added: 40)
+        let old = filterRecord(source, season: 11, complete: false, rawName: "Old.mkv", priority: 0, added: 10)
+        let new = filterRecord(source, season: 12, complete: false, rawName: "New.mkv", priority: 0, added: 20)
+        let earlier = filterRecord(source, season: 13, complete: true, rawName: "Earlier.mkv", added: 30, done: 100)
+        let latest = filterRecord(source, season: 14, complete: true, rawName: "Latest.mkv", added: 5, done: 200)
+        let sortRows = TorrentListRowPresentation.rows(records: [new, earlier, old, latest, high, complete, partial], pendingRenameNames: [:], expandedGroupIDs: [groupID])
+        let sorted = TorrentListLayout(rows: sortRows, sorting: TorrentListSorting(loading: .priority, completed: .lastDownloaded))
+        #expect(sorted.sections.first { $0.id == "unfinished" }?.rows.map(\.id) == [high.id, old.id, new.id, groupID, complete.id, partial.id])
+        #expect(sorted.sections.first { $0.id == "finished" }?.rows.map(\.id) == [latest.id, earlier.id])
+        #expect(TorrentListLayout(rows: sortRows).sections.first { $0.id == "finished" }?.rows.map(\.id) == [earlier.id, latest.id])
     }
 
     @Test("server queue telemetry cannot reorder the visible library")
@@ -309,12 +319,12 @@ struct TorrentListPresentationTests {
     }
 
     private func filterRecord(_ source: UUID, season: Int, complete: Bool, downloading: Bool = false,
-                              rawName: String? = nil, displayName: String? = nil) -> TorrentRecord {
+                              rawName: String? = nil, displayName: String? = nil, priority: Int? = nil, added: Int? = nil, done: Int? = nil) -> TorrentRecord {
         TorrentRecord(TorrentSummary(id: season, hashString: "fargo-\(season)", name: rawName ?? "Fargo \(season)",
             status: downloading ? TransmissionTorrentStatus.downloading.rawValue : TransmissionTorrentStatus.stopped.rawValue,
             percentDone: complete ? 1 : 0.5, rateDownload: 0, rateUpload: 0,
             sizeWhenDone: 100, leftUntilDone: complete ? 0 : 50, eta: -1, uploadRatio: 0,
-            peersConnected: nil, downloadDir: "/downloads"), sourceID: source, displayName: displayName)
+            peersConnected: nil, downloadDir: "/downloads", bandwidthPriority: priority, addedDate: added, doneDate: done), sourceID: source, displayName: displayName)
     }
 
     private func record(_ sourceID: UUID, season: Int) -> TorrentRecord {
