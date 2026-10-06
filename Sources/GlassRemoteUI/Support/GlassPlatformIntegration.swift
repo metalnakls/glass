@@ -79,11 +79,20 @@ private struct GlassCommandActionsKey: FocusedValueKey {
     typealias Value = GlassCommandActions
 }
 
+private struct GlassTuningPresentedKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
 private struct GlassInspectorFileFilterFocusedKey: FocusedValueKey {
     typealias Value = Bool
 }
 
 public extension FocusedValues {
+    var glassTuningPresented: Binding<Bool>? {
+        get { self[GlassTuningPresentedKey.self] }
+        set { self[GlassTuningPresentedKey.self] = newValue }
+    }
+
     var glassCommandActions: GlassCommandActions? {
         get { self[GlassCommandActionsKey.self] }
         set { self[GlassCommandActionsKey.self] = newValue }

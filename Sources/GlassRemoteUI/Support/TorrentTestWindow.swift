@@ -10,7 +10,7 @@ import SwiftUI
         if window == nil {
             let panel = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 820, height: 620),
                 styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            panel.title = "Test Torrents"
+            panel.title = glassText("Test Torrents")
             panel.contentView = NSHostingView(rootView: TorrentTestWorkspace())
             panel.isReleasedWhenClosed = false
             panel.setFrameAutosaveName("GlassTestTorrents")
@@ -21,23 +21,24 @@ import SwiftUI
 }
 
 private struct TorrentTestWorkspace: View {
+    @State private var isTuningPresented = false
     @State private var library = TorrentTestLibrary()
     @AppearanceStorage("GlassList.funMode") private var funMode = false
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Test Torrents").font(.headline)
-                Toggle("Fun mode", isOn: $funMode).toggleStyle(.switch).controlSize(.small)
+                Text(glassText("Test Torrents")).font(.headline)
+                Toggle(glassText("Fun mode"), isOn: $funMode).toggleStyle(.switch).controlSize(.small)
                 Spacer()
-                Button("Failed remote add") { Task { await library.addOfflineFixture() } }
-                Button("Complete downloads") { Task { await library.session.completeAll(); await library.model.refresh() } }
-                Button("Reset") { library = TorrentTestLibrary() }
-                Button("Appearance…") { SelectionAppearanceWindow.show() }
+                Button(glassText("Failed remote add")) { Task { await library.addOfflineFixture() } }
+                Button(glassText("Complete downloads")) { Task { await library.session.completeAll(); await library.model.refresh() } }
+                Button(glassText("Reset")) { library = TorrentTestLibrary() }
+                Button(isTuningPresented ? "Hide Tune" : "Tune") { isTuningPresented.toggle() }
             }.controlSize(.small).padding(10)
-            GlassRootView(model: library.model, isTestWorkspace: true)
+            GlassRootView(model: library.model, isTestWorkspace: true, tuningPresented: $isTuningPresented)
                 .id(ObjectIdentifier(library))
                 .environment(\.glassSampleArtwork, true)
-        }.frame(minWidth: 700, minHeight: 360)
+        }.frame(minWidth: 700, minHeight: 360).glassTextStyle()
     }
 }
 

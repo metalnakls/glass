@@ -10,8 +10,15 @@ public enum GlassAppearanceDefaults {
         guard let url = Bundle.module.url(forResource: "AppearanceDefaults", withExtension: "json"),
               let data = try? Data(contentsOf: url),
               let values = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return [:] }
-        return values
+        return inspectorDefaults.merging(values) { _, saved in saved }
     }
+
+    private static let inspectorDefaults: [String: Any] = [
+        "GlassInspector.blurEnabled": false,
+        "GlassInspector.blurRadius": 6.0,
+        "GlassInspector.blurEaseIn": 0.25,
+        "GlassInspector.blurEaseOut": 0.35
+    ]
 
     public static func register(in defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName) {
         // Seed independent strengths before registration masks the legacy fallback.
@@ -49,8 +56,8 @@ public enum GlassAppearanceDefaults {
         let source = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
             .appendingPathComponent("Resources/AppearanceDefaults.json")
         let panel = NSSavePanel()
-        panel.title = "Save appearance defaults"
-        panel.message = "Save this file in the project Resources folder. Publish this file with Scripts/push-tunes to update appearance without an app release."
+        panel.title = glassText("Save appearance defaults")
+        panel.message = glassText("Save this file in the project Resources folder. Publish this file with Scripts/push-tunes to update appearance without an app release.")
         panel.directoryURL = source.deletingLastPathComponent()
         panel.nameFieldStringValue = source.lastPathComponent
         guard panel.runModal() == .OK, let url = panel.url else { return false }

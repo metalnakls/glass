@@ -55,12 +55,6 @@ struct GlassApp: App {
         .commands {
             GlassCommands(updaterController: updaterController)
             InspectorCommands()
-            CommandGroup(replacing: .appSettings) {
-                if GlassTuningMode.isEnabled {
-                    Button("Appearance…") { SelectionAppearanceWindow.show() }
-                        .keyboardShortcut(",", modifiers: .command)
-                }
-            }
         }
 
     }
@@ -110,45 +104,53 @@ private struct GlassCommands: Commands {
     @AppStorage("GlassList.density") private var density = 1
     @AppStorage("GlassList.enableIconView") private var enableIconView = false
     @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
+    @FocusedValue(\.glassTuningPresented) private var tuningPresented
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
+        CommandGroup(replacing: .appSettings) {
+            if GlassTuningMode.isEnabled {
+                Toggle(glassText("Tune"), isOn: tuningPresented ?? .constant(false))
+                    .keyboardShortcut(",", modifiers: .command)
+                    .disabled(tuningPresented == nil)
+            }
+        }
         CommandGroup(replacing: .appInfo) {
-            Button("Update Appearance") { Task { await GlassTuningUpdates.shared.refresh(force: true) } }
+            Button(glassText("Update Appearance")) { Task { await GlassTuningUpdates.shared.refresh(force: true) } }
             if let updaterController {
-                Button("Check for Updates...") {
+                Button(glassText("Check for Updates...")) {
                     updaterController.updater.checkForUpdates()
                 }
             }
         }
 
         CommandGroup(after: .toolbar) {
-            Button("Icon View") { grid = true }.keyboardShortcut("1", modifiers: .command)
+            Button(glassText("Icon View")) { grid = true }.keyboardShortcut("1", modifiers: .command)
                 .disabled(!enableIconView)
-            Button("List View") { grid = false }.keyboardShortcut("2", modifiers: .command)
+            Button(glassText("List View")) { grid = false }.keyboardShortcut("2", modifiers: .command)
             Divider()
-            Button("Make Smaller") { density = max(enableCompactView ? 0 : 1, density - 1) }.keyboardShortcut("-", modifiers: .command)
+            Button(glassText("Make Smaller")) { density = max(enableCompactView ? 0 : 1, density - 1) }.keyboardShortcut("-", modifiers: .command)
                 .disabled(density <= (enableCompactView ? 0 : 1))
-            Button("Make Larger") { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
+            Button(glassText("Make Larger")) { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
             Divider()
-            Toggle("Show Extensions", isOn: $showExtensions)
+            Toggle(glassText("Show Extensions"), isOn: $showExtensions)
             if GlassTuningMode.isEnabled {
                 Divider()
-                Button("Appearance…") { SelectionAppearanceWindow.show() }
-                Button("Test Torrents…") { TorrentTestWindow.show() }
+                Toggle(glassText("Tune"), isOn: tuningPresented ?? .constant(false)).disabled(tuningPresented == nil)
+                Button(glassText("Test Torrents…")) { TorrentTestWindow.show() }
                     .keyboardShortcut(",", modifiers: [.command, .shift])
             }
         }
 
         CommandGroup(replacing: .newItem) {
-            Button("Add Magnet...") {
+            Button(glassText("Add Magnet...")) {
                 actions?.addMagnet()
             }
             .keyboardShortcut("n", modifiers: [.command])
             .disabled(actions == nil)
 
-            Button("Add Torrent File...") {
+            Button(glassText("Add Torrent File...")) {
                 actions?.addTorrentFile()
             }
             .keyboardShortcut("o", modifiers: [.command])
@@ -158,7 +160,7 @@ private struct GlassCommands: Commands {
         CommandGroup(after: .pasteboard) {
             Divider()
 
-            Button("Paste Magnet Link") {
+            Button(glassText("Paste Magnet Link")) {
                 guard let magnet = Self.pasteboardMagnetLink else { return }
                 actions?.openMagnet(magnet)
             }
@@ -167,7 +169,7 @@ private struct GlassCommands: Commands {
         }
 
         CommandMenu("Torrent") {
-            Button(actions?.isDownloadingFilterActive == true ? "Show All Torrents" : "Show Unfinished Torrents") {
+            Button(glassText(actions?.isDownloadingFilterActive == true ? "Show All Torrents" : "Show Unfinished Torrents")) {
                 actions?.toggleDownloadingFilter()
             }
             .keyboardShortcut("d", modifiers: [.command])
@@ -175,13 +177,13 @@ private struct GlassCommands: Commands {
 
             Divider()
 
-            Button("Delete Torrent") {
+            Button(glassText("Delete Torrent")) {
                 actions?.removeSelectedTorrent(false)
             }
             .keyboardShortcut(.delete, modifiers: [])
             .disabled(actions?.canRemoveSelectedTorrent != true || isInspectorFileFilterFocused == true)
 
-            Button("Delete Torrent + Data") {
+            Button(glassText("Delete Torrent + Data")) {
                 actions?.removeSelectedTorrent(true)
             }
             .keyboardShortcut(.delete, modifiers: [.command])
@@ -301,7 +303,7 @@ private final class GlassCompletionNotificationCenter: NSObject, TorrentCompleti
             }
 
             let content = UNMutableNotificationContent()
-            content.title = "Download Complete"
+            content.title = glassText("Download Complete")
             content.body = name
             content.sound = .default
             let request = UNNotificationRequest(

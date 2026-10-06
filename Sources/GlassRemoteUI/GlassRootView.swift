@@ -5,6 +5,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 public struct GlassRootView: View {
+    private let externalTuningPresentation: Binding<Bool>?
+    @State private var isTuningPresented = false
     private let isTestWorkspace: Bool
     private let model: RemoteAppModel
     private let platformIntegration: any GlassPlatformIntegrating
@@ -32,8 +34,10 @@ public struct GlassRootView: View {
     public init(
         model: RemoteAppModel,
         platformIntegration: any GlassPlatformIntegrating = UnavailableGlassPlatformIntegration.shared,
-        isTestWorkspace: Bool = false
+        isTestWorkspace: Bool = false,
+        tuningPresented: Binding<Bool>? = nil
     ) {
+        self.externalTuningPresentation = tuningPresented
         self.isTestWorkspace = isTestWorkspace
         self.model = model
         self.platformIntegration = platformIntegration
@@ -61,15 +65,25 @@ public struct GlassRootView: View {
 
         }
         .environment(\.locale, GlassFormatting.shared.locale)
-        .inspector(isPresented: $isInspectorPresented) {
-            TorrentSelectionInspector(
-                model: model,
-                platformIntegration: platformIntegration,
-                selectedID: selectedTorrentID,
-                presentation: presentation
-            )
+        .inspector(isPresented: inspectorPresentation) {
+            let showsTune = GlassTuningMode.isEnabled && tuningPresentation.wrappedValue
+            ZStack {
+                // Keep selection, search and staged file edits alive beneath Tune.
+                TorrentSelectionInspector(
+                    model: model,
+                    platformIntegration: platformIntegration,
+                    selectedID: selectedTorrentID,
+                    presentation: presentation,
+                    isVisible: !showsTune
+                )
+                .opacity(showsTune ? 0 : 1)
+                .allowsHitTesting(!showsTune)
+                .accessibilityHidden(showsTune)
+                if showsTune {
+                    SelectionAppearanceView(onClose: { tuningPresentation.wrappedValue = false })
+                }
+            }
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
-
         }
         .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
         .animation(dropAnimation, value: isTorrentDropTargeted)
@@ -92,7 +106,7 @@ public struct GlassRootView: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 18)
                     .stroke(Color.primary.opacity(0.6), style: StrokeStyle(lineWidth: 3))
-                Label("Drop to Add Torrent", systemImage: "doc.badge.plus")
+                Label(glassText("Drop to Add Torrent"), systemImage: "doc.badge.plus")
                     .font(.headline)
                     .padding(.horizontal, 18).padding(.vertical, 12)
                     .glassEffect(.regular, in: .capsule)
@@ -142,15 +156,15 @@ public struct GlassRootView: View {
             .toolbarVisibility(.visible, for: .windowToolbar)
             .presentationSizing(.form)
         }
-        .alert(activeAlertTitle, isPresented: activeAlertBinding, presenting: activeAlert) { alert in
+        .alert(glassText(activeAlertTitle), isPresented: activeAlertBinding, presenting: activeAlert) { alert in
             switch alert {
             case let .deleteProfile(profile):
-                Button("Delete", role: .destructive) {
+                Button(glassText("Delete"), role: .destructive) {
                     model.deleteProfile(profile)
                 }
-                Button("Cancel", role: .cancel) {}
+                Button(glassText("Cancel"), role: .cancel) {}
             case .error:
-                Button("OK") {}
+                Button(glassText("OK")) {}
             }
         } message: { alert in
             switch alert {
@@ -202,6 +216,8 @@ public struct GlassRootView: View {
         .task(id: selectedTorrentID) {
             await loadSelectedTorrentDetails()
         }
+        .glassTextStyle()
+        .focusedSceneValue(\.glassTuningPresented, tuningPresentation)
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
     }
 
@@ -492,6 +508,16 @@ public struct GlassRootView: View {
         }
     }
 
+    private var tuningPresentation: Binding<Bool> { externalTuningPresentation ?? $isTuningPresented }
+
+    private var inspectorPresentation: Binding<Bool> {
+        Binding(get: { isInspectorPresented || (GlassTuningMode.isEnabled && tuningPresentation.wrappedValue) },
+            set: { visible in
+                isInspectorPresented = visible
+                if !visible { tuningPresentation.wrappedValue = false }
+            })
+    }
+
     private func updateInspectorWidth(_ width: CGFloat) {
         let visible = TorrentInspectorLayout.isVisible(width: width, wasVisible: isInspectorPresented)
         guard visible != isInspectorPresented else { return }
@@ -625,6 +651,7 @@ private struct TorrentSelectionInspector: View {
     let platformIntegration: any GlassPlatformIntegrating
     let selectedID: String?
     let presentation: TorrentListPresentationModel
+    var isVisible = true
 
     var body: some View {
         let row = presentation.rows.first { $0.id == selectedID }
@@ -633,7 +660,8 @@ private struct TorrentSelectionInspector: View {
             platformIntegration: platformIntegration,
             sourceID: row?.sourceID ?? model.selectedSourceID,
             selectedTorrentHash: row?.torrentRecord?.hashString ?? row?.id,
-            selectedTorrentGroup: row?.selectedGroup
+            selectedTorrentGroup: row?.selectedGroup,
+            isVisible: isVisible
         )
     }
 }

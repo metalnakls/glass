@@ -8,6 +8,7 @@ struct TorrentInspectorView: View {
     let sourceID: UUID
     let selectedTorrentHash: String?
     let selectedTorrentGroup: TorrentNameSequenceGroup?
+    var isVisible = true
     @State private var fileSearchText = ""
     @State private var snapshot: TorrentInspectorSnapshot?
     @State private var editSession = TorrentFileEditSession()
