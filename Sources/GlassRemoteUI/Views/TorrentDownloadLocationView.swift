@@ -74,7 +74,7 @@ struct TorrentDownloadLocationView: View {
                             .font(.headline)
                             .lineLimit(1).truncationMode(.middle)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(maxWidth: glassPills ? nil : .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -88,6 +88,7 @@ struct TorrentDownloadLocationView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if glassPills { Spacer(minLength: 8) }
             VStack(alignment: .trailing, spacing: 4) {
                 if !torrentErrors.isEmpty {
                     Text(glassText(Array(Set(torrentErrors.map { $0.hasPrefix("No data found") ? "No data found" : $0 })).sorted().joined(separator: " · ")))
