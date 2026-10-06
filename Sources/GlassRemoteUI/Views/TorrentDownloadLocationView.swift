@@ -42,6 +42,7 @@ struct TorrentDownloadLocationView: View {
     var availableBytes: UInt64?
     var torrentErrors: [String] = []
     let platformIntegration: any GlassPlatformIntegrating
+    var glassPills = false
     @State private var feedbackID: UUID?
     @State private var feedback: String?
     @State private var isOpening = false
@@ -77,6 +78,7 @@ struct TorrentDownloadLocationView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .modifier(LocationGlassPill(enabled: glassPills, interactive: true))
                 .disabled(isOpening)
                 .help(isLocal ? directory : "\(serverName): \(directory)\nClick to open the share; ⌘-click to reconnect it.")
                 .accessibilityLabel(location.sourceName)
@@ -98,6 +100,7 @@ struct TorrentDownloadLocationView: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
             }
+            .modifier(LocationGlassPill(enabled: glassPills, interactive: false))
         }
         .frame(minHeight: 36)
         .task(id: feedbackID) {
@@ -108,5 +111,16 @@ struct TorrentDownloadLocationView: View {
         }
         .onChange(of: sourceID) { _, _ in feedbackID = nil; feedback = nil }
         .onChange(of: directory) { _, _ in feedbackID = nil; feedback = nil }
+    }
+}
+
+private struct LocationGlassPill: ViewModifier {
+    let enabled: Bool
+    let interactive: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if enabled {
+            content.padding(.horizontal, 12).padding(.vertical, 10)
+                .glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+        } else { content }
     }
 }

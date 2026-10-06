@@ -87,7 +87,25 @@ private struct GlassInspectorFileFilterFocusedKey: FocusedValueKey {
     typealias Value = Bool
 }
 
+private struct GlassInspectorSearchPresentedKey: FocusedValueKey {
+    typealias Value = Binding<Bool>
+}
+
+private struct GlassInspectorSelectAllKey: FocusedValueKey {
+    typealias Value = () -> Void
+}
+
 public extension FocusedValues {
+    var glassInspectorSearchPresented: Binding<Bool>? {
+        get { self[GlassInspectorSearchPresentedKey.self] }
+        set { self[GlassInspectorSearchPresentedKey.self] = newValue }
+    }
+
+    var glassInspectorSelectAll: (() -> Void)? {
+        get { self[GlassInspectorSelectAllKey.self] }
+        set { self[GlassInspectorSelectAllKey.self] = newValue }
+    }
+
     var glassTuningPresented: Binding<Bool>? {
         get { self[GlassTuningPresentedKey.self] }
         set { self[GlassTuningPresentedKey.self] = newValue }

@@ -38,7 +38,7 @@ struct TorrentInspectorView: View {
     var body: some View {
         Group {
             if let snapshot {
-                TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession)
+                TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession, commandsEnabled: isVisible && !waitingForSelection, onApply: { wanted in Task { await applyFileEdits(selectionWanted: wanted) } })
                     .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                     .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
                     .padding(.top, 18)
@@ -65,42 +65,6 @@ struct TorrentInspectorView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
-        .overlay(alignment: .bottom) {
-            if editSession.hasSelection || editSession.hasChanges {
-                VStack(spacing: 8) {
-                    if editSession.hasSelection {
-                        HStack(spacing: 8) {
-                            Button { Task { await applyFileEdits(selectionWanted: true) } } label: {
-                                Text(glassText("Download")).frame(maxWidth: .infinity)
-                            }.buttonStyle(.glass)
-                            Button { Task { await applyFileEdits(selectionWanted: false) } } label: {
-                                Text(glassText("Skip")).frame(maxWidth: .infinity)
-                            }.buttonStyle(.glass).tint(.red)
-                        }
-                    } else if editSession.hasChanges {
-                        Button { Task { await applyFileEdits() } } label: {
-                            Text(glassText("Apply")).frame(maxWidth: .infinity)
-                        }.buttonStyle(.glass)
-                    }
-                }
-                .controlSize(.large)
-                .padding(.horizontal, 18)
-                .padding(.top, 22)
-                .padding(.bottom, 16)
-                .background {
-                    Rectangle().fill(.ultraThinMaterial)
-                        .mask(LinearGradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .black.opacity(0.55), location: 0.45),
-                            .init(color: .black, location: 1)
-                        ], startPoint: .top, endPoint: .bottom))
-                        .padding(.top, -24)
-                        .allowsHitTesting(false)
-                }
-
-                .disabled(editSession.isApplying || snapshot?.selectionKey != selectionKey)
-            }
-        }
         .onChange(of: snapshot?.selectionKey) { _, _ in editSession.reset() }
         .task(id: detailLoadInput) {
             guard isVisible, selectedTorrentGroup == nil, let selectedTorrentHash,
@@ -249,6 +213,11 @@ private struct TorrentInspectorContent: View {
     let snapshot: TorrentInspectorSnapshot
     @Binding var fileSearchText: String
     let editSession: TorrentFileEditSession
+    let commandsEnabled: Bool
+    let onApply: (Bool?) -> Void
+    @State private var searchPresented = false
+    @FocusState private var searchFocused: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let fileLayout = TorrentFileListLayout.inspector
     private var sourceID: UUID { snapshot.sourceID }
     private var groupDetails: [String: TorrentDetails] { snapshot.groupDetails }
@@ -283,36 +252,7 @@ private struct TorrentInspectorContent: View {
                         torrentErrors: snapshot.group.map { group in
                             TorrentNameSequenceGroup(id: group.id, displayName: group.displayName, torrents: members).locationErrors
                         } ?? members.compactMap { $0.errorString }.filter { !$0.isEmpty },
-                        platformIntegration: platformIntegration)
-                }
-                TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
-                    .contextMenu {
-                        TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members)
-                    }
-                Divider()
-                HStack(spacing: fileLayout.columnGap) {
-                    Toggle(glassText("Download all files"), isOn: Binding(get: {
-                        !selectedDetails.isEmpty && selectedDetails.allSatisfy { details in
-                            !details.files.isEmpty && details.files.indices.allSatisfy { index in
-                                TorrentFileCompletion.isComplete(details, index: index) || (editSession.wanted[details.hashString]?[index] ?? (details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true))
-                            }
-                        }
-                    }, set: { value in
-                        for details in selectedDetails {
-                            let current = Dictionary(uniqueKeysWithValues: details.files.indices.compactMap { index -> (Int, Bool)? in
-                                guard !TorrentFileCompletion.isComplete(details, index: index) else { return nil }
-                                return (index, details.fileStats.indices.contains(index) ? details.fileStats[index].wanted ?? true : true)
-                            })
-                            editSession.stageAll(value, current: current, for: details.hashString)
-                        }
-                    })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                    .frame(width: fileLayout.leadingIconWidth)
-                    .disabled(!selectedDetails.isEmpty && selectedDetails.allSatisfy { details in
-                        !details.files.isEmpty && details.files.indices.allSatisfy { TorrentFileCompletion.isComplete(details, index: $0) }
-                    })
-                    TextField(glassText("Search Files"), text: $fileSearchText)
-                        .textFieldStyle(.roundedBorder).controlSize(.small)
-                        .focusedValue(\.glassInspectorFileFilterFocused, true)
+                        platformIntegration: platformIntegration, glassPills: true)
                 }
             }
             .padding(.horizontal, fileLayout.outerInset)
@@ -352,9 +292,89 @@ private struct TorrentInspectorContent: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.bottom, 20)
             }
-            .contentMargins(.bottom, editSession.hasSelection || editSession.hasChanges ? 84 : 0, for: .scrollContent)
+            .contentMargins(.bottom, footerHeight, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .top)
             .scrollEdgeEffectStyle(.soft, for: .bottom)
+        }
+        .overlay(alignment: .bottom) { bottomDock }
+        .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
+        .onChange(of: searchPresented) { _, presented in
+            searchFocused = presented
+            if !presented { fileSearchText = "" }
+        }
+    }
+
+    private var footerHeight: CGFloat {
+        80 + (searchPresented ? 48 : 0) + (editSession.hasSelection || editSession.hasChanges ? 48 : 0)
+    }
+
+    private var bottomDock: some View {
+        GlassEffectContainer(spacing: 8) {
+            VStack(spacing: 8) {
+                if searchPresented {
+                    HStack(spacing: 8) {
+                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                        TextField(glassText("Search Files"), text: $fileSearchText)
+                            .textFieldStyle(.plain)
+                            .focused($searchFocused)
+                            .focusedValue(\.glassInspectorFileFilterFocused, true)
+                            .onExitCommand { searchPresented = false }
+                        Button { searchPresented = false } label: { Image(systemName: "xmark") }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(glassText("Close search"))
+                    }
+                    .padding(.horizontal, 14).padding(.vertical, 12)
+                    .glassEffect(.regular, in: .capsule)
+                    .transition(.opacity)
+                }
+                HStack(spacing: 8) {
+                    TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
+                        .padding(.horizontal, 14).padding(.vertical, 12)
+                        .glassEffect(.regular, in: .capsule)
+                        .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
+                    if !searchPresented {
+                        Button { searchPresented = true } label: {
+                            Image(systemName: "magnifyingglass").frame(width: 20, height: 20)
+                        }
+                        .buttonStyle(.glass).buttonBorderShape(.circle)
+                        .accessibilityLabel(glassText("Search Files"))
+                        .transition(.opacity)
+                    }
+                }
+                if editSession.hasSelection {
+                    HStack(spacing: 8) {
+                        Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
+                            .buttonStyle(.glass)
+                        Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
+                            .buttonStyle(.glass).tint(.red)
+                    }
+                } else if editSession.hasChanges {
+                    Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
+                        .buttonStyle(.glass)
+                }
+            }
+            .controlSize(.large)
+            .padding(.horizontal, fileLayout.outerInset)
+            .padding(.top, 22).padding(.bottom, 16)
+            .background {
+                Rectangle().fill(.ultraThinMaterial)
+                    .mask(LinearGradient(stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black.opacity(0.55), location: 0.45),
+                        .init(color: .black, location: 1)
+                    ], startPoint: .top, endPoint: .bottom))
+                    .padding(.top, -24).allowsHitTesting(false)
+            }
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: searchPresented)
+            .disabled(editSession.isApplying)
+        }
+    }
+
+    private func selectAllFiles() {
+        for details in selectedDetails {
+            editSession.selections[details.hashString] = Set(fileEntries(for: details).filter {
+                !$0.isComplete && (fileSearchText.isEmpty || $0.displayName.localizedCaseInsensitiveContains(fileSearchText) || $0.originalPath.localizedCaseInsensitiveContains(fileSearchText))
+            }.map(\.index))
         }
     }
 
@@ -384,6 +404,7 @@ private struct TorrentInspectorContent: View {
             editSession: editSession,
             editID: details.hashString,
             showsActionBar: false,
+            onSelectAll: { if commandsEnabled { selectAllFiles() } },
             onSetPriorities: { indices, priority in
                 await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID)
             }

@@ -24,6 +24,7 @@ struct TorrentFilesBrowser: View {
     var editSession: TorrentFileEditSession?
     var editID = ""
     var showsActionBar = true
+    var onSelectAll: (() -> Void)?
     var onSetPriorities: (([Int], Int) async -> Bool)?
     @State private var pendingPriorities: [Int: PendingPriority] = [:]
     private struct PendingPriority {
@@ -172,6 +173,7 @@ struct TorrentFilesBrowser: View {
                     }
                 }
             }
+            .focusedValue(\.glassInspectorSelectAll, onSelectAll)
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) {
                     Button(glassText("High Priority"), systemImage: "star.fill") { setPriority(row, 1) }

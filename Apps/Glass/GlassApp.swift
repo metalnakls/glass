@@ -106,6 +106,8 @@ private struct GlassCommands: Commands {
     @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
     @FocusedValue(\.glassTuningPresented) private var tuningPresented
     @FocusedValue(\.glassCommandActions) private var actions
+    @FocusedValue(\.glassInspectorSearchPresented) private var inspectorSearchPresented
+    @FocusedValue(\.glassInspectorSelectAll) private var inspectorSelectAll
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
@@ -155,6 +157,16 @@ private struct GlassCommands: Commands {
             }
             .keyboardShortcut("o", modifiers: [.command])
             .disabled(actions == nil)
+        }
+
+        CommandGroup(before: .textEditing) {
+            if let inspectorSelectAll {
+                Button(glassText("Select All"), action: inspectorSelectAll)
+                    .keyboardShortcut("a", modifiers: .command)
+            }
+            Button(glassText("Find in Inspector")) { inspectorSearchPresented?.wrappedValue = true }
+                .keyboardShortcut("f", modifiers: .command)
+                .disabled(inspectorSearchPresented == nil)
         }
 
         CommandGroup(after: .pasteboard) {
