@@ -79,7 +79,7 @@ struct AddTorrentBatchView: View {
     var body: some View {
         VStack(spacing: 16) {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                TextField("Torrent name", text: titleBinding(for: group))
+                TextField(glassText("Torrent name"), text: titleBinding(for: group))
                     .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
                     .frame(maxWidth: .infinity, alignment: .leading).disabled(isAdding || optionHeld)
                     .id("\(group.id):\(optionHeld)")
@@ -96,7 +96,7 @@ struct AddTorrentBatchView: View {
                 )
 
                 if groups.count > 1 {
-                    Picker("Torrent", selection: $selectedGroupID) {
+                    Picker(glassText("Torrent"), selection: $selectedGroupID) {
                         ForEach(groups) { group in
                             Text(groupNamesByID[group.id] ?? group.displayName).tag(group.id)
                         }
@@ -129,9 +129,9 @@ struct AddTorrentBatchView: View {
         .background(ModifierKeyObserver { optionHeld = $0 })
         .safeAreaInset(edge: .bottom) {
             HStack {
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
+                Button(glassText("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
                 Spacer()
-                Button(drafts.count == 1 ? "Add" : "Add All") {
+                Button(glassText(drafts.count == 1 ? "Add" : "Add All")) {
                     disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
                     Task { await addAll() }
                 }
@@ -307,12 +307,12 @@ private struct TorrentBatchGroupEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Toggle("Select all files", isOn: Binding(get: {
+                Toggle(glassText("Select all files"), isOn: Binding(get: {
                     group.itemIndices.allSatisfy { items[$0].selectedFileIndices.count == items[$0].draft.preview.files.count }
                 }, set: { value in
                     for index in group.itemIndices where !items[index].wasAdded { items[index].setAllFilesWanted(value) }
                 })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                TextField("Search Files", text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
+                TextField(glassText("Search Files"), text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
             }
             .padding(.horizontal, 8)
             ScrollView {
@@ -380,7 +380,7 @@ private struct TorrentBatchNameField: View {
     @Bindable var item: TorrentBatchItemState
 
     var body: some View {
-        TextField("Name", text: $item.name)
+        TextField(glassText("Name"), text: $item.name)
             .disabled(item.wasAdded)
     }
 }

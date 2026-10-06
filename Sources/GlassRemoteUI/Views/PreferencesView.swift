@@ -19,24 +19,25 @@ public struct PreferencesView: View {
 
     public var body: some View {
         Form {
-            Section("Servers") {
+            Section(glassText("Servers")) {
                 ForEach(model.profiles) { profile in
                     LabeledContent(profile.name) {
-                        Button("Edit…") { profileEditor = ProfileEditorRequest(profile: profile) }
-                        Button("Remove…", role: .destructive) { pendingDeletion = profile }
+                        Button(glassText("Edit…")) { profileEditor = ProfileEditorRequest(profile: profile) }
+                        Button(glassText("Remove…"), role: .destructive) { pendingDeletion = profile }
                     }
                 }
-                Button("Add Server…") { profileEditor = ProfileEditorRequest(profile: nil) }
+                Button(glassText("Add Server…")) { profileEditor = ProfileEditorRequest(profile: nil) }
             }
-            Section("Numbers and Dates") {
+            Section(glassText("Numbers and Dates")) {
                 LocaleOverrideControl()
             }
-            Section("Torrent Cache") {
-                Toggle("Cache torrent lists", isOn: $isTorrentCachingEnabled)
+            Section(glassText("Torrent Cache")) {
+                Toggle(glassText("Cache torrent lists"), isOn: $isTorrentCachingEnabled)
                 Stepper("Cached servers: \(cachedServerLimit)", value: $cachedServerLimit, in: 1...12)
             }
         }
         .formStyle(.grouped)
+        .glassTextStyle()
         .frame(width: 420)
         .onChange(of: isTorrentCachingEnabled) { _, _ in save() }
         .onChange(of: cachedServerLimit) { _, _ in save() }
@@ -44,17 +45,17 @@ public struct PreferencesView: View {
             NavigationStack { ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: request.profile) }
                 .presentationSizing(.form)
         }
-        .alert("Remove Server?", isPresented: Binding(
+        .alert(glassText("Remove Server?"), isPresented: Binding(
             get: { pendingDeletion != nil },
             set: { if !$0 { pendingDeletion = nil } }
         )) {
-            Button("Remove", role: .destructive) {
+            Button(glassText("Remove"), role: .destructive) {
                 if let profile = pendingDeletion { model.deleteProfile(profile) }
                 pendingDeletion = nil
             }
-            Button("Cancel", role: .cancel) { pendingDeletion = nil }
+            Button(glassText("Cancel"), role: .cancel) { pendingDeletion = nil }
         } message: {
-            Text("Remove this server from Glass. Its torrents and downloaded files are preserved.")
+            Text(glassText("Remove this server from Glass. Its torrents and downloaded files are preserved."))
         }
     }
 

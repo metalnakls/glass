@@ -4,7 +4,7 @@ import SwiftUI
 struct LocaleOverrideControl: View {
     @Bindable private var formatting = GlassFormatting.shared
     var body: some View {
-        Toggle("Override Mac locale with en-US", isOn: Binding(
+        Toggle(glassText("Override Mac locale with en-US"), isOn: Binding(
             get: { !formatting.usesSystemLocale },
             set: { enabled in
                 if enabled { formatting.overrideIdentifier = "en_US" }

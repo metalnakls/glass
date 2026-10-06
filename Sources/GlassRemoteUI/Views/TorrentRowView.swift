@@ -43,7 +43,7 @@ struct TorrentRowView: View, Equatable {
             if grid {
                 VStack(spacing: 10) {
                     leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true, grid: true)).scaleEffect(1.7).frame(height: 76)
-                    Text(displayName(torrent.name)).font(.body).lineLimit(2).multilineTextAlignment(.center)
+                    Text(displayName(torrent.name)).textCase(nil).font(.body).lineLimit(2).multilineTextAlignment(.center)
                     HStack { sizeLabel; Spacer(); transferButton }
                 }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
             } else { row }
@@ -186,7 +186,7 @@ struct TorrentRowView: View, Equatable {
 
     private var titleLine: some View {
         HStack(alignment: .center) {
-            Text(displayName(torrent.name))
+            Text(displayName(torrent.name)).textCase(nil)
                 .font(density == .compact ? .callout : .body)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -210,7 +210,7 @@ struct TorrentRowView: View, Equatable {
     @ViewBuilder
     private var oldNameLabel: some View {
         if let pendingOldName {
-            Text(displayName(pendingOldName))
+            Text(displayName(pendingOldName)).textCase(nil)
                 .font(.callout)
                 .foregroundStyle(.tertiary)
                 .strikethrough()
@@ -223,7 +223,7 @@ struct TorrentRowView: View, Equatable {
     private var sizeLabel: some View {
         HStack(spacing: 3) {
             if additionPhase == nil && !torrent.isCompleted { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
-            Text(additionStatus ?? (torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload)))
+            Text(additionStatus.map { glassText($0) } ?? (torrent.isCompleted ? formatBytes(torrent.sizeWhenDone) : formatRate(torrent.rateDownload))).textCase(nil)
         }
             .font(.caption)
             .foregroundStyle(.secondary)

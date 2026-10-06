@@ -32,9 +32,9 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
 
     private func chooseDirectory(startingAt path: String?, forThumbnails: Bool) async throws -> URL? {
         let panel = NSOpenPanel()
-        panel.title = forThumbnails ? "Link Mounted Download Folder" : "Choose Download Folder"
-        panel.prompt = "Choose"
-        panel.message = forThumbnails ? "Choose this server’s download folder on a share already mounted on your Mac." : "Glass will keep access to this folder for local downloads."
+        panel.title = glassText(forThumbnails ? "Link Mounted Download Folder" : "Choose Download Folder")
+        panel.prompt = glassText("Choose")
+        panel.message = glassText(forThumbnails ? "Choose this server’s download folder on a share already mounted on your Mac." : "Glass will keep access to this folder for local downloads.")
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false

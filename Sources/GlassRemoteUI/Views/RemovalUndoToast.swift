@@ -111,7 +111,7 @@ struct RemovalUndoToast: View {
         Button {
             undo()
         } label: {
-            Text("Undo")
+            Text(glassText("Undo"))
                 .fontWeight(.medium)
                 .foregroundStyle(.tint)
                 .padding(.horizontal, 2)

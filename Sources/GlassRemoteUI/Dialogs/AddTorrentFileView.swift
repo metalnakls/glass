@@ -56,12 +56,12 @@ struct AddTorrentFileView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 } header: {
-                    Text("Couldn’t Add Torrent")
+                    Text(glassText("Couldn’t Add Torrent"))
                 }
             }
 
             Section {
-                LabeledContent("Name") {
+                LabeledContent(glassText("Name")) {
                     StemSelectingTextField(text: titleBinding, initialSelection: initialNameSelection)
                 }
 
@@ -73,14 +73,14 @@ struct AddTorrentFileView: View {
                                 .lineLimit(1)
                                 .truncationMode(.middle)
 
-                            Button(isAutoCleanEnabled ? "Undo" : "Use Suggestion") {
+                            Button(glassText(isAutoCleanEnabled ? "Undo" : "Use Suggestion")) {
                                 toggleAutoCleanSuggestion(suggestion)
                             }
                         }
                     }
                 }
 
-                Picker("Add To", selection: $sourceID) {
+                Picker(glassText("Add To"), selection: $sourceID) {
                     Label(model.localSourceName, systemImage: model.localSourceSystemImage)
                         .tag(model.localSourceID)
 
@@ -90,12 +90,12 @@ struct AddTorrentFileView: View {
                     }
                 }
 
-                LabeledContent("Download Location") {
+                LabeledContent(glassText("Download Location")) {
                     downloadLocationMenu
                 }
 
                 if destination == .other {
-                    TextField("Path", text: $customDownloadDirectory)
+                    TextField(glassText("Path"), text: $customDownloadDirectory)
                 }
             }
 
@@ -111,9 +111,9 @@ struct AddTorrentFileView: View {
                         }
                     }
                 } header: {
-                    Text("File Name Suggestions")
+                    Text(glassText("File Name Suggestions"))
                 } footer: {
-                    Text("Suggested file names are applied only when you add the torrent. Choose Undo to restore the name you entered.")
+                    Text(glassText("Suggested file names are applied only when you add the torrent. Choose Undo to restore the name you entered."))
                 }
             }
 
@@ -127,19 +127,19 @@ struct AddTorrentFileView: View {
                 }
             } header: {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("Files")
+                    Text(glassText("Files"))
 
                     Text(selectionSummary)
                         .foregroundStyle(.secondary)
 
                     Spacer()
 
-                    Button("All") {
+                    Button(glassText("All")) {
                         selectedFileIndices = Set(draft.preview.files.indices)
                     }
                     .disabled(selectedFileIndices.count == draft.preview.files.count || isAdding)
 
-                    Button("None") {
+                    Button(glassText("None")) {
                         selectedFileIndices.removeAll()
                     }
                     .disabled(selectedFileIndices.isEmpty || isAdding)
@@ -147,10 +147,10 @@ struct AddTorrentFileView: View {
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Add Torrent")
+        .navigationTitle(glassText("Add Torrent"))
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button(glassText("Cancel")) {
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
@@ -158,7 +158,7 @@ struct AddTorrentFileView: View {
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Add") {
+                Button(glassText("Add")) {
                     requestAdd()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -167,13 +167,13 @@ struct AddTorrentFileView: View {
         }
         .frame(minWidth: 600, idealWidth: 640, minHeight: 500, idealHeight: 560)
         .containerBackground(.thinMaterial, for: .window)
-        .alert("Change File Extension?", isPresented: $isExtensionWarningPresented) {
+        .alert(glassText("Change File Extension?"), isPresented: $isExtensionWarningPresented) {
             Button("Keep .\(originalExtension)", role: .cancel) {}
-            Button(newExtension.isEmpty ? "Use Without Extension" : "Use .\(newExtension)") {
+            Button(glassText(newExtension.isEmpty ? "Use Without Extension" : "Use .\(newExtension)")) {
                 Task { await add() }
             }
         } message: {
-            Text("If you change or remove the extension, the file may open in a different application.")
+            Text(glassText("If you change or remove the extension, the file may open in a different application."))
         }
         .task(id: sourceID) {
             defaultDownloadDirectory = nil
@@ -196,7 +196,7 @@ struct AddTorrentFileView: View {
             }
 
             if !favoriteDirectories.isEmpty {
-                Section("Favorites") {
+                Section(glassText("Favorites")) {
                     ForEach(favoriteDirectories, id: \.self) { directory in
                         Button {
                             destination = .directory(directory)
@@ -209,7 +209,7 @@ struct AddTorrentFileView: View {
             }
 
             if !recentDirectories.isEmpty {
-                Section("Recent") {
+                Section(glassText("Recent")) {
                     ForEach(recentDirectories, id: \.self) { directory in
                         Button {
                             destination = .directory(directory)
@@ -224,12 +224,12 @@ struct AddTorrentFileView: View {
             Divider()
 
             if isLocalDestination {
-                Button("Choose…", systemImage: "folder") {
+                Button(glassText("Choose…"), systemImage: "folder") {
                     Task { await chooseDownloadDirectory() }
                 }
                 .disabled(isChoosingDownloadDirectory || isAdding)
             } else {
-                Button("Other Path…", systemImage: "folder.badge.plus") {
+                Button(glassText("Other Path…"), systemImage: "folder.badge.plus") {
                     destination = .other
                 }
             }

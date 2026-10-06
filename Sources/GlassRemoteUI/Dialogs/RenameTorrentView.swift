@@ -18,30 +18,30 @@ struct RenameTorrentView: View {
 
     var body: some View {
         Form {
-            LabeledContent("Name") {
+            LabeledContent(glassText("Name")) {
                 StemSelectingTextField(text: $name, initialSelection: initialSelection)
                     .frame(minWidth: 340)
             }
         }
         .formStyle(.grouped)
-        .navigationTitle("Rename Torrent")
+        .navigationTitle(glassText("Rename Torrent"))
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
+                Button(glassText("Cancel")) { dismiss() }
                     .keyboardShortcut(.cancelAction)
             }
 
             ToolbarItem(placement: .confirmationAction) {
-                Button("Rename") { requestRename() }
+                Button(glassText("Rename")) { requestRename() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(!canRename)
             }
         }
         .frame(minWidth: 480, minHeight: 150)
         .containerBackground(.thinMaterial, for: .window)
-        .alert("Change File Extension?", isPresented: $isExtensionWarningPresented) {
-            Button(keepExtensionTitle, role: .cancel) {}
-            Button(useNewExtensionTitle) { performRename() }
+        .alert(glassText("Change File Extension?"), isPresented: $isExtensionWarningPresented) {
+            Button(glassText(keepExtensionTitle), role: .cancel) {}
+            Button(glassText(useNewExtensionTitle)) { performRename() }
         } message: {
             Text(extensionWarningMessage)
         }

@@ -19,7 +19,7 @@ struct ProfileSidebarView: View {
                 .tag(model.localSourceID)
                 .listRowInsets(sidebarRowInsets)
             } header: {
-                Text("local")
+                Text(glassText("local"))
             }
 
             Section {
@@ -32,16 +32,16 @@ struct ProfileSidebarView: View {
                     .tag(profile.id)
                     .listRowInsets(sidebarRowInsets)
                     .contextMenu {
-                        Button("Edit") {
+                        Button(glassText("Edit")) {
                             editProfile(profile)
                         }
-                        Button("Delete", role: .destructive) {
+                        Button(glassText("Delete"), role: .destructive) {
                             deleteProfile(profile)
                         }
                     }
                 }
             } header: {
-                Text("remote")
+                Text(glassText("remote"))
             }
         }
         .listStyle(.sidebar)

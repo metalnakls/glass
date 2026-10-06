@@ -21,11 +21,11 @@ struct AddMagnetView: View {
                         .foregroundStyle(.red)
                         .textSelection(.enabled)
                 } header: {
-                    Text("Couldn’t Add Torrent")
+                    Text(glassText("Couldn’t Add Torrent"))
                 }
             }
 
-            TextField("Magnet Link", text: $magnet, axis: .vertical)
+            TextField(glassText("Magnet Link"), text: $magnet, axis: .vertical)
                 .lineLimit(2...4)
                 .disabled(isAdding)
 
@@ -44,9 +44,9 @@ struct AddMagnetView: View {
         .frame(width: 540, height: 240)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack {
-                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
+                Button(glassText("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
                 Spacer()
-                Button("Add") { Task { await add() } }
+                Button(glassText("Add")) { Task { await add() } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(normalizedMagnetLink(from: magnet) == nil || isAdding)
             }

@@ -36,21 +36,21 @@ struct ProfileEditorView: View {
 
     var body: some View {
         Form {
-            TextField("Name", text: $profile.name)
-            TextField("RPC URL", text: $urlText)
-            TextField("User", text: $profile.username)
-            SecureField("Password", text: $password)
+            TextField(glassText("Name"), text: $profile.name)
+            TextField(glassText("RPC URL"), text: $urlText)
+            TextField(glassText("User"), text: $profile.username)
+            SecureField(glassText("Password"), text: $password)
 
-            Section("File Previews") {
+            Section(glassText("File Previews")) {
                 if let mountedPath {
-                    LabeledContent("Mounted Folder") {
+                    LabeledContent(glassText("Mounted Folder")) {
                         Text(mountedPath).lineLimit(1).truncationMode(.middle)
-                        Button("Remove") { self.mountedPath = nil; mountedURL = nil }
+                        Button(glassText("Remove")) { self.mountedPath = nil; mountedURL = nil }
                     }
-                    TextField("Server Folder", text: $serverDownloadFolder)
+                    TextField(glassText("Server Folder"), text: $serverDownloadFolder)
                         .help("The server path that matches the mounted folder, such as /downloads.")
                 }
-                Button(mountedPath == nil ? "Link Mounted Folder…" : "Choose Another Folder…") {
+                Button(glassText(mountedPath == nil ? "Link Mounted Folder…" : "Choose Another Folder…")) {
                     Task { await chooseMountedFolder() }
                 }
                 if let linkError { Text(linkError).foregroundStyle(.red) }
@@ -69,18 +69,18 @@ struct ProfileEditorView: View {
         .navigationTitle(profile.name.isEmpty ? "New Server" : profile.name)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
+                Button(glassText("Cancel")) {
                     dismiss()
                 }
             }
             ToolbarItem(placement: .secondaryAction) {
-                Button("Test") {
+                Button(glassText("Test")) {
                     Task { await testConnection() }
                 }
                 .disabled(!canSave || isTesting)
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
+                Button(glassText("Save")) {
                     Task { await save() }
                 }
                 .disabled(!canSave || isSaving)

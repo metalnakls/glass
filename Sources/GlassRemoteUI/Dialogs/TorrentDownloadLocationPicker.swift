@@ -17,33 +17,33 @@ struct TorrentDownloadLocationPicker: View {
     @State private var isChoosingFolder = false
 
     var body: some View {
-        LabeledContent("Download to") {
+        LabeledContent(glassText("Download to")) {
             Menu {
-                Section("On This Mac") {
-                    Button("Default Folder", systemImage: sourceID == model.localSourceID && directory == nil ? "checkmark" : "folder") {
+                Section(glassText("On This Mac")) {
+                    Button(glassText("Default Folder"), systemImage: sourceID == model.localSourceID && directory == nil ? "checkmark" : "folder") {
                         select(model.localSourceID, directory: nil)
                     }
                     let favorites = model.favoriteDownloadDirectories(for: model.localSourceID)
                     let recents = model.downloadDirectories(for: model.localSourceID).filter { !favorites.contains($0) }
                     if !favorites.isEmpty {
-                        Section("Favorites") {
+                        Section(glassText("Favorites")) {
                             ForEach(favorites, id: \.self) { path in locationButton(path) }
                         }
                     }
                     if !recents.isEmpty {
-                        Section("Recent Folders") {
+                        Section(glassText("Recent Folders")) {
                             ForEach(recents, id: \.self) { path in locationButton(path) }
                         }
                     }
                     ForEach(standardFolders.filter { !favorites.contains($0) && !recents.contains($0) }, id: \.self) { path in
                         locationButton(path)
                     }
-                    Button("Choose Folder…", systemImage: "folder.badge.plus") {
+                    Button(glassText("Choose Folder…"), systemImage: "folder.badge.plus") {
                         Task { await chooseMacFolder() }
                     }
                 }
                 if !model.profiles.isEmpty {
-                    Section("Shares") {
+                    Section(glassText("Shares")) {
                         ForEach(model.profiles) { profile in
                             Button(shareName(for: profile.id), systemImage: sourceID == profile.id ? "checkmark" : "externaldrive.connected.to.line.below") {
                                 select(profile.id, directory: nil)
@@ -54,11 +54,11 @@ struct TorrentDownloadLocationPicker: View {
                 }
                 Divider()
                 if sourceID == model.localSourceID, let currentDirectory {
-                    Button(isFavorite ? "Remove from Favorites" : "Add to Favorites", systemImage: isFavorite ? "star.slash" : "star") {
+                    Button(glassText(isFavorite ? "Remove from Favorites" : "Add to Favorites"), systemImage: isFavorite ? "star.slash" : "star") {
                         model.setDownloadDirectory(currentDirectory, isFavorite: !isFavorite, for: model.localSourceID)
                     }
                 }
-                Button("Add Server…", systemImage: "plus") {
+                Button(glassText("Add Server…"), systemImage: "plus") {
                     previousProfileIDs = Set(model.profiles.map(\.id))
                     isEditingServer = true
                 }
@@ -91,8 +91,8 @@ struct TorrentDownloadLocationPicker: View {
             defaultDirectory = path
         }
         if let capacity = model.serverFreeSpace[sourceID], let bytes = capacity.availableBytes {
-            LabeledContent("Free space") {
-                Text(formatBytes(bytes)).foregroundStyle(.secondary)
+            LabeledContent(glassText("Free space")) {
+                Text(formatBytes(bytes)).textCase(nil).foregroundStyle(.secondary)
                     .help("Available in \(capacity.path)")
             }
         }
