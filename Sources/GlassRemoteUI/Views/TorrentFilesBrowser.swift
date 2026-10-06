@@ -45,18 +45,20 @@ struct TorrentFilesBrowser: View {
     private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { pendingWanted[entry.index] ?? entry.isWanted }
 
     var body: some View {
+        let layout = TorrentFileListLayout(isInspector: isCompact)
         let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
         let rows = treeCache.rows(entries: entries, byIndex: byIndex, collapsed: collapsed, query: searchText)
+        let nextRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), rows.dropFirst().map(\.id)))
         let hiddenExtension = showsExtensions ? nil : treeCache.hiddenExtension
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
-                    Toggle("Download all files", isOn: Binding(
+                    Toggle(glassText("Download all files"), isOn: Binding(
                         get: { !entries.isEmpty && entries.allSatisfy(wanted) },
                         set: { value in setAllWanted(value) }
                     ))
                     .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                    TextField("Search Files", text: $searchText)
+                    TextField(glassText("Search Files"), text: $searchText)
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
                 }
@@ -65,14 +67,18 @@ struct TorrentFilesBrowser: View {
             }
             List(selection: Binding<Set<String>>(get: { nativeSelection }, set: { ids in
                 nativeSelection = ids
-                selection = Set(rows.filter { ids.contains($0.id) }.flatMap(\.indices))
+                selection = Set(rows.filter { ids.contains($0.id) }.flatMap(\.indices)
+                    .filter { !isCompact || byIndex[$0]?.isComplete != true })
             })) {
                 ForEach(rows) { row in
-                    HStack(spacing: 8) {
+                    let completed = !row.indices.isEmpty && row.indices.allSatisfy { byIndex[$0]?.isComplete == true }
+                    HStack(spacing: layout.columnGap) {
                         Toggle("Download \(row.name)", isOn: Binding(
-                            get: { row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
+                            get: { (isCompact && completed) || row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
                             set: { value in for index in row.indices { setWanted(index, value) } }
                         )).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
+                        .frame(width: layout.leadingIconWidth)
+                        .disabled(isCompact && completed)
                         HStack(spacing: 0) {
                             if row.isFolder {
                                 Button {
@@ -82,7 +88,7 @@ struct TorrentFilesBrowser: View {
                                         .font(.system(size: 9, weight: .semibold)).frame(width: 12)
                                 }.buttonStyle(.plain).padding(.trailing, 4)
                             }
-                            Text(displayName(row, hiding: hiddenExtension))
+                            Text(displayName(row, hiding: hiddenExtension)).textCase(nil)
                                 .lineLimit(1).truncationMode(.middle)
                             if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
                                 FilePriorityIcon(high: true)
@@ -100,44 +106,77 @@ struct TorrentFilesBrowser: View {
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.leading, CGFloat(row.depth) * 12)
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(formatBytes(row.size))
-                            Text(formatPercent(progress(row, byIndex: byIndex)))
-                                .foregroundStyle(.secondary)
+                        .padding(.leading, CGFloat(row.depth) * layout.indent)
+                        Group {
+                            if isCompact {
+                                HStack(alignment: .center, spacing: layout.metadataGap) {
+                                    if !completed {
+                                        Text(formatPercent(progress(row, byIndex: byIndex)))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(formatBytes(row.size)).textCase(nil)
+                                }
+                            } else {
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(formatBytes(row.size)).textCase(nil)
+                                    Text(formatPercent(progress(row, byIndex: byIndex)))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
                         }
                         .font(.caption).monospacedDigit()
+                        .fixedSize(horizontal: true, vertical: false)
                     }
-                    .frame(minHeight: 32)
+                    .frame(minHeight: layout.contentHeight)
+                    .background {
+                        if isCompact && nativeSelection.contains(row.id) {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .fill(Color.primary.opacity(0.07))
+                                .padding(.horizontal, -layout.horizontalInset)
+                                .padding(.vertical, -layout.verticalInset + 2)
+                        }
+                        if isCompact && row.id == rows.first?.id { TorrentFileListStyling() }
+                    }
                     .contentShape(Rectangle())
+                    .contentShape(.focusEffect, TorrentFileContextShape(horizontalOutset: layout.horizontalInset))
                     .simultaneousGesture(TapGesture().onEnded {
                         if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
                     })
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
-                            Image(nsImage: FilePriorityGlyph.image(high: true))
-                        }.accessibilityLabel("Raise priority").help("Raise priority")
-                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
+                            Image(nsImage: FilePriorityGlyph.image(high: true)).foregroundStyle(.yellow)
+                        }.tint(.yellow).accessibilityLabel("Raise priority").help("Raise priority")
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: false) } label: {
-                            Image(nsImage: FilePriorityGlyph.image(high: false))
-                        }.accessibilityLabel("Lower priority").help("Lower priority")
+                            Image(nsImage: FilePriorityGlyph.image(high: false)).foregroundStyle(.secondary)
+                        }.tint(.gray).accessibilityLabel("Lower priority").help("Lower priority")
                     }
                     .tag(row.id)
-                    .listRowInsets(EdgeInsets(top: 3, leading: 0, bottom: 3, trailing: 0))
+                    .listRowInsets(layout.insets)
+                    .listRowSeparator(isCompact ? .hidden : .automatic)
+                    .overlay(alignment: .bottom) {
+                        if isCompact && row.id != rows.last?.id
+                            && !nativeSelection.contains(row.id)
+                            && !(nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false) {
+                            Rectangle().fill(Color.primary.opacity(0.08))
+                                .frame(height: 0.5)
+                                .padding(.leading, 16 + layout.columnGap + CGFloat(row.depth) * layout.indent)
+                        }
+                    }
                     .contextMenu {
-                        Button("High Priority", systemImage: "star.fill") { setPriority(row, 1) }
-                        Button("Normal Priority", systemImage: "minus") { setPriority(row, 0) }
-                        Button("Low Priority", systemImage: "arrow.down") { setPriority(row, -1) }
-                        if let onSmartRename { Divider(); Button("Smart Rename", action: onSmartRename) }
+                        Button(glassText("High Priority"), systemImage: "star.fill") { setPriority(row, 1) }
+                        Button(glassText("Normal Priority"), systemImage: "minus") { setPriority(row, 0) }
+                        Button(glassText("Low Priority"), systemImage: "arrow.down") { setPriority(row, -1) }
+                        if let onSmartRename { Divider(); Button(glassText("Smart Rename"), action: onSmartRename) }
                     }
                 }
             }
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) {
-                    Button("High Priority", systemImage: "star.fill") { setPriority(row, 1) }
-                    Button("Normal Priority", systemImage: "minus") { setPriority(row, 0) }
-                    Button("Low Priority", systemImage: "arrow.down") { setPriority(row, -1) }
+                    Button(glassText("High Priority"), systemImage: "star.fill") { setPriority(row, 1) }
+                    Button(glassText("Normal Priority"), systemImage: "minus") { setPriority(row, 0) }
+                    Button(glassText("Low Priority"), systemImage: "arrow.down") { setPriority(row, -1) }
                 }
             } primaryAction: { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) { onFileAction?(row, .open) }
@@ -148,7 +187,10 @@ struct TorrentFilesBrowser: View {
             }
             .onChange(of: selection) { _, selected in
                 guard stagesChanges else { return }
-                nativeSelection = Set(rows.filter { !$0.indices.isEmpty && $0.indices.allSatisfy(selected.contains) }.map(\.id))
+                nativeSelection = Set(rows.filter { row in
+                    let editable = row.indices.filter { !isCompact || byIndex[$0]?.isComplete != true }
+                    return !editable.isEmpty && editable.allSatisfy(selected.contains)
+                }.map(\.id))
             }
             .onChange(of: entries) { _, updated in
                 for entry in updated where pendingPriorities[entry.index]?.value == entry.priority {
@@ -160,19 +202,20 @@ struct TorrentFilesBrowser: View {
             .contentMargins(.vertical, 0, for: .scrollContent)
             .scrollContentBackground(.hidden)
             .scrollDisabled(true)
-            .environment(\.defaultMinListRowHeight, 38)
-            .font(.system(size: 12))
-            .frame(height: CGFloat(max(rows.count, 1)) * 38)
+            .scrollIndicators(.hidden)
+            .environment(\.defaultMinListRowHeight, layout.rowHeight)
+            .font(isCompact ? .body : .system(size: 12))
+            .frame(height: CGFloat(max(rows.count, 1)) * layout.rowHeight)
         }
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
                 HStack(spacing: 8) {
                     if !selection.isEmpty {
-                        Button("Download") { for index in selection { setWanted(index, true) } }
-                        Button("Skip") { for index in selection { setWanted(index, false) } }
+                        Button(glassText("Download")) { for index in selection { setWanted(index, true) } }
+                        Button(glassText("Skip")) { for index in selection { setWanted(index, false) } }
                     }
                     if !pendingWanted.isEmpty {
-                        Button("Apply") {
+                        Button(glassText("Apply")) {
                             if let onApplyWanted { onApplyWanted(pendingWanted) }
                             else { for (index, value) in pendingWanted { onSetWanted(index, value) } }
                             pendingWanted = [:]
@@ -215,6 +258,7 @@ struct TorrentFilesBrowser: View {
     }
 
     private func setWanted(_ index: Int, _ value: Bool) {
+        guard !isCompact || entries.first(where: { $0.index == index })?.isComplete != true else { return }
         pendingWanted[index] = nil
         onSetWanted(index, value)
     }
@@ -224,7 +268,7 @@ struct TorrentFilesBrowser: View {
     }
     private func adjustPriority(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry], higher: Bool) {
         let grouped = Dictionary(grouping: row.indices) { index in
-            min(1, max(-1, priority(index, byIndex: byIndex) + (higher ? 1 : -1)))
+            TorrentFilePriority.swiping(current: priority(index, byIndex: byIndex), high: higher)
         }
         for (priority, indices) in grouped { applyPriority(indices, priority) }
     }
@@ -358,7 +402,7 @@ struct TorrentFilesBrowserControls: View {
     let onSetAllWanted: (Bool) -> Void
     var isCompact = false
     var body: some View {
-        TextField("Search Files", text: $searchText)
+        TextField(glassText("Search Files"), text: $searchText)
             .textFieldStyle(.roundedBorder).controlSize(.small)
             .focusedValue(\.glassInspectorFileFilterFocused, true)
     }
