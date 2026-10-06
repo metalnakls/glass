@@ -252,12 +252,13 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        // Permission to float follows section membership. Release positions
-        // also follow native row heights, which can change without new IDs.
+        // Pinning belongs to a nonempty section, not its expanded row count.
+        // Release at the next section boundary so expansion cannot switch a
+        // short section from inline to pinned or move an early release point.
         let releasePoints = ordered.enumerated().map { offset, header -> CGFloat in
             let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            let row = max(header.index + 1, endIndex - 2)
-            return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
+            let boundary = endIndex < table.numberOfRows ? table.rect(ofRow: endIndex).minY : table.bounds.maxY
+            return boundary - appearance.pushLead
         }
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
                                          pushLead: appearance.pushLead)
@@ -265,7 +266,7 @@ final class TorrentStickyHeaders: NSObject {
             structureCache = (structure: structure,
                               stickyAllowed: ordered.enumerated().map { offset, header in
                                   let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-                                  return endIndex - header.index - 1 > 2
+                                  return endIndex - header.index - 1 > 0
                               },
                               releases: releasePoints)
         }
