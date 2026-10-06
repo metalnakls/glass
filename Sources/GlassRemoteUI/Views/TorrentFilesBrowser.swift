@@ -155,16 +155,9 @@ struct TorrentFilesBrowser: View {
                     }
                     .tag(row.id)
                     .listRowInsets(layout.insets)
-                    .listRowSeparator(isCompact ? .hidden : .automatic)
-                    .overlay(alignment: .bottom) {
-                        if isCompact && row.id != rows.last?.id
-                            && !nativeSelection.contains(row.id)
-                            && !(nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false) {
-                            Rectangle().fill(Color.primary.opacity(0.08))
-                                .frame(height: 0.5)
-                                .padding(.leading, 16 + layout.columnGap + CGFloat(row.depth) * layout.indent)
-                        }
-                    }
+                    .listRowSeparator(isCompact && (row.id == rows.last?.id
+                        || nativeSelection.contains(row.id)
+                        || (nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false)) ? .hidden : (isCompact ? .visible : .automatic), edges: .bottom)
                     .contextMenu {
                         Button(glassText("High Priority"), systemImage: "star.fill") { setPriority(row, 1) }
                         Button(glassText("Normal Priority"), systemImage: "minus") { setPriority(row, 0) }
