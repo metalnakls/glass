@@ -129,20 +129,26 @@ struct TorrentRowView: View, Equatable {
             Button {
                 toggleGroupExpansion?()
             } label: {
-                if groupIsExpanded {
+                ZStack {
+                    if !groupIsExpanded {
+                        GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
+                            .frame(width: 36, height: 42)
+                            .transition(.identity)
+                    }
+                    // Retain the arrow while its opacity animates; removing the
+                    // conditional view immediately made it disappear abruptly.
                     Image(systemName: "chevron.down")
                         .font(.body.weight(.semibold))
                         .frame(width: 36, height: 48)
-                        .contentShape(Rectangle().inset(by: -12))
-                        .contentTransition(.symbolEffect(.replace))
-                } else {
-                    GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
-                        .frame(width: 36, height: 42)
-                        .contentShape(Rectangle().inset(by: -12))
+                        .offset(x: !grid ? TorrentIconPose.forRole(.fan, position: iconPosition).x : 0)
+                        .opacity(groupIsExpanded ? 1 : 0)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: groupIsExpanded)
+                        .accessibilityHidden(!groupIsExpanded)
                 }
+                .frame(width: 36, height: 48)
+                .contentShape(Rectangle().inset(by: -12))
             }
             .buttonStyle(.plain)
-            .offset(x: groupIsExpanded && !grid ? TorrentIconPose.forRole(.fan, position: iconPosition).x : 0)
             .help(groupIsExpanded ? "Hide Torrents" : "Show Torrents")
             .accessibilityLabel(groupIsExpanded ? "Collapse Group" : "Expand Group")
         } else if showsActivityIcon {
