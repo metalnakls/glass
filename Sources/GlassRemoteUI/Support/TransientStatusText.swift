@@ -8,11 +8,13 @@ struct TransientStatusText: View {
     var body: some View {
         ZStack(alignment: .leading) {
             if reduceMotion {
-                Text(message ?? text).id(message ?? text).transition(.opacity)
+                Text(glassText(message ?? text)).id(message ?? text).transition(.opacity)
             } else {
-                Text(message ?? text).id(message ?? text).transition(.blurReplace)
+                Text(glassText(message ?? text)).id(message ?? text).transition(.blurReplace)
             }
         }
+        .foregroundStyle(message == nil ? Color.primary : Color.secondary)
+        .glassTextStyle()
         .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.65), value: message ?? text)
     }
     static let displayDuration: Duration = .seconds(3)

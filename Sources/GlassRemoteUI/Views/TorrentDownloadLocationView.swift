@@ -67,8 +67,8 @@ struct TorrentDownloadLocationView: View {
                         } catch { feedback = "Unavailable"; feedbackID = UUID() }
                     }
                 } label: {
-                    HStack(spacing: 10) {
-                        NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: 28)
+                    HStack(spacing: TorrentFileListLayout.inspector.columnGap) {
+                        NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: TorrentFileListLayout.inspector.leadingIconWidth)
                         TransientStatusText(text: location.sourceName, message: feedback)
                             .font(.headline)
                             .lineLimit(1).truncationMode(.middle)
@@ -82,19 +82,18 @@ struct TorrentDownloadLocationView: View {
                 .accessibilityLabel(location.sourceName)
 
             } else {
-                Label("Location unavailable", systemImage: "folder")
+                Label(glassText("Location unavailable"), systemImage: "folder")
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             VStack(alignment: .trailing, spacing: 4) {
                 if !torrentErrors.isEmpty {
-                    Text(Array(Set(torrentErrors.map { $0.hasPrefix("No data found") ? "No data found" : $0 })).sorted().joined(separator: " · "))
+                    Text(glassText(Array(Set(torrentErrors.map { $0.hasPrefix("No data found") ? "No data found" : $0 })).sorted().joined(separator: " · ")))
                         .font(.caption).foregroundStyle(.red)
                         .lineLimit(1).fixedSize(horizontal: false, vertical: true)
                         .help(torrentErrors.joined(separator: "\n"))
-                }
-                if let availableBytes {
-                    Text(formatBytes(availableBytes) + " free")
+                } else if let availableBytes {
+                    Text(formatBytes(availableBytes) + " free").textCase(nil)
                         .font(.caption).foregroundStyle(.secondary)
                         .fixedSize(horizontal: true, vertical: false)
                 }

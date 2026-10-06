@@ -19,7 +19,7 @@ struct NativeLocationIcon: View {
             .task(id: path) {
                 guard let path else { image = nil; return }
                 let data = await Task.detached(priority: .utility) {
-                    (path.hasSuffix(".icns") ? NSImage(contentsOfFile: path) : NSWorkspace.shared.icon(forFile: path))?.tiffRepresentation
+                    (path.hasSuffix(".icns") ? NSImage(contentsOfFile: path) : NSWorkspace.shared.icon(forFile: Self.resolvedFolderURL(path).path))?.tiffRepresentation
                 }.value
                 guard !Task.isCancelled else { return }
                 image = data.flatMap(NSImage.init(data:))
@@ -27,4 +27,14 @@ struct NativeLocationIcon: View {
             }
         }
     }
+
+    nonisolated static func resolvedFolderURL(_ path: String) -> URL {
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        if (try? url.resourceValues(forKeys: [.isAliasFileKey]).isAliasFile) == true,
+           let target = try? URL(resolvingAliasFileAt: url, options: [.withoutUI, .withoutMounting]) {
+            return target.resolvingSymlinksInPath()
+        }
+        return url
+    }
+
 }
