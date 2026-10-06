@@ -31,7 +31,7 @@ struct TorrentInspectorProgressView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(formatPercent(progress.fraction)).frame(width: 42, alignment: .leading)
+                Text(formatPercent(progress.fraction)).fixedSize(horizontal: true, vertical: false)
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
                         ForEach(progress.segments) { segment in
@@ -54,14 +54,10 @@ struct TorrentInspectorProgressView: View {
                 .accessibilityElement(children: .ignore)
                 .accessibilityLabel("Download progress")
                 .accessibilityValue(formatPercent(progress.fraction))
-                Text(formatBytes(progress.totalBytes)).frame(width: 78, alignment: .trailing)
+                Text(formatBytes(progress.totalBytes)).textCase(nil).fixedSize(horizontal: true, vertical: false)
             }
             .font(.callout).monospacedDigit()
-            // Reserve the telemetry line for every selection so completion never shifts files.
-            Text("\(formatRate(progress.rate)) · \(progress.peers) peers")
-                .font(.caption).foregroundStyle(.secondary)
-                .opacity(progress.fraction < 1 ? 1 : 0)
-                .accessibilityHidden(progress.fraction >= 1)
+
         }
     }
 }

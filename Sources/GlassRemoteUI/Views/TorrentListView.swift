@@ -222,12 +222,12 @@ struct TorrentListView: View {
             }
             }
         }
-        .alert("Couldn’t Add Torrent", isPresented: Binding(
+        .alert(glassText("Couldn’t Add Torrent"), isPresented: Binding(
             get: { retryFailure != nil }, set: { if !$0 { retryFailure = nil } }
         ), presenting: retryFailure) { failure in
-            Button("OK", role: .cancel) {}
+            Button(glassText("OK"), role: .cancel) {}
             if failure.isRemote {
-                Button("Download Locally") {
+                Button(glassText("Download Locally")) {
                     Task {
                         let succeeded = await model.downloadTorrentAdditionLocally(failure.id)
                         if !succeeded { presentRetryFailure(failure.id) }
@@ -523,8 +523,8 @@ struct TorrentListView: View {
             VStack(spacing: 14) {
                 Image(nsImage: NSImage(named: NSImage.applicationIconName) ?? NSImage())
                     .resizable().frame(width: 64, height: 64)
-                Text("Drop torrents here").font(.title3.weight(.semibold))
-                Text("Torrent files or magnet links").font(.callout).foregroundStyle(.secondary)
+                Text(glassText("Drop torrents here")).font(.title3.weight(.semibold))
+                Text(glassText("Torrent files or magnet links")).font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(28)
@@ -619,18 +619,22 @@ private struct TorrentListLiveRow: View {
     var contextMenuContent: some View {
         if let record = row.torrentRecord, let id = record.additionID {
             if record.additionPhase == .failed {
-                Button("Retry") { Task { _ = await toggleTransfers() } }
+                Button(glassText("Retry")) { Task { _ = await toggleTransfers() } }
             }
-            Button("Remove from Queue", role: .destructive) { model.cancelTorrentAddition(id) }
+            Button(glassText("Remove from Queue"), role: .destructive) { model.cancelTorrentAddition(id) }
                 .disabled(record.additionPhase == .adding || record.additionPhase == .queued)
         } else if let record = row.torrentRecord {
             torrentContextMenu(for: record.summary)
             if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
-                Button("Refresh Preview") { Task { await TorrentThumbnailService.shared.refresh(input) } }
+                Button(glassText("Refresh Preview")) { Task { await TorrentThumbnailService.shared.refresh(input) } }
             }
         } else {
-            Button("Delete Torrent") { removeRow(deleteData: false) }
-            Button("Delete Torrent + Data", role: .destructive) { removeRow(deleteData: true) }
+            if case let .group(records, _, _) = row.kind {
+                TorrentTransferInfoMenu(model: model, sourceID: row.sourceID, torrents: records.map(\.summary))
+                Divider()
+            }
+            Button(glassText("Delete Torrent")) { removeRow(deleteData: false) }
+            Button(glassText("Delete Torrent + Data"), role: .destructive) { removeRow(deleteData: true) }
         }
     }
 
@@ -675,23 +679,20 @@ private struct TorrentListLiveRow: View {
         case let .torrent(record, _):
             return isUnavailable(record)
         case let .group(members, _, _):
-            if members.contains(where: { $0.summary.isUnfinished && !isUnavailable($0) }) {
-                return false
-            }
-            return members.contains(where: isUnavailable)
+            return !members.isEmpty && members.allSatisfy(isUnavailable)
         }
     }
 
     @ViewBuilder
     private func torrentContextMenu(for torrent: TorrentSummary) -> some View {
-        Button("Rename…") {
+        Button(glassText("Rename…")) {
             rename(summary, row.sourceID)
         }
 
         if row.sourceID == model.localSourceID {
             Divider()
 
-            Button("Move Data…", systemImage: "folder") {
+            Button(glassText("Move Data…"), systemImage: "folder") {
                 Task {
                     do {
                         guard let directory = try await platformIntegration.chooseLocalDownloadDirectory(
@@ -704,24 +705,25 @@ private struct TorrentListLiveRow: View {
                 }
             }
 
-            Button("Quick Look") {
+            Button(glassText("Quick Look")) {
                 platformIntegration.previewDownloadedItem(for: torrent)
             }
             .disabled(!platformIntegration.canPreviewDownloadedItem(for: torrent))
 
-            Button("Show in Finder") {
+            Button(glassText("Show in Finder")) {
                 platformIntegration.revealDownloadedItem(for: torrent)
             }
             .disabled(!platformIntegration.canRevealDownloadedItem(for: torrent))
         }
 
         Divider()
-        Text("Date added: \(formatTimestamp(torrent.addedDate))")
+        TorrentTransferInfoMenu(model: model, sourceID: row.sourceID, torrents: [torrent])
+        TorrentInfoMenuRow(title: "Date added", value: formatTimestamp(torrent.addedDate))
         Divider()
-        Button("Delete Torrent") {
+        Button(glassText("Delete Torrent")) {
             remove(torrent, row.sourceID, false)
         }
-        Button("Delete Torrent + Data", role: .destructive) {
+        Button(glassText("Delete Torrent + Data"), role: .destructive) {
             remove(torrent, row.sourceID, true)
         }
     }
