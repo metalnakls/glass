@@ -9,6 +9,38 @@ struct TorrentStickyHeaderTests {
     let frames = [CGRect(x: 8, y: 6, width: 480, height: 48), CGRect(x: 8, y: 186, width: 480, height: 48)]
     func viewport(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 500, height: 600) }
 
+    @MainActor @Test("inline titles scroll in the native document even before a header layout update")
+    func inlineDocumentScrolling() throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 500, height: 300), styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let scroll = NSScrollView(frame: CGRect(x: 0, y: 0, width: 500, height: 300))
+        let table = NSTableView(frame: CGRect(x: 0, y: 0, width: 500, height: 1000))
+        table.headerView = nil
+        scroll.documentView = table
+        window.contentView?.addSubview(scroll)
+        let controller = TorrentStickyHeaders()
+        controller.attach(table)
+        defer { controller.detach(); window.close() }
+        let backdrop = try #require(table.subviews.compactMap { $0 as? HeaderBackdrop }.first)
+        #expect(backdrop.superview === scroll.documentView)
+        let host = TitleHost(title: "Completed", inset: 40)
+        let header = TorrentStickyHeaders.Header(id: "finished", title: "Completed", index: 0, inset: 40)
+        let frame = CGRect(x: 0, y: 180, width: 500, height: 48)
+        let layout = TorrentStickyHeaderGeometry.displayLayout(frames: [frame], viewport: scroll.contentView.bounds, sticky: nil)
+        backdrop.present(layout: layout, headers: [header], hosts: ["finished": host], backdropActive: false, viewport: scroll.contentView.bounds)
+        let titleBefore = host.convert(CGPoint.zero, to: window.contentView)
+        let rowBefore = table.convert(frame.origin, to: window.contentView)
+        // No present() call between measurements: the document itself must move
+        // both surfaces, rather than waiting for a separate overlay transaction.
+        scroll.contentView.scroll(to: CGPoint(x: 0, y: 24))
+        let titleAfter = host.convert(CGPoint.zero, to: window.contentView)
+        let rowAfter = table.convert(frame.origin, to: window.contentView)
+        #expect(abs(titleAfter.y - titleBefore.y) == 24)
+        #expect(titleAfter.y - titleBefore.y == rowAfter.y - rowBefore.y)
+        #expect(host.frame == frame)
+    }
+
     @MainActor @Test("pin and push never reparent titles into the list or change its slots")
     func singleNativeOwner() throws {
         _ = NSApplication.shared

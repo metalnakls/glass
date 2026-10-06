@@ -85,20 +85,11 @@ struct TorrentListView: View {
     }
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var colorContrast
+    @Environment(\.displayScale) private var displayScale
 
     private var cardGeometry: TorrentCardGeometry {
         let overflow = density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0
-        return TorrentCardGeometry(leading: leftPadding + 2 - overflow, trailing: rightPadding + 2,
-                                   separatorInset: (density.showsIcon ? 62 : 14) + overflow)
-    }
-
-    private var elevationRows: [String?] {
-        TorrentListEntry.entries(for: presentation.rows, lowercase: lowercaseTitles).map { entry in
-            switch entry {
-            case .header: nil
-            case let .torrent(row): row.id
-            }
-        }
+        return TorrentCardGeometry(leading: leftPadding + 2 - overflow, trailing: rightPadding + 2)
     }
 
     private var listSurface: Color {
@@ -113,14 +104,12 @@ struct TorrentListView: View {
     }
 
     var body: some View {
-        let sections = TorrentListSection.sections(for: presentation.rows, lowercase: lowercaseTitles)
-        let entries = sections.flatMap { section in
-            [TorrentListEntry.header(section)] + section.rows.map(TorrentListEntry.torrent)
-        }
-        let headerPositions = Dictionary(uniqueKeysWithValues: entries.enumerated().compactMap { index, entry -> (String, Int)? in
-            guard case let .header(section) = entry else { return nil }
-            return (section.id, index)
-        })
+        let layout = presentation.layout
+        let sections = layout.titledSections(lowercase: lowercaseTitles)
+        let entries = layout.entries(lowercase: lowercaseTitles)
+        let headerPositions = layout.headerIndices
+        let separatorLeading = CGFloat(leftPadding) + (density.showsIcon ? 64 : 16)
+        let separatorTrailing = CGFloat(rightPadding) + 16
         ScrollViewReader { scrollProxy in
             Group {
             if grid {
@@ -134,7 +123,7 @@ struct TorrentListView: View {
                                             .moveDisabled(rowIsAdding(row))
                                             .onScrollVisibilityChange(threshold: 0.1) { visible in
                                                 guard visible,
-                                                      let index = entries.firstIndex(where: { $0.id == row.id }) else { return }
+                                                      let index = layout.rowIndices[row.id] else { return }
                                                 artworkPreloader.prefetchAround(index)
                                             }
                                     }.reorderable(collectionID: section.id)
@@ -173,6 +162,16 @@ struct TorrentListView: View {
                             .listRowSeparator(.hidden)
                     case let .torrent(row):
                         liveRow(for: row)
+                            // The rule belongs to this native row. No scrolling
+                            // overlay, cached rect or independent animation owns it.
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(Color.primary.opacity(0.12))
+                                    .frame(height: 1 / displayScale)
+                                    .padding(.leading, separatorLeading)
+                                    .padding(.trailing, separatorTrailing)
+                                    .opacity(layout.showsSeparator(after: row.id, selection: selection) ? 1 : 0)
+                                    .allowsHitTesting(false)
+                            }
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
@@ -217,8 +216,8 @@ struct TorrentListView: View {
             }
         }
         .onAppear {
-            elevationController.setRows(elevationRows)
-            stickyHeaders.configure(sections, inset: leftPadding + 16)
+            elevationController.setRows(layout.nativeRowIDs)
+            stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16)
             elevationController.observeTable { table in
                 stickyHeaders.attach(table)
                 folderMotion.attach(table)
@@ -228,12 +227,12 @@ struct TorrentListView: View {
         .background {
             TorrentArtworkPrefetchObserver(entries: entries, localSourceID: model.localSourceID, preloader: artworkPreloader)
         }
-        .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
-        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(sections, inset: leftPadding + 16) }
+        .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16) }
+        .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: entries.map(\.id)) { _, _ in
-            elevationController.setRows(elevationRows)
-            stickyHeaders.configure(sections, inset: leftPadding + 16)
+            elevationController.setRows(layout.nativeRowIDs)
+            stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16)
         }
         .task(id: columnWidth) {
             guard !paddingIsPermanent, columnWidth > 0 else { return }
@@ -261,8 +260,8 @@ struct TorrentListView: View {
             @unknown default: break
             }
         }
-        .onDisappear { reorderingIDs = []; elevationController.setReordering(false); elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() }
-        .onChange(of: grid) { _, value in if value { elevationController.detach(); folderMotion.detach(); artworkPreloader.detach() } }
+        .onDisappear { reorderingIDs = []; elevationController.setReordering(false); elevationController.detach(); stickyHeaders.detach(); folderMotion.detach(); artworkPreloader.detach() }
+        .onChange(of: grid) { _, value in if value { elevationController.detach(); stickyHeaders.detach(); folderMotion.detach(); artworkPreloader.detach() } }
         .onChange(of: shadowSettings, initial: true) { _, settings in
             elevationController.configure(settings)
         }
@@ -397,7 +396,7 @@ struct TorrentListView: View {
         if !grid && density.showsIcon {
             folderMotion.prepare(groupID: row.id, members: memberIDs,
                 expanding: row.groupIsExpanded != true, inset: leftPadding + 16,
-                indices: folderRowIndices(presentation.rows), reduceMotion: accessibilityReduceMotion)
+                indices: presentation.layout.rowIndices, reduceMotion: accessibilityReduceMotion)
         }
         let updatedRows = presentation.toggleGroup(
             row.id,
@@ -405,20 +404,9 @@ struct TorrentListView: View {
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
         )
-        let indices = folderRowIndices(updatedRows)
-        folderMotion.animateAfterLayout(indices: indices,
-            expectedRows: updatedRows.count + TorrentListSection.sections(for: updatedRows).count)
+        folderMotion.animateAfterLayout(indices: presentation.layout.rowIndices,
+            expectedRows: presentation.layout.nativeRowIDs.count)
         reconcileSelection(with: updatedRows)
-    }
-
-    private func folderRowIndices(_ rows: [TorrentListRowPresentation]) -> [String: Int] {
-        var result: [String: Int] = [:]
-        var index = 0
-        for section in TorrentListSection.sections(for: rows) {
-            index += 1 // Native inline section title.
-            for row in section.rows { result[row.id] = index; index += 1 }
-        }
-        return result
     }
 
     private func synchronizePresentation(animated: Bool) {
@@ -576,7 +564,7 @@ private struct TorrentListLiveRow: View {
             }
             // The card extends 14 points beyond the content on each side, and
             // follows the actual foreground view when native swipe actions move it.
-            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected, separatorLeadingInset: (density.showsIcon ? 62 : 14) + artworkOverflow)
+            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected)
                 .padding(.leading, -14 - artworkOverflow)
                 .padding(.trailing, -14)
                 .padding(.vertical, 3) }

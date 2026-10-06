@@ -7,6 +7,39 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
+    @Test("one snapshot supplies native indices, section boundaries and selection neighbors")
+    func sharedLayoutBoundaries() throws {
+        let source = UUID()
+        let complete = filterRecord(source, season: 1, complete: true)
+        let partial = filterRecord(source, season: 2, complete: false)
+        let movie = filterRecord(source, season: 3, complete: true, rawName: "Finished Movie.mkv")
+        let collapsedRows = TorrentListRowPresentation.rows(records: [movie, complete, partial], pendingRenameNames: [:], expandedGroupIDs: [])
+        let groupID = try #require(collapsedRows.first { !$0.isTorrent }?.id)
+        let collapsed = TorrentListLayout(rows: collapsedRows)
+        #expect(collapsed.nativeRowIDs == [nil, groupID, nil, movie.id])
+        #expect(collapsed.headerIndices == ["unfinished": 0, "finished": 2])
+        #expect(collapsed.nextRowIDs.isEmpty)
+
+        let expandedRows = TorrentListRowPresentation.rows(records: [movie, complete, partial], pendingRenameNames: [:], expandedGroupIDs: [groupID])
+        let expanded = TorrentListLayout(rows: expandedRows)
+        #expect(expanded.nativeRowIDs == [nil, groupID, complete.id, partial.id, nil, movie.id])
+        #expect(expanded.headerIndices == ["unfinished": 0, "finished": 4])
+        for lowercase in [false, true] {
+            let entries = expanded.entries(lowercase: lowercase)
+            #expect(entries.count == expanded.nativeRowIDs.count)
+            for (id, index) in expanded.rowIndices { #expect(entries[index].id == id) }
+            for (id, index) in expanded.headerIndices { #expect(entries[index].id == "section:" + id) }
+        }
+        #expect(expanded.showsSeparator(after: groupID, selection: nil))
+        #expect(expanded.showsSeparator(after: complete.id, selection: nil))
+        #expect(!expanded.showsSeparator(after: partial.id, selection: nil))
+        #expect(!expanded.showsSeparator(after: movie.id, selection: nil))
+        #expect(!expanded.showsSeparator(after: groupID, selection: complete.id))
+        #expect(!expanded.showsSeparator(after: complete.id, selection: complete.id))
+        #expect(expanded.showsSeparator(after: complete.id, selection: "unmounted"))
+        #expect(expanded.movingFolderIDs == [complete.id, partial.id])
+    }
+
     @Test("server queue telemetry cannot reorder the visible library")
     func queueTelemetryKeepsOrder() throws {
         let source = UUID()

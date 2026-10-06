@@ -21,6 +21,8 @@ struct TorrentStickyTitle: View {
     let controller: TorrentStickyHeaders
     var body: some View {
         HeaderAnchor(controller: controller, id: id, title: title, index: rowIndex, inset: inset)
+            .accessibilityLabel(title)
+            .accessibilityAddTraits(.isHeader)
     }
 }
 
@@ -136,6 +138,7 @@ final class TorrentStickyHeaders: NSObject {
     private struct SectionStructure: Equatable {
         let indices: [Int]
         let rowCount: Int
+        let releasePoints: [CGFloat]
         let pushLead: CGFloat
     }
     private var structureCache: (structure: SectionStructure, stickyAllowed: [Bool], releases: [CGFloat])?
@@ -193,23 +196,34 @@ final class TorrentStickyHeaders: NSObject {
         self.table = table
         structureCache = nil
         table.floatsGroupRows = false
-        scroll.addSubview(overlay, positioned: .above, relativeTo: nil)
+        // Inline titles move with the document in the native scroll transaction.
+        // Only the pinned title needs its position adjusted on a bounds change.
+        table.addSubview(overlay, positioned: .above, relativeTo: nil)
+        overlay.frame = table.bounds
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: scroll.contentView)
+        table.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: table)
         scheduleUpdate()
     }
 
-    func configure(_ sections: [TorrentListSection], inset: CGFloat) {
+    func detach() {
+        NotificationCenter.default.removeObserver(self)
+        overlay.removeFromSuperview()
+        table = nil
+        structureCache = nil
+    }
+
+    func configure(_ layout: TorrentListLayout, lowercase: Bool, inset: CGFloat) {
+        let sections = layout.titledSections(lowercase: lowercase)
         let removed = Set(headers.keys).subtracting(sections.map(\.id))
         for id in removed {
             if let host = titleHosts.removeValue(forKey: id) { overlay.retire(id: id, host: host) }
         }
-        var index = 0
         headers = Dictionary(uniqueKeysWithValues: sections.map { section in
-            defer { index += section.rows.count + 1 }
-            return (section.id, Header(id: section.id, title: section.title, index: index, inset: inset))
+            (section.id, Header(id: section.id, title: section.title, index: layout.headerIndices[section.id]!, inset: inset))
         })
         measurements = measurements.filter { headers[$0.key] != nil }
         for header in headers.values { _ = titleHost(id: header.id, title: header.title, inset: header.inset) }
@@ -231,14 +245,18 @@ final class TorrentStickyHeaders: NSObject {
         let frames = ordered.map { header in
             let row = table.rect(ofRow: header.index)
             // Offscreen headers retain their last measured row-relative geometry.
-            let measured = measurements[header.id] ?? measurements.values.first
+            let measured = measurements[header.id]
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        // Which titles may float, and where each one releases, depend only on the
-        // section indices and the row count. Both change on structure, not on
-        // scroll, so they are resolved once per layout instead of once per frame.
-        let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows,
+        // Permission to float follows section membership. Release positions
+        // also follow native row heights, which can change without new IDs.
+        let releasePoints = ordered.enumerated().map { offset, header -> CGFloat in
+            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
+            let row = max(header.index + 1, endIndex - 2)
+            return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
+        }
+        let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
                                          pushLead: appearance.pushLead)
         if structureCache?.structure != structure {
             structureCache = (structure: structure,
@@ -246,23 +264,17 @@ final class TorrentStickyHeaders: NSObject {
                                   let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
                                   return endIndex - header.index - 1 > 2
                               },
-                              releases: ordered.enumerated().map { offset, header -> CGFloat in
-                                  let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-                                  let row = max(header.index + 1, endIndex - 2)
-                                  return table.rect(ofRow: min(row, table.numberOfRows - 1)).minY - appearance.pushLead
-                              })
+                              releases: releasePoints)
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []
         let releases = structureCache?.releases ?? []
         let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
-        // The overlay owns inline and pinned titles alike. Scroll changes only
-        // their presentation coordinates; no List cell is reparented or resized.
-        let frame = scroll.convert(clip.bounds, from: clip)
-        if overlay.frame != frame { overlay.frame = frame }
+        if overlay.frame != table.bounds { overlay.frame = table.bounds }
         overlay.isHidden = false
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
-                        backdropActive: sticky?.titles.contains { !$0.retiring } == true)
+                        backdropActive: sticky?.titles.contains { !$0.retiring } == true,
+                        viewport: viewport)
     }
     isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview() }
 }
@@ -343,13 +355,14 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true) {
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil) {
         setBackdropActive(backdropActive)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         // Keep the last backdrop extent while its time-based fade finishes.
         let effectHeight = layout.backdropHeight > 0 ? layout.backdropHeight : effect.frame.height
-        let effectFrame = CGRect(x: 0, y: 0, width: bounds.width, height: effectHeight)
+        let viewport = viewport ?? bounds
+        let effectFrame = CGRect(x: viewport.minX, y: viewport.minY, width: viewport.width, height: effectHeight)
         if effect.frame != effectFrame { effect.frame = effectFrame }
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
@@ -366,6 +379,7 @@ final class HeaderBackdrop: NSView {
             host.isPinned = true
             host.isHidden = false
             titles[header.id] = host
+            let frame = placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
             // Scrolling changes position only. Hosting layout never participates
             // in the per-scroll movement and cannot resize a competing copy.
             CATransaction.begin()
@@ -375,8 +389,8 @@ final class HeaderBackdrop: NSView {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0
                 context.allowsImplicitAnimation = false
-                if host.frame.size != placement.frame.size { host.setFrameSize(placement.frame.size) }
-                if host.frame.origin != placement.frame.origin { host.setFrameOrigin(placement.frame.origin) }
+                if host.frame.size != frame.size { host.setFrameSize(frame.size) }
+                if host.frame.origin != frame.origin { host.setFrameOrigin(frame.origin) }
             }
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)

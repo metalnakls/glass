@@ -64,7 +64,6 @@ struct TorrentShadowSettings: Equatable {
 struct TorrentCardGeometry: Equatable {
     var leading: CGFloat
     var trailing: CGFloat
-    var separatorInset: CGFloat
 }
 
 /// Draw the shadow above the table's row clipping, while SwiftUI draws the card
@@ -73,20 +72,17 @@ struct TorrentListElevationAnchor: NSViewRepresentable {
     let controller: TorrentListElevationController
     let rowID: String
     let selected: Bool
-    let separatorLeadingInset: CGFloat
     func makeNSView(context: Context) -> Anchor { Anchor() }
     func updateNSView(_ view: Anchor, context: Context) {
         view.controller = controller
         view.rowID = rowID
         view.selected = selected
-        view.separatorLeadingInset = separatorLeadingInset
         view.connect()
     }
     final class Anchor: NSView {
         weak var controller: TorrentListElevationController?
         var selected = false
         var rowID = ""
-        var separatorLeadingInset: CGFloat = 62
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         fileprivate weak var registeredController: TorrentListElevationController?
         fileprivate var registeredID: String?
@@ -120,7 +116,6 @@ final class TorrentListElevationController: NSObject {
     private weak var table: NSTableView?
     private weak var selectedAnchor: NSView?
     private let overlay = ElevationOverlay()
-    private let separators = SelectionSeparatorCanvas()
     private let surface = SelectionSurfaceHost(rootView: SelectionSurface(settings: TorrentShadowSettings(), entrance: 0, motion: 0))
     private var surfaceVisible = false
     private var entrance = 0
@@ -142,8 +137,6 @@ final class TorrentListElevationController: NSObject {
     private var rowIndices: [String: Int] = [:]
     private var refreshTask: Task<Void, Never>?
     private var lastSurfaceSettings: TorrentShadowSettings?
-    private var separatorGeometry: (x: CGFloat, width: CGFloat, inset: CGFloat)?
-    private var separatorGeometryCache: (geometry: (x: CGFloat, width: CGFloat, inset: CGFloat), range: Range<Int>, rows: [SelectionSeparatorCanvas.Row])?
     func setRows(_ ids: [String?]) {
         guard rowIDs != ids else { return }
         rowIDs = ids
@@ -185,8 +178,7 @@ final class TorrentListElevationController: NSObject {
         table.focusRingType = .none
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(rowGeometryChanged), name: NSView.frameDidChangeNotification, object: table)
-        table.addSubview(separators, positioned: .below, relativeTo: nil)
-        table.addSubview(surface, positioned: .above, relativeTo: separators)
+        table.addSubview(surface, positioned: .above, relativeTo: nil)
         scroll.addSubview(overlay, positioned: .above, relativeTo: scroll.contentView)
         scroll.contentView.postsBoundsChangedNotifications = true
         scroll.contentView.postsFrameChangedNotifications = true
@@ -245,14 +237,11 @@ final class TorrentListElevationController: NSObject {
     func detach() {
         refreshTask?.cancel()
         refreshTask = nil
-        separatorGeometry = nil
-        separatorGeometryCache = nil
         lastSurfaceSettings = nil
         NotificationCenter.default.removeObserver(self)
         movementViews.removeAll()
         overlay.removeFromSuperview()
         surface.removeFromSuperview()
-        separators.removeFromSuperview()
         surfaceVisible = false
         table = nil
         selectedAnchor = nil
@@ -278,7 +267,6 @@ final class TorrentListElevationController: NSObject {
             surface.layer?.removeAnimation(forKey: "appear")
             surface.layer?.opacity = 0
             surfaceVisible = false
-            updateSeparators(highlightID: nil)
             overlay.show(nil, settings: settings, animated: animated)
             return
         }
@@ -309,7 +297,6 @@ final class TorrentListElevationController: NSObject {
         let settingsChanged = lastSurfaceSettings != settings
         let continueGlide = geometryChanged && surface.layer?.animation(forKey: "glide") != nil
         let animateMovement = animated || continueGlide
-        updateSeparators(highlightID: visible ? selectedID : nil)
         // A layout pass at the destination must not reset an in-flight glide.
         if !geometryChanged && !settingsChanged && visible == surfaceVisible {
             // The row frame stays fixed in document coordinates while scrolling
@@ -342,53 +329,6 @@ final class TorrentListElevationController: NSObject {
         }
         surfaceVisible = visible
         overlay.show(rect, settings: settings, animated: animateMovement)
-    }
-
-    private func updateSeparators(highlightID: String?) {
-        guard let table, table.numberOfRows == rowIDs.count else { return }
-        // Row identities and neighbors come from the list snapshot, never the
-        // order in which virtualized SwiftUI anchors happen to register.
-        if let geometry = cardGeometry {
-            separatorGeometry = (geometry.leading, max(0, table.bounds.width - geometry.leading - geometry.trailing), geometry.separatorInset)
-        } else {
-            for anchor in anchors.objectEnumerator()?.allObjects as? [TorrentListElevationAnchor.Anchor] ?? [] {
-                guard anchor.window === table.window else { continue }
-                let rect = table.convert(anchor.bounds, from: anchor)
-                let index = table.row(at: CGPoint(x: rect.midX, y: rect.midY))
-                guard rowIDs.indices.contains(index), rowIDs[index] == anchor.rowID else { continue }
-                separatorGeometry = (rect.minX, rect.width, anchor.separatorLeadingInset)
-                break
-            }
-        }
-        guard let geometry = separatorGeometry else { return }
-        separators.frame = table.bounds
-        let visibleRows = table.rows(in: table.visibleRect.insetBy(dx: 0, dy: -60))
-        guard visibleRows.location != NSNotFound else {
-            separators.update([], selectedID: highlightID, settings: settings)
-            return
-        }
-        // Scrolling reuses a row's rule as long as its geometry and neighbors are
-        // unchanged. Rebuilding every visible row on each frame was the last
-        // per-scroll allocation in this path; the canvas only needs the rows whose
-        // rect actually moved, which is only rows entering or leaving the window.
-        let end = min(rowIDs.count, NSMaxRange(visibleRows))
-        let range = min(visibleRows.location, end)..<end
-        if let cached = separatorGeometryCache, cached.geometry == geometry, cached.range == range {
-            separators.update(cached.rows, selectedID: highlightID, settings: settings)
-            return
-        }
-        var rows: [SelectionSeparatorCanvas.Row] = []
-        rows.reserveCapacity(range.count)
-        for index in range {
-            guard let id = rowIDs[index] else { continue }
-            let nativeRect = table.rect(ofRow: index)
-            let nextID = index + 1 < rowIDs.count ? rowIDs[index + 1] : nil
-            let rect = CGRect(x: geometry.x, y: nativeRect.minY + 3,
-                              width: geometry.width, height: max(0, nativeRect.height - 6))
-            rows.append(SelectionSeparatorCanvas.Row(id: id, rect: rect, leadingInset: geometry.inset, nextID: nextID))
-        }
-        separatorGeometryCache = (geometry: geometry, range: range, rows: rows)
-        separators.update(rows, selectedID: highlightID, settings: settings)
     }
 
     private func animateFrame(_ layer: CALayer?, from: CGRect, fromPosition: CGPoint?, to: CGRect, duration: Double) {
@@ -637,65 +577,5 @@ private final class ElevationOverlay: NSView {
         animation.duration = duration
         animation.calculationMode = .linear
         layer.add(animation, forKey: key)
-    }
-}
-
-@MainActor
-private final class SelectionSeparatorCanvas: NSView {
-    struct Row: Equatable {
-        let id: String
-        let rect: CGRect
-        let leadingInset: CGFloat
-        let nextID: String?
-    }
-    private var lines: [String: CALayer] = [:]
-    private var lastRows: [Row] = []
-    private var lastSelectedID: String?
-    private var lastSettings: TorrentShadowSettings?
-    private var lastScale: CGFloat?
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-    override init(frame: NSRect) { super.init(frame: frame); wantsLayer = true }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-
-    func update(_ rows: [Row], selectedID: String?, settings: TorrentShadowSettings) {
-        let scale = window?.backingScaleFactor ?? 2
-        guard rows != lastRows || selectedID != lastSelectedID || settings != lastSettings || scale != lastScale else { return }
-        lastRows = rows
-        lastSelectedID = selectedID
-        lastSettings = settings
-        lastScale = scale
-        let ids = Set(rows.map(\.id))
-        for id in Array(lines.keys) where !ids.contains(id) {
-            lines.removeValue(forKey: id)?.removeFromSuperlayer()
-        }
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        defer { CATransaction.commit() }
-        for row in rows {
-            let isNew = lines[row.id] == nil
-            let line = lines[row.id] ?? CALayer()
-            if isNew { layer?.addSublayer(line); lines[row.id] = line }
-            let y = row.rect.maxY
-            let touchesHighlight = selectedID != nil && (row.id == selectedID || row.nextID == selectedID)
-            let opacity: Float = row.nextID != nil && !touchesHighlight ? 1 : 0
-            let previous = line.presentation()?.opacity ?? line.opacity
-            let changed = !isNew && line.opacity != opacity
-            // One rule per gap, flush against the row above it. The previous
-            // +3 offset pushed it far enough down to read as a second divider
-            // sitting next to the one the table drew.
-            line.frame = CGRect(x: row.rect.minX + row.leadingInset, y: y,
-                                width: max(0, row.rect.width - row.leadingInset - 14), height: 1 / (window?.backingScaleFactor ?? 2))
-            line.backgroundColor = (settings.isDark ? NSColor.white : NSColor.black).withAlphaComponent(0.12).cgColor
-            line.opacity = opacity
-            if changed && !ReduceMotion.enabled {
-                let fade = CABasicAnimation(keyPath: "opacity")
-                fade.fromValue = previous
-                fade.toValue = opacity
-                fade.duration = opacity == 0 ? settings.easeIn : settings.easeOut
-                fade.timingFunction = CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1)
-                line.add(fade, forKey: "selection")
-            }
-        }
     }
 }

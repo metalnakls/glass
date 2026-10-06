@@ -70,21 +70,75 @@ struct TorrentListSection: Identifiable {
         switch self { case let .header(section): "section:" + section.id; case let .torrent(row): row.id }
     }
     static func entries(for rows: [TorrentListRowPresentation], lowercase: Bool) -> [Self] {
-        TorrentListSection.sections(for: rows, lowercase: lowercase).flatMap { [.header($0)] + $0.rows.map(Self.torrent) }
+        TorrentListLayout(rows: rows).entries(lowercase: lowercase)
+    }
+}
+
+/// The native List and its adornments consume the same structural snapshot.
+/// Telemetry updates individual records; only a structural change rebuilds it.
+@MainActor
+struct TorrentListLayout {
+    let rows: [TorrentListRowPresentation]
+    let sections: [TorrentListSection]
+    private let orderedEntries: [TorrentListEntry]
+    let nativeRowIDs: [String?]
+    let rowIndices: [String: Int]
+    let headerIndices: [String: Int]
+    let nextRowIDs: [String: String]
+    let iconPositions: [String: Int]
+    let movingFolderIDs: Set<String>
+
+    init(rows: [TorrentListRowPresentation]) {
+        self.rows = rows
+        sections = TorrentListSection.sections(for: rows)
+        orderedEntries = sections.flatMap { [.header($0)] + $0.rows.map(TorrentListEntry.torrent) }
+        var ids: [String?] = []
+        var indices: [String: Int] = [:]
+        var headers: [String: Int] = [:]
+        var neighbors: [String: String] = [:]
+        for section in sections {
+            headers[section.id] = ids.count
+            ids.append(nil)
+            for (offset, row) in section.rows.enumerated() {
+                indices[row.id] = ids.count
+                ids.append(row.id)
+                if offset + 1 < section.rows.count { neighbors[row.id] = section.rows[offset + 1].id }
+            }
+        }
+        nativeRowIDs = ids
+        rowIndices = indices
+        headerIndices = headers
+        nextRowIDs = neighbors
+        iconPositions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
+        movingFolderIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
+    }
+
+    func titledSections(lowercase: Bool) -> [TorrentListSection] {
+        guard lowercase else { return sections }
+        return sections.map { TorrentListSection(id: $0.id, title: $0.title.lowercased(), rows: $0.rows) }
+    }
+
+    func entries(lowercase: Bool) -> [TorrentListEntry] {
+        guard lowercase else { return orderedEntries }
+        return orderedEntries.map { entry in
+            guard case let .header(section) = entry else { return entry }
+            return .header(TorrentListSection(id: section.id, title: section.title.lowercased(), rows: section.rows))
+        }
+    }
+
+    func showsSeparator(after id: String, selection: String?) -> Bool {
+        guard let next = nextRowIDs[id] else { return false }
+        return id != selection && next != selection
     }
 }
 
 @MainActor
 @Observable
 final class TorrentListPresentationModel {
-    private(set) var rows: [TorrentListRowPresentation] = [] {
-        didSet {
-            iconPositions = Dictionary(uniqueKeysWithValues: rows.enumerated().map { ($0.element.id, $0.offset) })
-            movingFolderIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
-        }
-    }
-    @ObservationIgnored private(set) var iconPositions: [String: Int] = [:]
-    @ObservationIgnored private(set) var movingFolderIDs: Set<String> = []
+    private(set) var layout = TorrentListLayout(rows: [])
+    var rows: [TorrentListRowPresentation] { layout.rows }
+    var iconPositions: [String: Int] { layout.iconPositions }
+    var movingFolderIDs: Set<String> { layout.movingFolderIDs }
 
     @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
 
@@ -159,7 +213,7 @@ final class TorrentListPresentationModel {
     func applyNativeMove(_ updatedRows: [TorrentListRowPresentation]) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { rows = updatedRows }
+        withTransaction(transaction) { layout = TorrentListLayout(rows: updatedRows) }
     }
 
     private func setRows(
@@ -169,13 +223,13 @@ final class TorrentListPresentationModel {
     ) {
         if animated, !reduceMotion {
             withAnimation(.smooth(duration: 0.26, extraBounce: 0)) {
-                rows = updatedRows
+                layout = TorrentListLayout(rows: updatedRows)
             }
         } else {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                rows = updatedRows
+                layout = TorrentListLayout(rows: updatedRows)
             }
         }
     }
