@@ -259,7 +259,17 @@ private struct TorrentInspectorContent: View {
                                 .padding(.trailing, fileLayout.outerInset)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
-                                .background(.ultraThinMaterial)
+                                .background {
+                                    Rectangle().fill(.ultraThinMaterial)
+                                        .mask(LinearGradient(stops: [
+                                            .init(color: .clear, location: 0),
+                                            .init(color: .black, location: 0.35),
+                                            .init(color: .black, location: 0.65),
+                                            .init(color: .clear, location: 1)
+                                        ], startPoint: .top, endPoint: .bottom))
+                                        .padding(.vertical, -12)
+                                        .allowsHitTesting(false)
+                                }
                                 .glassTextStyle()
                                 .zIndex(1)
                             }
