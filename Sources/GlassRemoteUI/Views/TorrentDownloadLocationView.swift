@@ -119,8 +119,7 @@ private struct LocationGlassPill: ViewModifier {
     let interactive: Bool
     @ViewBuilder func body(content: Content) -> some View {
         if enabled {
-            content.padding(.horizontal, 12).padding(.vertical, 10)
-                .glassEffect(interactive ? .regular.interactive() : .regular, in: .capsule)
+            content.modifier(InspectorGlassPill(interactive: interactive))
         } else { content }
     }
 }

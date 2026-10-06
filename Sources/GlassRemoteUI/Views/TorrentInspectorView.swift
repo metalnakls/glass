@@ -305,7 +305,9 @@ private struct TorrentInspectorContent: View {
     }
 
     private var footerHeight: CGFloat {
-        80 + (searchPresented ? 48 : 0) + (editSession.hasSelection || editSession.hasChanges ? 48 : 0)
+        InspectorGlassPill.height + 38
+            + (searchPresented ? InspectorGlassPill.height + 8 : 0)
+            + (editSession.hasSelection || editSession.hasChanges ? InspectorGlassPill.height + 8 : 0)
     }
 
     private var bottomDock: some View {
@@ -323,20 +325,19 @@ private struct TorrentInspectorContent: View {
                             .buttonStyle(.plain)
                             .accessibilityLabel(glassText("Close search"))
                     }
-                    .padding(.horizontal, 14).padding(.vertical, 12)
-                    .glassEffect(.regular, in: .capsule)
+                    .modifier(InspectorGlassPill())
                     .transition(.opacity)
                 }
                 HStack(spacing: 8) {
                     TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
-                        .padding(.horizontal, 14).padding(.vertical, 12)
-                        .glassEffect(.regular, in: .capsule)
+                        .modifier(InspectorGlassPill())
                         .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
                     if !searchPresented {
                         Button { searchPresented = true } label: {
-                            Image(systemName: "magnifyingglass").frame(width: 20, height: 20)
+                            Image(systemName: "magnifyingglass").frame(width: InspectorGlassPill.height, height: InspectorGlassPill.height)
                         }
-                        .buttonStyle(.glass).buttonBorderShape(.circle)
+                        .buttonStyle(.plain)
+                        .glassEffect(.regular.interactive(), in: .circle)
                         .accessibilityLabel(glassText("Search Files"))
                         .transition(.opacity)
                     }
@@ -344,13 +345,13 @@ private struct TorrentInspectorContent: View {
                 if editSession.hasSelection {
                     HStack(spacing: 8) {
                         Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
-                            .buttonStyle(.glass)
+                            .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
                         Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
-                            .buttonStyle(.glass).tint(.red)
+                            .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true, tint: .red))
                     }
                 } else if editSession.hasChanges {
                     Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
-                        .buttonStyle(.glass)
+                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
                 }
             }
             .controlSize(.large)
