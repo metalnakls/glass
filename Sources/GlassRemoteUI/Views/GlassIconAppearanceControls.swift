@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 
 struct GlassIconAppearanceControls: View {
+    @AppearanceStorage("GlassList.iconGlassEnabled") private var glassEnabled = true
     @AppearanceStorage("GlassList.iconGlassRegular") private var regular = false
     @AppearanceStorage("GlassList.iconGlassBlur") private var blur = 0.5
     @AppearanceStorage("GlassList.iconGlassFrost") private var frost = 0.15
@@ -25,7 +26,9 @@ struct GlassIconAppearanceControls: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Glass").font(.subheadline.weight(.semibold))
+            Toggle("Glass icons", isOn: $glassEnabled)
+            Text("Turn off to use the original Finder folder and file icons.")
+                .font(.caption).foregroundStyle(.secondary)
             HStack(spacing: 36) {
                 NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "", isFolder: true), size: 48, isFolder: true)
                 NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "file.txt", isFolder: false), size: 48)
@@ -37,31 +40,35 @@ struct GlassIconAppearanceControls: View {
                     startPoint: .topLeading, endPoint: .bottomTrailing)
             }
             .clipShape(RoundedRectangle(cornerRadius: 10))
-            Picker("Style", selection: $regular) {
-                Text("Clear").tag(false)
-                Text("Frosted").tag(true)
-            }.pickerStyle(.segmented)
-            slider("Frost blur", value: $blur, range: 0...6)
-            slider("Frost", value: $frost, range: 0...1, percent: true)
-            slider("Opacity", value: $opacity, range: 0.1...1, percent: true)
-            slider("Brightness", value: $brightness, range: 0...1, percent: true)
+            Group {
+                Picker("Style", selection: $regular) {
+                    Text("Clear").tag(false)
+                    Text("Frosted").tag(true)
+                }.pickerStyle(.segmented)
+                slider("Frost blur", value: $blur, range: 0...6)
+                slider("Frost", value: $frost, range: 0...1, percent: true)
+                slider("Opacity", value: $opacity, range: 0.1...1, percent: true)
+                slider("Brightness", value: $brightness, range: 0...1, percent: true)
+            }.disabled(!glassEnabled)
             Divider()
             Text("Icon shadows").font(.subheadline.weight(.semibold))
             slider("Shadow strength", value: $shadowStrength, range: 0...0.65, percent: true)
             slider("Shadow softness", value: $shadowSoftness, range: 0...32)
             slider("Shadow offset", value: $shadowOffset, range: 0...24)
             Divider()
-            Text("Colour").font(.subheadline.weight(.semibold))
-            ColorPicker("Tint", selection: tintColor, supportsOpacity: false)
-            slider("Tint strength", value: $tintStrength, range: 0...1, percent: true)
-            Divider()
-            Text("HDR reflections").font(.subheadline.weight(.semibold))
-            slider("HDR brightness · light", value: $hdrLight, range: 0...3)
-            slider("HDR brightness · dark", value: $hdrDark, range: 0...3)
-            slider("HDR highlight softness", value: $hdrSoftness, range: 0...4)
-            slider("HDR highlight width", value: $hdrWidth, range: 0.5...3)
-            Text("HDR brightens reflections. Extra brightness depends on your display.")
-                .font(.caption).foregroundStyle(.secondary)
+            Group {
+                Text("Colour").font(.subheadline.weight(.semibold))
+                ColorPicker("Tint", selection: tintColor, supportsOpacity: false)
+                slider("Tint strength", value: $tintStrength, range: 0...1, percent: true)
+                Divider()
+                Text("HDR reflections").font(.subheadline.weight(.semibold))
+                slider("HDR brightness · light", value: $hdrLight, range: 0...3)
+                slider("HDR brightness · dark", value: $hdrDark, range: 0...3)
+                slider("HDR highlight softness", value: $hdrSoftness, range: 0...4)
+                slider("HDR highlight width", value: $hdrWidth, range: 0.5...3)
+                Text("HDR brightens reflections. Extra brightness depends on your display.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }.disabled(!glassEnabled)
             Button("Reset Glass Icons") {
                 for (key, value) in GlassAppearanceDefaults.effective where key.hasPrefix("GlassList.iconGlass") || key.hasPrefix("GlassList.iconShadow") {
                     AppearancePreferences.shared.set(value, for: key)

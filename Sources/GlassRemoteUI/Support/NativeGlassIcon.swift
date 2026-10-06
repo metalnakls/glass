@@ -10,6 +10,7 @@ struct NativeGlassIcon: View {
     @Environment(\.nativeGlassRotation) private var inheritedRotation
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.colorScheme) private var colorScheme
+    @AppearanceStorage("GlassList.iconGlassEnabled") private var glassEnabled = true
     @AppearanceStorage("GlassList.iconGlassRegular") private var regular = false
     @AppearanceStorage("GlassList.iconGlassBlur") private var blur = 0.5
     @AppearanceStorage("GlassList.iconGlassFrost") private var frost = 0.15
@@ -30,7 +31,13 @@ struct NativeGlassIcon: View {
 
     var body: some View {
         Group {
-            if let artwork = NativeIconGeometry.artwork(for: image) {
+            if !glassEnabled {
+                // Bypass the material, frost, HDR and silhouette work entirely.
+                // Keep the same host, optical size and pose for group flights.
+                Image(nsImage: image).resizable().scaledToFit()
+                    .frame(width: size, height: size)
+                    .rotationEffect(.radians(rotation + inheritedRotation))
+            } else if let artwork = NativeIconGeometry.artwork(for: image) {
                 let source = Image(decorative: artwork.image, scale: 1).resizable().scaledToFit()
                     .frame(width: size, height: size)
                     .rotationEffect(.radians(rotation + inheritedRotation))

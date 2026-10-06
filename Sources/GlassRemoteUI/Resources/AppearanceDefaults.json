@@ -29,6 +29,7 @@
   "GlassList.iconGlassFrost" : 0.15,
   "GlassList.iconGlassOpacity" : 1,
   "GlassList.iconGlassBrightness" : 0,
+  "GlassList.iconGlassEnabled" : true,
   "GlassList.iconGlassTint" : "FFFFFF",
   "GlassList.iconGlassTintStrength" : 0,
   "GlassList.iconGlassHDRLight" : 0,
