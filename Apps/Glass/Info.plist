@@ -11,6 +11,8 @@
 		<dict>
 			<key>CFBundleTypeName</key>
 			<string>BitTorrent Metainfo</string>
+			<key>CFBundleTypeIconFile</key>
+			<string>Transmission.icns</string>
 			<key>CFBundleTypeRole</key>
 			<string>Viewer</string>
 			<key>LSHandlerRank</key>
