@@ -207,7 +207,6 @@ struct TorrentListView: View {
                             .listRowSeparator(.hidden)
                             .listItemTint(.monochrome)
                             .focusEffectDisabled()
-                            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 12))
                             .tag(row.id)
                             .accessibilityElement(children: .contain)
                             .moveDisabled(rowIsAdding(row))
