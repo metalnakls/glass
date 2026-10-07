@@ -74,6 +74,13 @@ public enum GlassBackgroundService {
 
     /// Foreground file renaming does not require a registered login agent.
     public static func renameDownloadsWhileOpen() async {
+        do {
+            try BackgroundDownloadsAccess.ensureForegroundAccess()
+        } catch {
+            Logger(subsystem: "tsmc.glass", category: "background")
+                .error("Smart Rename needs Downloads access: \(error.localizedDescription, privacy: .public)")
+            return
+        }
         await GlassBackgroundWorker.shared.runForeground()
     }
 
@@ -93,10 +100,23 @@ private enum BackgroundDownloadsAccess {
             .appendingPathComponent("Downloads.bookmark")
     }
 
+    /// The Downloads entitlement does not override macOS privacy restrictions.
+    /// Check access in the app process before starting a watcher that cannot read.
+    @MainActor static func ensureForegroundAccess() throws {
+        if let scoped = try? resolve() {
+            defer { scoped.stopAccessingSecurityScopedResource() }
+            if (try? FileManager.default.contentsOfDirectory(atPath: scoped.path)) != nil { return }
+        }
+        if let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
+           (try? FileManager.default.contentsOfDirectory(atPath: downloads.path)) != nil { return }
+        try authorize()
+    }
+
     @MainActor static func authorize() throws {
         if let url = try? resolve() {
+            let readable = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
             url.stopAccessingSecurityScopedResource()
-            return
+            if readable { return }
         }
         guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
               let storage else { throw CocoaError(.fileNoSuchFile) }
@@ -104,7 +124,7 @@ private enum BackgroundDownloadsAccess {
         // for an independently launched agent. The native picker grants that scope.
         let panel = NSOpenPanel()
         panel.title = glassText("Allow Downloads access")
-        panel.message = glassText("Choose Downloads so Glass can Smart Rename torrent files while the app is closed.")
+        panel.message = glassText("Choose Downloads to allow Glass to Smart Rename torrent files.")
         panel.prompt = glassText("Allow")
         panel.directoryURL = downloads
         panel.canChooseDirectories = true
@@ -187,8 +207,13 @@ private actor GlassBackgroundWorker {
         #if DEBUG
         if CommandLine.arguments.contains("--background-worker-self-test"), let diagnosticDirectory {
             do {
-                try FileManager.default.createDirectory(at: diagnosticDirectory, withIntermediateDirectories: true)
-                defer { try? FileManager.default.removeItem(at: diagnosticDirectory) }
+                let contents = diagnosticDirectory.appendingPathExtension("contents")
+                try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+                try FileManager.default.createSymbolicLink(at: diagnosticDirectory, withDestinationURL: contents)
+                defer {
+                    try? FileManager.default.removeItem(at: diagnosticDirectory)
+                    try? FileManager.default.removeItem(at: contents)
+                }
                 let name = "The.People.vs.Larry.Flynt.1996.1080p.BluRay.mkv"
                 var data = Data("d4:infod6:lengthi100e4:name\(name.utf8.count):\(name)12:piece lengthi16384e6:pieces20:".utf8)
                 data.append(Data(repeating: 48, count: 20))
@@ -259,22 +284,23 @@ private actor GlassBackgroundWorker {
             }
             guard !foregroundRunning else { return }
         }
-        guard let downloads else { return }
-        let scanLogger = logger
-        guard let enumerator = FileManager.default.enumerator(at: downloads,
-            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-            options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles], errorHandler: { _, error in
-                scanLogger.error("Downloads enumeration failed: \(error.localizedDescription, privacy: .public)")
-                return true
-            }) else {
-            logger.error("Downloads enumeration could not start")
+        guard let downloads = downloads?.resolvingSymlinksInPath() else { return }
+        let entries: [URL]
+        do {
+            // This is a flat scan. The sandbox's standard Downloads URL is a
+            // symlink, which a recursive DirectoryEnumerator refuses to follow.
+            entries = try FileManager.default.contentsOfDirectory(at: downloads,
+                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+                options: [.skipsHiddenFiles])
+        } catch {
+            logger.error("Downloads listing failed: \(error.localizedDescription, privacy: .public)")
             return
         }
         var present = Set<String>()
         var candidates = 0
         var readable = 0
         var processed = 0
-        while let url = enumerator.nextObject() as? URL {
+        for url in entries {
             guard !Task.isCancelled else { return }
             guard url.pathExtension.lowercased() == "torrent" else { continue }
             present.insert(url.path)
