@@ -1215,7 +1215,7 @@ public final class RemoteAppModel {
                     .fetchTorrentDetails(hashString: watch.hashString)
                 guard Self.isCompleted(details) else { continue }
                 watchedTorrents[watch] = nil
-                completionNotifier?.notifyTorrentCompleted(name: details.name.isEmpty ? fallbackName : details.name)
+                completionNotifier?.notifyTorrentCompleted(name: details.name.isEmpty ? fallbackName : details.name, sourceID: watch.sourceID, hashString: watch.hashString, downloadDirectory: details.downloadDir)
             } catch {
                 // Keep watching through transient server and network failures.
             }

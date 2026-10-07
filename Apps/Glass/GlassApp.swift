@@ -350,7 +350,9 @@ private final class GlassCompletionNotificationCenter: NSObject, TorrentCompleti
         }
     }
 
-    func notifyTorrentCompleted(name: String) {
+    func notifyTorrentCompleted(name: String) { enqueueCompletion(name: name, payload: [:]) }
+
+    private func enqueueCompletion(name: String, payload: [String: String]) {
         completedDownloadCount += 1
         NSApp.dockTile.badgeLabel = completedDownloadCount.formatted()
 
@@ -363,6 +365,7 @@ private final class GlassCompletionNotificationCenter: NSObject, TorrentCompleti
             let content = UNMutableNotificationContent()
             content.title = glassText("Download Complete")
             content.body = name
+            content.userInfo = payload
             content.sound = .default
             let request = UNNotificationRequest(
                 identifier: "torrent-completed-\(UUID().uuidString)",
@@ -373,9 +376,24 @@ private final class GlassCompletionNotificationCenter: NSObject, TorrentCompleti
         }
     }
 
+    func notifyTorrentCompleted(name: String, sourceID: UUID, hashString: String, downloadDirectory: String?) {
+        enqueueCompletion(name: name, payload: ["name": name, "sourceID": sourceID.uuidString,
+            "hashString": hashString, "directory": downloadDirectory ?? ""])
+    }
+
     func clearBadge() {
         completedDownloadCount = 0
         NSApp.dockTile.badgeLabel = nil
+    }
+
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+        let payload = response.notification.request.content.userInfo
+        guard let sourceText = payload["sourceID"] as? String, let sourceID = UUID(uuidString: sourceText),
+              let name = payload["name"] as? String, let directory = payload["directory"] as? String,
+              !directory.isEmpty else { return }
+        await glassOpenCompletedTorrent(sourceID: sourceID, directory: directory, name: name,
+            isLocal: sourceText == "00000000-0000-0000-0000-000000000001")
     }
 
     nonisolated func userNotificationCenter(
