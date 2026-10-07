@@ -53,8 +53,9 @@ public struct GlassRootView: View {
             HStack(spacing: 0) {
             if tuneOnLeft {
                 SelectionAppearanceView(testSession: testSession, section: $tuningSection)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: 300, maxHeight: .infinity)
                     .padding(.horizontal, 38)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .transition(.opacity.combined(with: .blurReplace))
             } else {
             TorrentWorkspaceView(
