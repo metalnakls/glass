@@ -268,6 +268,11 @@ private struct TorrentInspectorContent: View {
                         if let error = snapshot.filesError { detailErrorView(error) }
                         else { GlassActivityIndicator(label: "Loading files") }
                     }
+                } else if let details = snapshot.details, details.files.count == 1, let entry = fileEntries(for: details).first {
+                    TorrentSingleFilePreview(name: entry.displayName, size: entry.size, input: thumbnailInput(for: entry, details: details), onOpen: entry.isComplete ? {
+                        let row = TorrentFileTreeRow(id: entry.originalPath, name: entry.displayName, depth: 0, indices: [entry.index], size: entry.size, entry: entry)
+                        performFileAction(row, details: details, action: .open)
+                    } : nil)
                 } else if let details = snapshot.details {
                     if let error = snapshot.filesError, details.files.isEmpty { detailErrorView(error) }
                     else { filesBrowser(details, showsControls: false) }
