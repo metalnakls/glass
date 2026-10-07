@@ -58,6 +58,7 @@ public extension View {
 
 private struct GlassCenteredPanelHost<PanelContent: View>: NSViewRepresentable {
     @Binding var isPresented: Bool
+    @Environment(\.colorScheme) private var colorScheme
     let size: CGSize
     let onDismiss: (() -> Void)?
     let content: () -> PanelContent
@@ -82,6 +83,7 @@ private struct GlassCenteredPanelHost<PanelContent: View>: NSViewRepresentable {
         let hostedContent = AnyView(
             content()
                 .environment(\.glassPanelDismiss, dismissAction)
+                .preferredColorScheme(colorScheme)
                 .frame(width: size.width, height: size.height)
                 .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -204,6 +206,7 @@ private struct GlassCenteredPanelHost<PanelContent: View>: NSViewRepresentable {
 
         private func attach(to parentWindow: NSWindow?) {
             guard let panel, let parentWindow else { return }
+            panel.appearance = parentWindow.effectiveAppearance
             if panel.parent !== parentWindow {
                 if let oldParent = panel.parent {
                     oldParent.removeChildWindow(panel)
