@@ -21,7 +21,6 @@ struct AddTorrentBatchView: View {
 
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.glassPanelDismiss) private var panelDismiss
 
     @State private var items: [TorrentBatchItemState]
     @State private var groups: [TorrentBatchGroup]
@@ -87,39 +86,19 @@ struct AddTorrentBatchView: View {
                     groupName: groupNameBinding(for: group),
                     smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
                         set: { smartNamesByGroupID[group.id] = $0 }),
-                    isAdding: isAdding, fileSearchText: $fileSearchText,
-                    headerClearance: hasMultipleFiles(in: group) ? headerClearance : 0)
-                    .padding(.horizontal, 20)
+                    isAdding: isAdding, fileSearchText: $fileSearchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .id(group.id)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)))
             }
         }
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .padding(.horizontal, groups.count > 1 ? 12 : 0)
-        .padding(.bottom, groups.count > 1 ? 24 : 0)
-        .background {
-            if groups.count > 1 {
-                ForEach(1...min(3, groups.count - 1), id: \.self) { depth in
-                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                        .fill(.thinMaterial)
-                        .overlay { RoundedRectangle(cornerRadius: 24).stroke(.primary.opacity(0.16), lineWidth: 1) }
-                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
-                        .rotationEffect(.degrees(Double(depth) * 1.5))
-                        .offset(y: CGFloat(depth) * 7)
-                        .padding(.horizontal, CGFloat(depth) * 6)
-                }
-            }
-        }
         .animation(.smooth, value: selectedGroupID)
-        .overlay(alignment: .top) {
-            LinearGradient(colors: [Color(nsColor: .windowBackgroundColor).opacity(0.95), .clear], startPoint: .top, endPoint: .bottom)
-                .frame(height: headerClearance + 24).allowsHitTesting(false)
+        .glassFloatingChrome(top: {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                header(for: group).zIndex(10)
+                header(for: group)
             }
-        }
+        }, bottom: { addDock })
         .overlay(alignment: .bottomLeading) {
             if let addErrorMessage {
                 Label(addErrorMessage, systemImage: "exclamationmark.triangle")
@@ -128,42 +107,35 @@ struct AddTorrentBatchView: View {
                     .padding(.bottom, InspectorGlassPill.height + 38)
             }
         }
-        .overlay(alignment: .bottom) {
-            GlassEffectContainer(spacing: 10) {
-                HStack(spacing: 10) {
-                    Button { dismissPanel() } label: {
-                        Image(systemName: "xmark")
-                            .modifier(InspectorGlassPill(interactive: true, iconOnly: true))
-                    }.buttonStyle(.plain).disabled(isAdding)
-                        .accessibilityLabel(glassText("Cancel"))
-                    if hasMultipleFiles {
-                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, expandedWidth: 220)
-                    }
-                    Spacer(minLength: 12)
-                    Button {
-                        disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
-                        commandHeld = NSEvent.modifierFlags.contains(.command)
-                        Task { await addAll() }
-                    } label: {
-                        Text(glassText(startsPaused ? "Stall" : "Add"))
-                            .id(startsPaused).transition(.blurReplace)
-                            .modifier(InspectorGlassPill(interactive: true))
-                    }.buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!canAdd)
-                        .animation(.smooth, value: startsPaused)
-                }
-            }
-            .padding(20)
-        }
         .background(ModifierKeyObserver { optionHeld = $0 })
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
-        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismissPanel() } }
+        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismissImport() } }
         .task { await prepareNames() }
-        .frame(width: 640, height: 580)
+        .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
     }
 
-    private var headerClearance: CGFloat {
-        CGFloat(max(0, titleTopPadding + 58))
+    private var addDock: some View {
+        HStack {
+            GlassPillButton(iconOnly: true) { dismissImport() } label: {
+                Image(systemName: "xmark")
+            }.disabled(isAdding)
+                .accessibilityLabel(glassText("Cancel"))
+            if hasMultipleFiles {
+                GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, expandedWidth: 220)
+            }
+            Spacer(minLength: 12)
+            GlassPillButton {
+                disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
+                commandHeld = NSEvent.modifierFlags.contains(.command)
+                Task { await addAll() }
+            } label: {
+                Text(glassText(startsPaused ? "Stall" : "Add"))
+                    .id(startsPaused).transition(.blurReplace)
+            }.keyboardShortcut(.defaultAction).disabled(!canAdd)
+                .animation(.smooth, value: startsPaused)
+        }
     }
+
 
     private func header(for group: TorrentBatchGroup) -> some View {
         let showsIcon = showsTitleIcon && hasMultipleFiles(in: group)
@@ -174,7 +146,7 @@ struct AddTorrentBatchView: View {
         return ZStack(alignment: .topTrailing) {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
-                    HStack(spacing: 14) {
+                    HStack {
                         if showsIcon {
                             addTitleIcon(group).accessibilityHidden(true)
                         }
@@ -182,18 +154,17 @@ struct AddTorrentBatchView: View {
                             .font(.title.weight(.bold)).textFieldStyle(.plain)
                             .frame(width: titleWidth(for: group, available: geometry.size.width, showsIcon: showsIcon))
                             .disabled(isAdding || optionHeld)
-                    }.frame(minHeight: 44)
+                    }.frame(minHeight: InspectorGlassPill.height)
                 }
-                .frame(width: geometry.size.width, height: 44, alignment: .leading)
+                .frame(width: geometry.size.width, height: InspectorGlassPill.height, alignment: .leading)
                 .scrollIndicators(.hidden)
             }
-            .frame(height: 44, alignment: .leading)
+            .frame(height: InspectorGlassPill.height, alignment: .leading)
             locationPicker
         }
         .frame(height: 58, alignment: .top)
-        .padding(.leading, titleLeftPadding)
-        .padding(.trailing, 20)
-        .padding(.top, titleTopPadding)
+        .padding(.leading, max(0, titleLeftPadding - 20))
+        .padding(.top, max(0, titleTopPadding - 20))
         .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
@@ -209,9 +180,8 @@ struct AddTorrentBatchView: View {
         group.itemIndices.reduce(0) { $0 + items[$1].draft.preview.files.count } > 1
     }
 
-    private func dismissPanel() {
-        if panelDismiss.isAvailable { panelDismiss() }
-        else { dismiss() }
+    private func dismissImport() {
+        dismiss()
     }
 
     private func addTitleIcon(_ group: TorrentBatchGroup) -> some View {
@@ -330,7 +300,7 @@ struct AddTorrentBatchView: View {
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
         let remaining = groups.filter { $0.id != selectedGroupID }
-        if remaining.isEmpty { dismissPanel() }
+        if remaining.isEmpty { dismissImport() }
         else {
             withAnimation(.smooth) { groups = remaining; selectedGroupID = remaining[0].id }
         }
@@ -443,38 +413,45 @@ private struct TorrentBatchGroupEditor: View {
     @Binding var smartNamesEnabled: Bool
     let isAdding: Bool
     @Binding var fileSearchText: String
-    let headerClearance: CGFloat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        Group {
             if fileCount == 1, let index = group.itemIndices.first, let file = items[index].draft.preview.files.first {
                 TorrentSingleFilePreview(name: file.name, size: file.length)
             } else {
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
-                        let item = items[index]
-                        if group.isSeasonGroup {
-                            Text("Season \(group.seasons[offset])").font(.subheadline.weight(.semibold))
-                        }
-                        TorrentFilesBrowser(
-                            entries: fileEntries(for: item), searchText: $fileSearchText,
-                            onSetWanted: { item.setFileWanted($0, $1) },
-                            onSetPriority: { item.filePriorities[$0] = $1 },
-                            onSetAllWanted: { item.setAllFilesWanted($0) },
-                            showsControls: false, isCompact: true, showsCompletion: false, shortEpisodeNames: true, showsActionBar: false
-                        )
-                        .disabled(item.wasAdded)
-                    }
-                }
+                let files = indexedFiles
+                TorrentFilesBrowser(
+                    entries: files.map(\.entry), searchText: $fileSearchText,
+                    onSetWanted: { index, wanted in
+                        guard files.indices.contains(index), !files[index].item.wasAdded else { return }
+                        files[index].item.setFileWanted(files[index].localIndex, wanted)
+                    },
+                    onSetPriority: { index, priority in
+                        guard files.indices.contains(index), !files[index].item.wasAdded else { return }
+                        files[index].item.filePriorities[files[index].localIndex] = priority
+                    },
+                    onSetAllWanted: { setAllFilesWanted($0) },
+                    showsControls: false, isCompact: true, showsCompletion: false, scrolls: true,
+                    shortEpisodeNames: true, showsActionBar: false
+                )
             }
-            .contentMargins(.top, headerClearance, for: .scrollContent)
-            .contentMargins(.bottom, InspectorGlassPill.height + 38, for: .scrollContent)
-            .scrollEdgeEffectHidden()
         }
-            }
         .disabled(isAdding)
+    }
 
+    private var indexedFiles: [(item: TorrentBatchItemState, localIndex: Int, entry: TorrentFileBrowserEntry)] {
+        var result: [(item: TorrentBatchItemState, localIndex: Int, entry: TorrentFileBrowserEntry)] = []
+        for (offset, itemIndex) in group.itemIndices.enumerated() {
+            let item = items[itemIndex]
+            let prefix = group.isSeasonGroup ? "Season \(group.seasons[offset])/" : ""
+            for entry in fileEntries(for: item) {
+                let combined = TorrentFileBrowserEntry(index: result.count,
+                    file: TorrentFile(name: prefix + entry.originalPath, length: entry.size, bytesCompleted: entry.completedBytes), rootName: "",
+                    displayName: prefix + entry.displayName, isWanted: entry.isWanted, priority: entry.priority)
+                result.append((item, entry.index, combined))
+            }
+        }
+        return result
     }
 
     private var fileCount: Int {

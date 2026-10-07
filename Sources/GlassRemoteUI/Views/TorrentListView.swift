@@ -301,9 +301,10 @@ struct TorrentListView: View {
         .focusedValue(\.glassSearchDestination, .mainList)
         .overlay(alignment: .bottomTrailing) {
             if searchPresented && !sampleArtwork {
-                GlassSearchPill(text: $searchText, isPresented: $searchPresented,
-                    expandedWidth: 260, prompt: "Search Torrents", inspectorFocus: false)
-                    .padding(18).transition(.blurReplace.combined(with: .move(edge: .bottom)))
+                GlassFloatingDock {
+                    GlassSearchPill(text: $searchText, isPresented: $searchPresented,
+                        expandedWidth: 260, prompt: "Search Torrents", inspectorFocus: false)
+                }.transition(.blurReplace.combined(with: .move(edge: .bottom)))
             }
         }
         .onChange(of: sampleArtwork) { _, isSample in

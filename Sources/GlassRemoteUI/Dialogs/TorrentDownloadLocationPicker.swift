@@ -19,6 +19,7 @@ struct TorrentDownloadLocationPicker: View {
 
     @Namespace private var locationGlass
     @State private var isPresented = false
+    @State private var pillSize = CGSize(width: 0, height: InspectorGlassPill.height)
     @State private var optionHeld = false
     @AppStorage("GlassAdd.locationIconOrder") private var iconOrder = ""
     @AppStorage("GlassAdd.hiddenLocations") private var hiddenLocations = ""
@@ -30,7 +31,7 @@ struct TorrentDownloadLocationPicker: View {
             ZStack(alignment: .topTrailing) {
                 VStack(alignment: .trailing, spacing: 8) {
                 if !isPresented {
-                    Button { withAnimation(.smooth) { isPresented = true } } label: {
+                    GlassPillButton { withAnimation(.smooth) { isPresented = true } } label: {
                         HStack(spacing: 8) {
                             NativeLocationIcon(path: nativeLocationPath,
                                 sourceID: sourceID == model.localSourceID ? nil : sourceID,
@@ -40,23 +41,24 @@ struct TorrentDownloadLocationPicker: View {
                                 .fixedSize(horizontal: true, vertical: false)
                             Image(systemName: "chevron.down").font(.caption)
                         }
-                        .modifier(InspectorGlassPill(interactive: true))
-                        .glassEffectID("location", in: locationGlass)
-                        .glassEffectTransition(.matchedGeometry)
                     }
-                    .buttonStyle(.plain).disabled(isDisabled || isChoosingFolder)
+                    .fixedSize()
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { pillSize = $0 }
+                    .glassEffectID("location", in: locationGlass)
+                    .glassEffectTransition(.matchedGeometry)
+                    .disabled(isDisabled || isChoosingFolder)
                     .transition(.blurReplace)
                 } else {
-                    Color.clear.frame(width: collapsedWidth, height: InspectorGlassPill.height)
+                    Color.clear.frame(width: pillSize.width, height: pillSize.height)
                 }
                     if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
                         Text("\(formatBytes(bytes)) \(glassText("free"))")
-                            .font(.caption2).padding(.horizontal, 18)
+                            .font(.caption2).padding(.horizontal)
                             .opacity(isPresented ? 0 : 1)
                     }
                 }
                 if isPresented { locationChoices.transition(.blurReplace) }
-            }.frame(width: collapsedWidth, height: 58, alignment: .topTrailing)
+            }.frame(width: pillSize.width > 0 ? pillSize.width : nil, height: 58, alignment: .topTrailing)
         }
         .animation(.smooth, value: isPresented)
         .animation(.smooth, value: locationName)
@@ -78,12 +80,6 @@ struct TorrentDownloadLocationPicker: View {
         }
     }
 
-    var collapsedWidth: CGFloat {
-        let nameWidth = (locationName as NSString).size(withAttributes: [
-            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-        ]).width
-        return min(260, max(100, nameWidth + 86))
-    }
     private var menuWidth: CGFloat { CGFloat(max(1, min(6, iconColumns))) * 82 + 36 }
     private var locationChoices: some View {
             VStack(alignment: .leading, spacing: 12) {
@@ -152,7 +148,7 @@ struct TorrentDownloadLocationPicker: View {
                     previousProfileIDs = Set(model.profiles.map(\.id)); isPresented = false; isEditingServer = true
                 }.buttonStyle(.plain)
             }
-            .padding(18).frame(width: menuWidth)
+            .padding().frame(width: menuWidth)
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
             .glassEffectID("location", in: locationGlass)
             .glassEffectTransition(.matchedGeometry)

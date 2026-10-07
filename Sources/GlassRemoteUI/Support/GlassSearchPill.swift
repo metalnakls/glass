@@ -15,7 +15,15 @@ struct GlassSearchPill: View {
     @Namespace private var glassNamespace
 
     var body: some View {
-        HStack(spacing: 8) {
+        Group {
+        if !expanded {
+            GlassPillButton(iconOnly: true) {
+                withAnimation(.smooth(duration: 0.35)) { isPresented = true }
+                focused = true
+            } label: { Image(systemName: "magnifyingglass") }
+                .accessibilityLabel(glassText(prompt))
+        } else {
+        HStack {
             Button { focused = true; withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
                 .buttonStyle(.plain).accessibilityLabel(glassText(prompt))
             if expanded {
@@ -23,7 +31,7 @@ struct GlassSearchPill: View {
                     .textFieldStyle(.plain).focused($focused)
                     .focusedValue(\.glassInspectorFileFilterFocused, inspectorFocus)
                     .onExitCommand { isPresented = false; focused = false; text = "" }
-                if !permanentlyExpanded { Button { withAnimation(.smooth(duration: 0.35)) { isPresented = false } } label: { Image(systemName: "xmark") }
+                if !permanentlyExpanded { Button { withAnimation(.smooth(duration: 0.35)) { isPresented = false } } label: { Image(systemName: "xmark").frame(width: 28, height: 28).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel(glassText("Close search")) }
             }
         }
@@ -31,6 +39,10 @@ struct GlassSearchPill: View {
         .frame(maxWidth: expanded && expandedWidth == nil ? .infinity : nil)
         .contentShape(Rectangle())
         .modifier(InspectorGlassPill(interactive: true, iconOnly: !expanded))
+        }
+        }
+        .font(.body)
+        .controlSize(.extraLarge)
         .glassEffectID(transitionID, in: transitionNamespace ?? glassNamespace)
         .glassEffectTransition(.matchedGeometry)
         .onChange(of: isPresented) { _, presented in focused = presented; if !presented { text = "" } }

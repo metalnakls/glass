@@ -56,7 +56,7 @@ struct TorrentDownloadLocationView: View {
                 let link = TorrentThumbnailService.shared.link(for: sourceID)
                 let location = TorrentDownloadLocation(directory: directory, localName: isLocal ? localName : nil,
                     serverName: serverName, link: link)
-                Button {
+                GlassPillButton {
                     Task {
                         isOpening = true
                         defer { isOpening = false }
@@ -84,8 +84,6 @@ struct TorrentDownloadLocationView: View {
                     .frame(maxWidth: glassPills ? nil : .infinity, alignment: .leading)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
-                .modifier(LocationGlassPill(enabled: glassPills, interactive: true))
                 .glassEffectID("location", in: locationGlass)
                 .glassEffectTransition(.matchedGeometry)
                 .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: location.sourceName)

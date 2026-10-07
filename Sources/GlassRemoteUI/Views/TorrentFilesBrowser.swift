@@ -13,6 +13,7 @@ struct TorrentFilesBrowser: View {
     var showsControls = true
     var isCompact = false
     var showsCompletion = true
+    var scrolls = false
     var shortEpisodeNames = false
     var thumbnailInput: ((TorrentFileBrowserEntry) -> TorrentThumbnailInput?)?
     var stagesChanges = false
@@ -22,6 +23,7 @@ struct TorrentFilesBrowser: View {
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeHighlight = false
     @AppearanceStorage("GlassInspector.fileSideInset") private var fileSideInset = 18.0
+    @Environment(\.glassChromeInsets) private var chromeInsets
     @State private var collapsed = Set<String>()
     @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
@@ -59,7 +61,7 @@ struct TorrentFilesBrowser: View {
         let nextRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), rows.dropFirst().map(\.id)))
         let previousRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.dropFirst().map(\.id), rows.map(\.id)))
         let hiddenExtension = showsExtensions ? nil : treeCache.hiddenExtension
-        let widestSize = sizeColumnText ?? entries.map { formatBytes($0.size) }.max {
+        let widestSize = sizeColumnText ?? rows.map { formatBytes($0.size) }.max {
             $0.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
                 < $1.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
         } ?? "0 KB"
@@ -134,8 +136,9 @@ struct TorrentFilesBrowser: View {
                                       }
                                     }
                                     }
-                                    Text(widestSize).textCase(nil).hidden().overlay(alignment: .trailing) {
-                                        Text(formatBytes(row.size)).textCase(nil)
+                                    ZStack(alignment: .trailing) {
+                                        Text(widestSize).textCase(nil).hidden()
+                                        Text(formatBytes(row.size)).textCase(nil).fixedSize()
                                     }
                                 }
                             } else {
@@ -185,7 +188,8 @@ struct TorrentFilesBrowser: View {
                         }.tint(.gray).accessibilityLabel("Lower priority").help("Lower priority")
                     }
                     .tag(row.id)
-                    .listRowInsets(layout.insets)
+                    .listRowInsets(.vertical, layout.verticalInset)
+                    .listRowInsets(.horizontal, nil)
                     .listRowSeparator(!TorrentInternalDragState.active && isCompact && (row.id == rows.last?.id
                         || nativeSelection.contains(row.id)
                         || (nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false)) ? .hidden : (isCompact ? .visible : .automatic), edges: .bottom)
@@ -226,14 +230,16 @@ struct TorrentFilesBrowser: View {
                 }
             }
             .listStyle(.plain)
-            .contentMargins(.horizontal, 0, for: .scrollContent)
-            .contentMargins(.vertical, 0, for: .scrollContent)
+            .contentMargins(.horizontal, nil, for: .scrollContent)
+            .contentMargins(.top, scrolls ? chromeInsets.top : 0, for: .scrollContent)
+            .contentMargins(.bottom, scrolls ? chromeInsets.bottom : 0, for: .scrollContent)
+            .scrollEdgeEffectStyle(.soft, for: .all)
             .scrollContentBackground(.hidden)
-            .scrollDisabled(true)
-            .scrollIndicators(.hidden)
+            .scrollDisabled(!scrolls)
+            .scrollIndicators(scrolls ? .automatic : .hidden)
             .environment(\.defaultMinListRowHeight, layout.rowHeight)
             .font(isCompact ? .body : .system(size: 12))
-            .frame(height: CGFloat(max(rows.count, 1)) * layout.rowHeight)
+            .frame(height: scrolls ? nil : CGFloat(max(rows.count, 1)) * layout.rowHeight)
         }
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {

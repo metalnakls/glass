@@ -144,8 +144,7 @@ public struct GlassRootView: View {
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
-        .glassCenteredPanel(isPresented: addPanelPresented, size: GlassCenteredPanelSize.addTorrent) { addPanelContent }
-        .sheet(item: ordinarySheet) { sheet in
+        .sheet(item: $activeSheet) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
@@ -155,10 +154,10 @@ public struct GlassRootView: View {
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
                 case .loadingTorrentFiles, .addTorrentFiles:
-                    EmptyView()
+                    torrentImportContent
                 }
             }
-            .toolbarVisibility(.visible, for: .windowToolbar)
+            .toolbarVisibility(sheet.isTorrentImport ? .hidden : .visible, for: .windowToolbar)
             .presentationSizing(.form)
         }
         .alert(glassText(activeAlertTitle), isPresented: activeAlertBinding, presenting: activeAlert) { alert in
@@ -237,17 +236,7 @@ public struct GlassRootView: View {
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
     }
 
-    private var addPanelPresented: Binding<Bool> {
-        Binding(get: {
-            switch activeSheet { case .loadingTorrentFiles, .addTorrentFiles: true; default: false }
-        }, set: { if !$0 { activeSheet = nil } })
-    }
-    private var ordinarySheet: Binding<ActiveSheet?> {
-        Binding(get: {
-            switch activeSheet { case .loadingTorrentFiles, .addTorrentFiles: nil; default: activeSheet }
-        }, set: { activeSheet = $0 })
-    }
-    @ViewBuilder private var addPanelContent: some View {
+    @ViewBuilder private var torrentImportContent: some View {
         switch activeSheet {
         case .loadingTorrentFiles:
             DelayedTorrentLoadingView()
@@ -723,6 +712,13 @@ private enum ActiveSheet: Identifiable {
     case loadingTorrentFiles(UUID)
     case addTorrentFiles([TorrentFileAddDraft])
 
+    var isTorrentImport: Bool {
+        switch self {
+        case .loadingTorrentFiles, .addTorrentFiles: true
+        default: false
+        }
+    }
+
     var id: String {
         switch self {
         case .newProfile:
@@ -817,7 +813,7 @@ private struct DelayedTorrentLoadingView: View {
     @State private var showSpinner = false
     var body: some View {
         Color.clear.overlay { if showSpinner { ProgressView().controlSize(.small) } }
-            .frame(width: GlassCenteredPanelSize.addTorrent.width, height: GlassCenteredPanelSize.addTorrent.height)
+            .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
             .task {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 showSpinner = true

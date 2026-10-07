@@ -262,8 +262,7 @@ private struct TorrentInspectorContent: View {
                 filesScrollView
             }
         }
-        .overlay(alignment: .topLeading) { topDock }
-        .overlay(alignment: .bottom) { bottomDock }
+        .glassFloatingChrome(top: { topDock }, bottom: { bottomDock })
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: snapshot.selectionKey)
         .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: allCompleted)
         .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
@@ -278,7 +277,7 @@ private struct TorrentInspectorContent: View {
 
     private var filesScrollView: some View {
         ScrollViewReader { scroll in
-        ScrollView {
+        GlassChromeScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 Color.clear.frame(height: 0).id("inspector-top")
                 if let group = snapshot.group {
@@ -314,9 +313,6 @@ private struct TorrentInspectorContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 20)
         }
-        .contentMargins(.top, InspectorGlassPill.height + 34, for: .scrollContent)
-        .contentMargins(.bottom, footerHeight, for: .scrollContent)
-        .scrollEdgeEffectHidden()
         .onChange(of: snapshot.selectionKey) { _, _ in
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
                 scroll.scrollTo("inspector-top", anchor: .top)
@@ -328,7 +324,6 @@ private struct TorrentInspectorContent: View {
     @Namespace private var footerGlassNamespace
 
     private var topDock: some View {
-        GlassEffectContainer(spacing: 8) {
             HStack(alignment: .center, spacing: 8) {
                 if let first = members.first {
                     TorrentDownloadLocationView(directory: first.downloadDir, itemPath: first.name,
@@ -347,10 +342,7 @@ private struct TorrentInspectorContent: View {
                         .transition(.opacity.combined(with: .blurReplace))
                 }
             }
-            .padding(.horizontal, fileLayout.outerInset)
-            .padding(.top, 18).padding(.bottom, 16)
             .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 
     private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
@@ -360,20 +352,17 @@ private struct TorrentInspectorContent: View {
     private var footerHeight: CGFloat { InspectorGlassPill.height + 38 }
 
     private var bottomDock: some View {
-        GlassEffectContainer(spacing: 8) {
             HStack(spacing: 8) {
                 if editSession.hasSelection {
-                    Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
-                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
+                    GlassPillButton { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
                         .glassEffectID("primary", in: footerGlassNamespace)
                         .glassEffectTransition(.matchedGeometry)
-                    Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
-                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true, tint: .red))
+                    GlassPillButton(tint: .red) { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
+                        .tint(.red)
                         .glassEffectID("secondary", in: footerGlassNamespace)
                         .glassEffectTransition(.matchedGeometry)
                 } else if editSession.hasChanges {
-                    Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
-                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
+                    GlassPillButton { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
                 } else {
                     if !allCompleted && (!permanentSearch || !supportsSearch) && (!searchPresented || !supportsSearch) {
                         TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
@@ -389,14 +378,11 @@ private struct TorrentInspectorContent: View {
                 }
             }
             .controlSize(.large)
-            .padding(.horizontal, fileLayout.outerInset)
-            .padding(.top, 22).padding(.bottom, 16)
 
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: searchPresented)
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: editSession.hasSelection)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
             .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: allCompleted)
-        }
     }
 
     private func selectAllFiles() {
