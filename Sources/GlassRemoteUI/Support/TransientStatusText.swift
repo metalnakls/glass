@@ -32,6 +32,6 @@ struct BlurReplacementContent<Content: View>: View {
                 content.id(identity).transition(.blurReplace)
             }
         }
-        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.65), value: identity)
+        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: identity)
     }
 }

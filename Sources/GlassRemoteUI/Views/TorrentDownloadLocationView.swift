@@ -73,7 +73,10 @@ struct TorrentDownloadLocationView: View {
                 } label: {
                     HStack(spacing: TorrentFileListLayout.inspector.columnGap) {
                         NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: TorrentFileListLayout.inspector.leadingIconWidth)
-                        TransientStatusText(text: location.sourceName, message: feedback)
+                        Text(location.sourceName).hidden()
+                            .overlay(alignment: .leading) {
+                                TransientStatusText(text: location.sourceName, message: feedback)
+                            }
                             .font(.headline)
                             .lineLimit(1).truncationMode(.middle)
                     }
@@ -83,6 +86,7 @@ struct TorrentDownloadLocationView: View {
                 .buttonStyle(.plain)
                 .modifier(LocationGlassPill(enabled: glassPills, interactive: true))
                 .glassEffectID("location", in: locationGlass)
+                .glassEffectTransition(.matchedGeometry)
                 .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: location.sourceName)
                 .disabled(isOpening)
                 .help(glassText("Reveal in Finder") + (isLocal ? "" : "\n" + glassText("⌘-click to reconnect the share")))
