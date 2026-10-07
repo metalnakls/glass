@@ -54,7 +54,12 @@ def main():
         return
     while True:
         now = datetime.datetime.now(ZoneInfo('Europe/Moscow'))
-        if now.minute % 2 == 0 and now.minute not in (30, 50) and now.second <= 10:
+        if (
+            now.minute % 2 == 0
+            and now.minute not in (30, 50)
+            and (now.minute != 0 or now.hour % 2 == 0 or now.hour == 1)
+            and now.second <= 10
+        ):
             break
         time.sleep(1)
     # --only leaves unrelated staged and working-tree changes untouched.
