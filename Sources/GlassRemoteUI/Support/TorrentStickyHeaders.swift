@@ -162,6 +162,9 @@ final class TorrentStickyHeaders: NSObject {
     private let overlay = HeaderBackdrop()
     private var appearance = TorrentHeaderAppearance()
     private var updateScheduled = false
+    private var rowIDs: [String?] = []
+    private var lastPinned: [String: TorrentStickyHeaderGeometry.Placement] = [:]
+    private var heldPinned: [String: TorrentStickyHeaderGeometry.Placement]?
     func configureAppearance(_ appearance: TorrentHeaderAppearance) {
         self.appearance = appearance
         overlay.configure(appearance)
@@ -197,6 +200,8 @@ final class TorrentStickyHeaders: NSObject {
         overlay.removeFromSuperview()
         self.table = table
         structureCache = nil
+        heldPinned = nil
+        lastPinned = [:]
         table.floatsGroupRows = false
         // Inline titles move with the document in the native scroll transaction.
         // Pinned titles live in the stationary viewport; only pushing moves them.
@@ -209,6 +214,8 @@ final class TorrentStickyHeaders: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: scroll.contentView)
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: table)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.didLiveScrollNotification, object: scroll)
         scheduleUpdate()
     }
 
@@ -221,6 +228,8 @@ final class TorrentStickyHeaders: NSObject {
     }
 
     func configure(_ layout: TorrentListLayout, lowercase: Bool, inset: CGFloat) {
+        if !rowIDs.isEmpty, rowIDs != layout.nativeRowIDs, heldPinned == nil { heldPinned = lastPinned }
+        rowIDs = layout.nativeRowIDs
         let sections = layout.titledSections(lowercase: lowercase)
         let removed = Set(headers.keys).subtracting(sections.map(\.id))
         for id in removed {
@@ -233,6 +242,7 @@ final class TorrentStickyHeaders: NSObject {
         for header in headers.values { _ = titleHost(id: header.id, title: header.title, inset: header.inset) }
         scheduleUpdate()
     }
+    @objc private func resumeScroll() { heldPinned = nil; update() }
     private func scheduleUpdate() {
         guard !updateScheduled else { return }
         updateScheduled = true
@@ -253,11 +263,12 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        // Pinning follows logical top-level items, never expanded child rows.
-        // Release follows the next section boundary, not a child-row offset.
+        if NSApp.currentEvent?.type == .scrollWheel || NSApp.currentEvent?.type == .keyDown { heldPinned = nil }
+        // Begin retiring as the final two displayed rows approach the title.
         let releasePoints = ordered.enumerated().map { offset, header -> CGFloat in
             let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            let boundary = endIndex < table.numberOfRows ? table.rect(ofRow: endIndex).minY : table.bounds.maxY
+            let releaseIndex = max(header.index + 1, endIndex - 2)
+            let boundary = releaseIndex < table.numberOfRows ? table.rect(ofRow: releaseIndex).minY : table.bounds.maxY
             return boundary - appearance.pushLead
         }
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
@@ -269,7 +280,17 @@ final class TorrentStickyHeaders: NSObject {
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []
         let releases = structureCache?.releases ?? []
-        let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
+        var sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
+        if let heldPinned {
+            let titles = ordered.enumerated().compactMap { index, header -> TorrentStickyHeaderGeometry.Placement? in
+                guard let title = heldPinned[header.id] else { return nil }
+                var frame = title.frame
+                frame.size.width = frames[index].width
+                return .init(index: index, frame: frame, pinned: title.pinned, retiring: title.retiring, exitProgress: title.exitProgress)
+            }
+            sticky = titles.isEmpty ? nil : .init(titles: titles, backdropHeight: 20 + (titles.first?.frame.height ?? 0) + appearance.reach)
+        }
+        lastPinned = Dictionary(uniqueKeysWithValues: (sticky?.titles ?? []).filter(\.pinned).map { (ordered[$0.index].id, $0) })
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
         if overlay.frame != table.bounds { overlay.frame = table.bounds }
         overlay.attachViewport(to: scroll)
@@ -381,6 +402,15 @@ final class HeaderBackdrop: NSView {
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
             fadeMask.frame = effect.bounds
+        }
+        // The document owns inline titles. End the retiring title's backdrop
+        // before an incoming inline title reaches it, so that title never
+        // crosses under a viewport layer and then pops above it when pinned.
+        if let incoming = layout.titles.filter({ !$0.pinned }).map(\.frame.minY).min() {
+            let clearBelow = max(0, incoming - 8)
+            effect.frame.size.height = min(effectHeight, clearBelow)
+            fadeMask.frame = effect.bounds
+            backdropSize = effect.bounds.size
         }
         CATransaction.commit()
         let visible = Set(layout.titles.map { headers[$0.index].id })
