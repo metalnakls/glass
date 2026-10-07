@@ -424,8 +424,11 @@ final class HeaderBackdrop: NSView {
         for placement in layout.titles {
             let header = headers[placement.index]
             guard let host = hosts[header.id] else { continue }
-            let parent: NSView = placement.pinned ? pinnedSurface : self
-            let frame = placement.pinned ? placement.frame
+            // In the SwiftUI overlay, inline and pinned titles share one plane
+            // above the native blur. Pinning never changes their compositing.
+            let inViewport = externallyHosted || placement.pinned
+            let parent: NSView = inViewport ? pinnedSurface : self
+            let frame = inViewport ? placement.frame
                 : placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -519,20 +522,18 @@ final class TitleHost: NSView {
     }
 }
 
-/// The existing AppKit title hosts are content of the native safe-area bar.
-/// SwiftUI can therefore blur the scrolling rows beneath their actual position.
+/// Reserve the native scroll-edge effect without painting a background.
 struct TorrentPinnedHeaderBar: View {
-    let controller: TorrentStickyHeaders
     var body: some View {
         StickyTitleLabel(title: " ", inset: 0)
             .hidden()
-            .overlay { TorrentPinnedHeaderSurface(controller: controller) }
             .allowsHitTesting(false)
             .accessibilityHidden(true)
     }
 }
 
-private struct TorrentPinnedHeaderSurface: NSViewRepresentable {
+/// All titles stay above the blur through inline, pin and push states.
+struct TorrentHeaderSurface: NSViewRepresentable {
     let controller: TorrentStickyHeaders
     func makeNSView(context: Context) -> NSView { controller.barSurface }
     func updateNSView(_ view: NSView, context: Context) {}

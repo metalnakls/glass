@@ -177,6 +177,22 @@ struct TorrentStickyHeaderTests {
         #expect(short.titles[0].frame.minY == frames[1].minY - 60)
     }
 
+    @MainActor @Test("inline and pinned titles keep the same surface above native blur")
+    func unifiedHeaderSurface() {
+        let backdrop = HeaderBackdrop(frame: viewport(0))
+        backdrop.externallyHosted = true
+        let host = TitleHost(title: "Loading", inset: 8)
+        let headers = [TorrentStickyHeaders.Header(id: "loading", title: "Loading", index: 0, inset: 8)]
+        for pinned in [false, true, false] {
+            let frame = CGRect(x: 8, y: pinned ? -12 : 24, width: 480, height: 48)
+            backdrop.present(layout: .init(titles: [.init(index: 0, frame: frame, pinned: pinned)], backdropHeight: 48),
+                             headers: headers, hosts: ["loading": host], viewport: viewport(100))
+            #expect(host.superview === backdrop.pinnedSurface)
+            #expect(host.frame == frame)
+            #expect(host.alphaValue == 1)
+        }
+    }
+
     @MainActor @Test("title updates keep their native height and full opacity")
     func stableHeaderHeight() {
         let host = TitleHost(title: "Completed", inset: 40)

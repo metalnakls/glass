@@ -238,10 +238,14 @@ struct TorrentListView: View {
                     value: proxy.size.width
                 )
             })
-            .environment(\.defaultMinListRowHeight, listRowHeight)
+            .environment(\.defaultMinListRowHeight, 0)
             .focusEffectDisabled()
-            .safeAreaBar(edge: .top, spacing: 0) { TorrentPinnedHeaderBar(controller: stickyHeaders) }
+            // Titles already own their Tune-controlled row spacing. The native
+            // blur bar must not add another header-height gap above that row.
+            .ignoresSafeArea(.container, edges: .top)
+            .safeAreaBar(edge: .top, spacing: 0) { TorrentPinnedHeaderBar() }
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .overlay { TorrentHeaderSurface(controller: stickyHeaders).allowsHitTesting(false).accessibilityHidden(true) }
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
