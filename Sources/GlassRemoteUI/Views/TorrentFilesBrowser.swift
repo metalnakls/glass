@@ -12,6 +12,7 @@ struct TorrentFilesBrowser: View {
     var onFileAction: ((TorrentFileTreeRow, TorrentFileActions.Action) -> Void)?
     var showsControls = true
     var isCompact = false
+    var showsCompletion = true
     var shortEpisodeNames = false
     var thumbnailInput: ((TorrentFileBrowserEntry) -> TorrentThumbnailInput?)?
     var stagesChanges = false
@@ -125,11 +126,13 @@ struct TorrentFilesBrowser: View {
                         Group {
                             if isCompact {
                                 HStack(alignment: .center, spacing: layout.metadataGap) {
+                                    if showsCompletion {
                                     Text("100%").hidden().overlay(alignment: .trailing) {
                                       if !completed && row.indices.allSatisfy({ byIndex[$0].map(wanted) ?? false }) {
                                         Text(formatPercent(progress(row, byIndex: byIndex)))
                                             .foregroundStyle(.secondary)
                                       }
+                                    }
                                     }
                                     Text(widestSize).textCase(nil).hidden().overlay(alignment: .trailing) {
                                         Text(formatBytes(row.size)).textCase(nil)
@@ -138,8 +141,10 @@ struct TorrentFilesBrowser: View {
                             } else {
                                 VStack(alignment: .trailing, spacing: 2) {
                                     Text(formatBytes(row.size)).textCase(nil)
+                                    if showsCompletion {
                                     Text(formatPercent(progress(row, byIndex: byIndex)))
                                         .foregroundStyle(.secondary)
+                                    }
                                 }
                             }
                         }
@@ -442,6 +447,7 @@ struct TorrentFilesBrowserControls: View {
     @Binding var searchText: String
     let onSetAllWanted: (Bool) -> Void
     var isCompact = false
+    var showsCompletion = true
     var body: some View {
         TextField(glassText("Search Files"), text: $searchText)
             .textFieldStyle(.roundedBorder).controlSize(.small)

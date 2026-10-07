@@ -455,7 +455,7 @@ private struct TorrentBatchGroupEditor: View {
                             onSetWanted: { item.setFileWanted($0, $1) },
                             onSetPriority: { item.filePriorities[$0] = $1 },
                             onSetAllWanted: { item.setAllFilesWanted($0) },
-                            showsControls: false, isCompact: true, shortEpisodeNames: true, showsActionBar: false
+                            showsControls: false, isCompact: true, showsCompletion: false, shortEpisodeNames: true, showsActionBar: false
                         )
                         .disabled(item.wasAdded)
                     }
