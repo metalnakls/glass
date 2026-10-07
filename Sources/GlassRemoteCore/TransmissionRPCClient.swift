@@ -248,9 +248,11 @@ public actor TransmissionRPCClient {
         base64Metainfo: String,
         torrentName: String? = nil,
         downloadDirectory: String?,
-        fileSelection: TorrentAddFileSelection? = nil
+        fileSelection: TorrentAddFileSelection? = nil,
+        startPaused: Bool = false
     ) async throws -> TorrentAddResult? {
         var args: [String: JSONValue] = ["metainfo": .string(base64Metainfo)]
+        args["paused"] = .bool(startPaused)
         if let downloadDirectory, !downloadDirectory.isEmpty {
             args["download-dir"] = .string(downloadDirectory)
         }
@@ -285,6 +287,11 @@ public actor TransmissionRPCClient {
             downloadDirectory: downloadDirectory,
             fileSelection: fileSelection
         )
+    }
+
+    public func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        try await addTorrentFile(base64Metainfo: data.base64EncodedString(), torrentName: torrentName,
+            downloadDirectory: downloadDirectory, fileSelection: fileSelection, startPaused: startPaused)
     }
 
     public func start(ids: [String]) async throws {

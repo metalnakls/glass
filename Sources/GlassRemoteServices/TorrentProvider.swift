@@ -23,6 +23,7 @@ public protocol TransmissionRPCServicing: Sendable {
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult?
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -40,6 +41,12 @@ public protocol TransmissionRPCServicing: Sendable {
 }
 
 public extension TransmissionRPCServicing {
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+        if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }
+        return result
+    }
+
     func fetchTorrentDetails(hashStrings: [String], including sections: Set<TorrentDetailSection>) async throws -> [TorrentDetails] {
         var result: [TorrentDetails] = []
         for hash in hashStrings {
@@ -151,6 +158,7 @@ public protocol TorrentProvider: Sendable {
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult?
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -169,6 +177,12 @@ public protocol TorrentProvider: Sendable {
 }
 
 public extension TorrentProvider {
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+        if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }
+        return result
+    }
+
     func setQueuePosition(ids: [String], position: Int) async throws {
         try await queueMoveTop(ids: ids)
         for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
@@ -208,6 +222,7 @@ public protocol LocalTransmissionServicing: Sendable {
         downloadDirectory: String?,
         fileSelection: TorrentAddFileSelection?
     ) async throws -> TorrentAddResult?
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult?
     func start(ids: [String]) async throws
     func stop(ids: [String]) async throws
     func remove(ids: [String], deleteLocalData: Bool) async throws
@@ -226,6 +241,12 @@ public protocol LocalTransmissionServicing: Sendable {
 }
 
 public extension LocalTransmissionServicing {
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
+        if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }
+        return result
+    }
+
     func setQueuePosition(ids: [String], position: Int) async throws {
         try await queueMoveTop(ids: ids)
         for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
@@ -420,6 +441,10 @@ public actor RemoteTorrentProvider: TorrentProvider {
         )
     }
 
+    public func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        try await client.addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection, startPaused: startPaused)
+    }
+
     public func start(ids: [String]) async throws {
         try await client.start(ids: ids)
     }
@@ -572,6 +597,10 @@ public actor LocalTorrentProvider: TorrentProvider {
             downloadDirectory: downloadDirectory,
             fileSelection: fileSelection
         )
+    }
+
+    public func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
+        try await session.addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection, startPaused: startPaused)
     }
 
     public func start(ids: [String]) async throws {

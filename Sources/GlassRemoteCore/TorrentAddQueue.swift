@@ -27,6 +27,7 @@ public struct TorrentAddQueueEntry: Codable, Sendable {
     public var namingComplete = false
     public var renameDuplicateRoot = false
     public var existedBeforeSubmission = false
+    public var startPaused: Bool?
 
     public init(id: UUID, sourceID: UUID, name: String, size: UInt64, fileCount: Int,
                 data: Data? = nil, magnet: String? = nil, downloadDirectory: String?,

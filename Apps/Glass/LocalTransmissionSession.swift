@@ -89,15 +89,20 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         )
     }
 
+    func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws -> TorrentAddResult? {
+        try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection, startPaused: false)
+    }
+
     func addTorrentFile(
         data: Data,
         torrentName: String?,
         downloadDirectory: String?,
-        fileSelection: TorrentAddFileSelection?
+        fileSelection: TorrentAddFileSelection?,
+        startPaused: Bool
     ) async throws -> TorrentAddResult? {
         let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
         try validateDownloadDirectory(downloadDirectory)
-        try ensureBridge().addTorrentData(data, downloadDirectory: downloadDirectory)
+        try ensureBridge().addTorrentData(data, downloadDirectory: downloadDirectory, startPaused: startPaused)
         let snapshot = try await fetchSnapshot()
         guard let addedTorrent = snapshot.torrents.first(where: { !existingTorrentHashes.contains($0.hashString) }) else {
             return nil

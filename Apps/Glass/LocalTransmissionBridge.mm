@@ -216,14 +216,21 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 {
     return [self addWithConfigure:^(tr_ctor *ctor) {
         return tr_ctorSetMetainfoFromMagnetLink(ctor, magnet.UTF8String);
-    } downloadDirectory:downloadDirectory error:error];
+    } downloadDirectory:downloadDirectory startPaused:NO error:error];
 }
 
 - (BOOL)addTorrentData:(NSData *)data downloadDirectory:(nullable NSString *)downloadDirectory error:(NSError **)error
 {
     return [self addWithConfigure:^(tr_ctor *ctor) {
         return tr_ctorSetMetainfo(ctor, static_cast<char const *>(data.bytes), data.length, nullptr);
-    } downloadDirectory:downloadDirectory error:error];
+    } downloadDirectory:downloadDirectory startPaused:NO error:error];
+}
+
+- (BOOL)addTorrentData:(NSData *)data downloadDirectory:(nullable NSString *)downloadDirectory startPaused:(BOOL)startPaused error:(NSError **)error
+{
+    return [self addWithConfigure:^(tr_ctor *ctor) {
+        return tr_ctorSetMetainfo(ctor, static_cast<char const *>(data.bytes), data.length, nullptr);
+    } downloadDirectory:downloadDirectory startPaused:startPaused error:error];
 }
 
 - (BOOL)startTorrents:(NSArray<NSString *> *)hashes error:(NSError **)error
@@ -344,13 +351,14 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 
 - (BOOL)addWithConfigure:(bool (^)(tr_ctor *ctor))configure
        downloadDirectory:(nullable NSString *)downloadDirectory
+             startPaused:(BOOL)startPaused
                    error:(NSError **)error
 {
     if (![self ensureSession:error]) {
         return NO;
     }
     tr_ctor *ctor = tr_ctorNew(self.session);
-    tr_ctorSetPaused(ctor, TR_FORCE, false);
+    tr_ctorSetPaused(ctor, TR_FORCE, startPaused);
     if (downloadDirectory.length > 0) {
         tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDirectory.UTF8String);
     }

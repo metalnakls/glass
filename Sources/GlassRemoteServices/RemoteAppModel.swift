@@ -142,13 +142,14 @@ public final class RemoteAppModel {
                                       namingPlan: TorrentAddNamingPlan?, data: Data? = nil,
                                       fileSelection: TorrentAddFileSelection? = nil,
                                       sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
-                                      renameDuplicateRoot: Bool = false) -> Bool {
+                                      renameDuplicateRoot: Bool = false, startPaused: Bool = false) -> Bool {
         guard !pendingAdditions.contains(where: { $0.id == id }) else { return true }
         var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: size,
             fileCount: fileCount, data: data, downloadDirectory: downloadDirectory,
             fileSelection: fileSelection, namingPlan: namingPlan, sourceURL: sourceURL,
             trashSourceOnSuccess: trashSourceOnSuccess)
         entry.renameDuplicateRoot = renameDuplicateRoot
+        entry.startPaused = startPaused
         let expectedHashes = entry.expectedHashes
         entry.existedBeforeSubmission = sourceState(for: sourceID).records.contains {
             expectedHashes.contains($0.hashString.lowercased())
@@ -748,7 +749,7 @@ public final class RemoteAppModel {
                 let result: TorrentAddResult?
                 if let data = entry.data {
                     result = try await provider.addTorrentFile(data: data, torrentName: nil,
-                        downloadDirectory: entry.downloadDirectory, fileSelection: entry.fileSelection)
+                        downloadDirectory: entry.downloadDirectory, fileSelection: entry.fileSelection, startPaused: entry.startPaused ?? false)
                 } else if let magnet = entry.magnet {
                     result = try await provider.addMagnet(magnet, downloadDirectory: entry.downloadDirectory)
                 } else {
