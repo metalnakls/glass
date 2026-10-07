@@ -158,14 +158,14 @@ struct TorrentFilesBrowser: View {
                     .simultaneousGesture(TapGesture().onEnded {
                         if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
                     })
-                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
-                            Image(nsImage: FilePriorityGlyph.image(high: true)).foregroundStyle(.yellow)
+                            Image(nsImage: FilePriorityGlyph.swipeImage(high: true)).renderingMode(.original)
                         }.tint(.yellow).accessibilityLabel("Raise priority").help("Raise priority")
                     }
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: false) } label: {
-                            Image(nsImage: FilePriorityGlyph.image(high: false)).foregroundStyle(.secondary)
+                            Image(nsImage: FilePriorityGlyph.swipeImage(high: false)).renderingMode(.original)
                         }.tint(.gray).accessibilityLabel("Lower priority").help("Lower priority")
                     }
                     .tag(row.id)

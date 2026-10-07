@@ -26,8 +26,23 @@ struct FilePriorityIcon: NSViewRepresentable {
 enum FilePriorityGlyph {
     private static let star = render(high: true)
     private static let frown = render(high: false)
+    private static let swipeStar = swipeRender(high: true)
+    private static let swipeFrown = swipeRender(high: false)
 
     static func image(high: Bool) -> NSImage { high ? star : frown }
+    static func swipeImage(high: Bool) -> NSImage { high ? swipeStar : swipeFrown }
+
+    private static func swipeRender(high: Bool) -> NSImage {
+        let source = image(high: high)
+        let image = NSImage(size: source.size, flipped: false) { rect in
+            source.draw(in: rect)
+            NSColor.black.setFill()
+            rect.fill(using: .sourceIn)
+            return true
+        }
+        image.isTemplate = false
+        return image
+    }
 
     private static func render(high: Bool) -> NSImage {
         let scale = 4.0
