@@ -74,10 +74,17 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
+            .overlay(alignment: .bottom) {
+                if usesTestModel {
+                    TorrentTestActions(session: testSession)
+                        .padding(.horizontal, 16).padding(.bottom, 16)
+                }
+            }
             }
             }
         }
         .animation(accessibilityReduceMotion ? nil : .smooth(duration: 0.25), value: tuneOnLeft)
+        .environment(\.glassSampleArtwork, usesTestModel)
         .environment(\.locale, GlassFormatting.shared.locale)
         .inspector(isPresented: inspectorPresentation) {
             let showsTune = GlassTuningMode.isEnabled && tuningPresentation.wrappedValue
@@ -202,7 +209,7 @@ public struct GlassRootView: View {
             }
         }
         .task { GlassBackgroundService.offerIfNeeded() }
-        .task(id: TorrentAutoRefreshInput(profiles: model.profiles, isActive: model.isApplicationActive)) {
+        .task(id: TorrentAutoRefreshInput(modelID: ObjectIdentifier(model), profiles: model.profiles, isActive: model.isApplicationActive)) {
             await model.runAutoRefresh()
         }
         .onChange(of: tuningPresentation.wrappedValue) { _, presented in
@@ -355,7 +362,7 @@ public struct GlassRootView: View {
     }
 
     private func persistSelectedSourceID() {
-        guard !isTestWorkspace else { return }
+        guard !isTestWorkspace, !usesTestModel else { return }
         storedSelectedSourceID = model.selectedSourceID.uuidString
     }
 
@@ -683,6 +690,7 @@ private struct TorrentListContent: View {
 }
 
 private struct TorrentAutoRefreshInput: Equatable {
+    let modelID: ObjectIdentifier
     let profiles: [RemoteProfile]
     let isActive: Bool
 }
