@@ -6,10 +6,9 @@ struct TransientStatusText: View {
     let message: String?
     var body: some View {
         BlurReplacementContent(identity: message ?? text) {
-            Text(glassText(message ?? text))
+            Text(message.map(glassText) ?? text).textCase(nil)
         }
         .foregroundStyle(message == nil ? Color.primary : Color.secondary)
-        .glassTextStyle()
     }
     static let displayDuration: Duration = .seconds(3)
 }

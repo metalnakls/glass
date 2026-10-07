@@ -47,6 +47,8 @@ struct TorrentDownloadLocationView: View {
     @State private var feedbackID: UUID?
     @State private var feedback: String?
     @State private var isOpening = false
+    @Namespace private var locationGlass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -80,8 +82,10 @@ struct TorrentDownloadLocationView: View {
                 }
                 .buttonStyle(.plain)
                 .modifier(LocationGlassPill(enabled: glassPills, interactive: true))
+                .glassEffectID("location", in: locationGlass)
+                .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: location.sourceName)
                 .disabled(isOpening)
-                .help(isLocal ? directory : "\(serverName): \(directory)\nClick to open the share; ⌘-click to reconnect it.")
+                .help(glassText("Reveal in Finder") + (isLocal ? "" : "\n" + glassText("⌘-click to reconnect the share")))
                 .accessibilityLabel(location.sourceName)
 
             } else {
