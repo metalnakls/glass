@@ -23,7 +23,6 @@ struct TorrentFilesBrowser: View {
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeHighlight = false
     @AppearanceStorage("GlassInspector.fileSideInset") private var fileSideInset = 18.0
-    @Environment(\.glassChromeInsets) private var chromeInsets
     @State private var collapsed = Set<String>()
     @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
@@ -155,6 +154,7 @@ struct TorrentFilesBrowser: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                     .frame(minHeight: layout.contentHeight)
+                    .padding(.horizontal)
                     .background {
                         if isCompact && !nativeHighlight && nativeSelection.contains(row.id) {
                             let above = previousRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
@@ -231,8 +231,6 @@ struct TorrentFilesBrowser: View {
             }
             .listStyle(.plain)
             .contentMargins(.horizontal, nil, for: .scrollContent)
-            .contentMargins(.top, scrolls ? chromeInsets.top : 0, for: .scrollContent)
-            .contentMargins(.bottom, scrolls ? chromeInsets.bottom : 0, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .all)
             .scrollContentBackground(.hidden)
             .scrollDisabled(!scrolls)

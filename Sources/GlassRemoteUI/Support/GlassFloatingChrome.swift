@@ -11,33 +11,19 @@ struct GlassFloatingDock<Content: View>: View {
     }
 }
 
-private struct GlassChromeInsetsKey: EnvironmentKey {
-    static let defaultValue = EdgeInsets()
-}
-
-extension EnvironmentValues {
-    var glassChromeInsets: EdgeInsets {
-        get { self[GlassChromeInsetsKey.self] }
-        set { self[GlassChromeInsetsKey.self] = newValue }
-    }
-}
-
+/// Native bars reserve content space and extend the scroll edge effect beneath
+/// floating controls. Only the individual controls own a background or hit target.
 private struct GlassFloatingChrome<Top: View, Bottom: View>: ViewModifier {
     @ViewBuilder var top: () -> Top
     @ViewBuilder var bottom: () -> Bottom
-    @State private var topHeight: CGFloat = 0
-    @State private var bottomHeight: CGFloat = 0
 
     func body(content: Content) -> some View {
         content
-            .environment(\.glassChromeInsets, EdgeInsets(top: topHeight, leading: 0, bottom: bottomHeight, trailing: 0))
-            .overlay(alignment: .top) {
+            .safeAreaBar(edge: .top, spacing: 0) {
                 GlassFloatingDock(content: top)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { topHeight = $0 }
             }
-            .overlay(alignment: .bottom) {
+            .safeAreaBar(edge: .bottom, spacing: 0) {
                 GlassFloatingDock(content: bottom)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { bottomHeight = $0 }
             }
     }
 }
@@ -75,11 +61,8 @@ enum GlassModalMetrics {
 /// Scroll content passes under floating controls; indicators retain their native frame.
 struct GlassChromeScrollView<Content: View>: View {
     @ViewBuilder var content: () -> Content
-    @Environment(\.glassChromeInsets) private var chromeInsets
     var body: some View {
         ScrollView { content() }
-            .contentMargins(.top, chromeInsets.top, for: .scrollContent)
-            .contentMargins(.bottom, chromeInsets.bottom, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .all)
     }
 }
