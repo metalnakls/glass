@@ -100,8 +100,10 @@ private actor GlassBackgroundWorker {
         guard descriptor >= 0 else { return }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
             eventMask: [.write, .rename, .delete], queue: .global(qos: .utility))
-        source.setEventHandler { Task { await self.scheduleScan() } }
-        source.setCancelHandler { close(descriptor) }
+        source.setEventHandler { @Sendable [weak self] in
+            Task { await self?.scheduleScan() }
+        }
+        source.setCancelHandler { @Sendable in close(descriptor) }
         directorySource = source
         source.resume()
     }
@@ -129,7 +131,6 @@ private actor GlassBackgroundWorker {
                   let modified = values.contentModificationDate, fingerprints[url.path] != modified else { continue }
             // Ignore files still being written; their next directory event schedules another pass.
             guard modified.timeIntervalSinceNow < -1 else { scheduleScan(); continue }
-            fingerprints[url.path] = modified
             guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
             let contents = try? handle.read(upToCount: 8 * 1_024 * 1_024 + 1)
             try? handle.close()
@@ -153,6 +154,8 @@ private actor GlassBackgroundWorker {
                 values.hasHiddenExtension = true
                 var mutableTarget = target
                 try mutableTarget.setResourceValues(values)
+                fingerprints[target.path] = modified
+                present.insert(target.path)
                 await MainActor.run {
                     let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
                     NSWorkspace.shared.setIcon(icon, forFile: target.path, options: [])
