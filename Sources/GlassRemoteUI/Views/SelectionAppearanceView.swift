@@ -20,6 +20,8 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeInspectorHighlight = false
     @AppearanceStorage("GlassInspector.fileSideInset") private var inspectorSideInset = 18.0
     @AppearanceStorage("GlassAdd.showIcon") private var addIcon = true
+    @AppearanceStorage("GlassAdd.titleTopPadding") private var addTitleTopPadding = 20.0
+    @AppearanceStorage("GlassAdd.titleLeftPadding") private var addTitleLeftPadding = 20.0
     @AppearanceStorage("GlassAdd.locationColumns") private var locationColumns = 3
     @AppearanceStorage("GlassAdd.recentLocations") private var recentLocations = 4
     @AppearanceStorage("GlassHaptics.enabled") private var hapticsEnabled = true
@@ -249,6 +251,8 @@ public struct SelectionAppearanceView: View {
             }
         case .add:
             Toggle(glassText("Torrent icon"), isOn: $addIcon)
+            shadowSlider("Title top padding", value: $addTitleTopPadding, range: 0...80)
+            shadowSlider("Title left padding", value: $addTitleLeftPadding, range: 0...80)
             Stepper(glassText("Location icons per row: \(locationColumns)"), value: $locationColumns, in: 1...6)
             Stepper(glassText("Recent folders: \(recentLocations)"), value: $recentLocations, in: 0...12)
         case .haptics:

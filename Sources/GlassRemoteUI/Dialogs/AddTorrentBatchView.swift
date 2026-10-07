@@ -36,6 +36,8 @@ struct AddTorrentBatchView: View {
     @State private var searchPresented = false
     @State private var namingReady = false
     @AppearanceStorage("GlassAdd.showIcon") private var showsTitleIcon = true
+    @AppearanceStorage("GlassAdd.titleTopPadding") private var titleTopPadding = 20.0
+    @AppearanceStorage("GlassAdd.titleLeftPadding") private var titleLeftPadding = 20.0
     @State private var disableSmartNamesForAdd = false
     @State private var isAdding = false
     @State private var addErrorMessage: String?
@@ -80,24 +82,38 @@ struct AddTorrentBatchView: View {
     var body: some View {
         VStack(spacing: 18) {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                HStack(spacing: 14) {
-                    if showsTitleIcon {
-                        addTitleIcon(group)
-                            .accessibilityHidden(true)
+                GeometryReader { geometry in
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 14) {
+                            if showsTitleIcon {
+                                addTitleIcon(group).accessibilityHidden(true)
+                            }
+                            TextField(glassText("Torrent name"), text: titleBinding(for: group))
+                                .font(.title.weight(.bold)).textFieldStyle(.plain)
+                                .frame(width: titleWidth(for: group, available: geometry.size.width))
+                                .disabled(isAdding || optionHeld)
+                        }.frame(minHeight: 44)
                     }
-                    TextField(glassText("Torrent name"), text: titleBinding(for: group))
-                        .font(.title.weight(.bold)).textFieldStyle(.plain)
-                        .disabled(isAdding || optionHeld)
+                    .scrollIndicators(.hidden)
+                }
+                .frame(height: 44)
+                .padding(.leading, titleLeftPadding)
+                .padding(.trailing, 20)
+                .padding(.top, titleTopPadding)
+                .overlay(alignment: .topTrailing) {
                     TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
                         sourceID: $sourceID, directory: $downloadDirectory,
                         defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
                         isDisabled: isAdding)
+                        .padding(.top, 20).padding(.trailing, 20)
                 }
+                .zIndex(10)
                 TorrentBatchGroupEditor(group: group, items: items,
                     groupName: groupNameBinding(for: group),
                     smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
                         set: { smartNamesByGroupID[group.id] = $0 }),
                     isAdding: isAdding, fileSearchText: $fileSearchText)
+                    .padding(.horizontal, 20)
                     .id(group.id)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)))
@@ -107,8 +123,7 @@ struct AddTorrentBatchView: View {
                     .foregroundStyle(.red).textSelection(.enabled)
             }
         }
-        .padding(20)
-        .padding(.bottom, 62)
+        .padding(.bottom, 82)
         .background {
             if groups.count > 1 {
                 ForEach(1...min(3, groups.count - 1), id: \.self) { depth in
@@ -124,6 +139,11 @@ struct AddTorrentBatchView: View {
         .overlay(alignment: .bottom) {
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .modifier(InspectorGlassPill(interactive: true, iconOnly: true))
+                    }.buttonStyle(.plain).disabled(isAdding)
+                        .accessibilityLabel(glassText("Cancel"))
                     if hasMultipleFiles {
                         GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, expandedWidth: 220)
                     }
@@ -145,7 +165,15 @@ struct AddTorrentBatchView: View {
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
         .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismiss() } }
         .task { await prepareNames() }
-        .frame(width: 640, height: 500)
+        .frame(width: 640, height: 580)
+    }
+
+    private func titleWidth(for group: TorrentBatchGroup, available: CGFloat) -> CGFloat {
+        let title = titleBinding(for: group).wrappedValue
+        let measured = (title as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .title1).pointSize, weight: .bold)
+        ]).width + 24
+        return max(max(0, available - (showsTitleIcon ? 60 : 0)), measured)
     }
 
     private func addTitleIcon(_ group: TorrentBatchGroup) -> some View {
