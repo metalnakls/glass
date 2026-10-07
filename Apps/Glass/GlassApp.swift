@@ -54,7 +54,6 @@ struct GlassApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             GlassCommands(updaterController: updaterController)
-            InspectorCommands()
         }
 
     }
@@ -107,42 +106,45 @@ private struct GlassCommands: Commands {
     @FocusedValue(\.glassTuningPresented) private var tuningPresented
     @FocusedValue(\.glassCommandActions) private var actions
     @FocusedValue(\.glassInspectorSearchPresented) private var inspectorSearchPresented
+    @FocusedValue(\.glassMainListSearchPresented) private var mainListSearchPresented
+    @FocusedValue(\.glassSearchDestination) private var searchDestination
     @FocusedValue(\.glassInspectorSelectAll) private var inspectorSelectAll
     @FocusedValue(\.glassInspectorFileFilterFocused) private var isInspectorFileFilterFocused
 
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
-            if GlassTuningMode.isEnabled {
-                Toggle(glassText("Tune"), isOn: tuningPresented ?? .constant(false))
+            #if DEBUG
+            Menu(glassText("Tune")) {
+                Toggle(glassText("Enabled"), isOn: tuningPresented ?? .constant(false))
                     .keyboardShortcut(",", modifiers: .command)
                     .disabled(tuningPresented == nil)
+                Button(glassText("Test Torrents…")) { TorrentTestWindow.show() }
+                    .keyboardShortcut(",", modifiers: [.command, .shift])
             }
+            #endif
         }
-        CommandGroup(replacing: .appInfo) {
-            Button(glassText("Update Appearance")) { Task { await GlassTuningUpdates.shared.refresh(force: true) } }
+        CommandGroup(after: .appInfo) {
             if let updaterController {
-                Button(glassText("Check for Updates...")) {
+                Button(glassText("Check for Updates…")) {
                     updaterController.updater.checkForUpdates()
                 }
             }
         }
 
         CommandGroup(after: .toolbar) {
-            Button(glassText("Icon View")) { grid = true }.keyboardShortcut("1", modifiers: .command)
-                .disabled(!enableIconView)
-            Button(glassText("List View")) { grid = false }.keyboardShortcut("2", modifiers: .command)
-            Divider()
-            Button(glassText("Make Smaller")) { density = max(enableCompactView ? 0 : 1, density - 1) }.keyboardShortcut("-", modifiers: .command)
-                .disabled(density <= (enableCompactView ? 0 : 1))
-            Button(glassText("Make Larger")) { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
-            Divider()
-            Toggle(glassText("Show Extensions"), isOn: $showExtensions)
-            if GlassTuningMode.isEnabled {
-                Divider()
-                Toggle(glassText("Tune"), isOn: tuningPresented ?? .constant(false)).disabled(tuningPresented == nil)
-                Button(glassText("Test Torrents…")) { TorrentTestWindow.show() }
-                    .keyboardShortcut(",", modifiers: [.command, .shift])
+            if enableIconView {
+                Button(glassText("Icon View")) { grid = true }.keyboardShortcut("1", modifiers: .command)
+                Button(glassText("List View")) { grid = false }.keyboardShortcut("2", modifiers: .command)
             }
+            if enableIconView || enableCompactView { Divider() }
+            if enableCompactView {
+                Button(glassText("Make Smaller")) { density = max(0, density - 1) }.keyboardShortcut("-", modifiers: .command)
+                    .disabled(density <= 0)
+                Button(glassText("Make Larger")) { density = min(2, density + 1) }.keyboardShortcut("+", modifiers: .command)
+                    .disabled(density >= 2)
+                Divider()
+            }
+            Toggle(glassText("Show Extensions"), isOn: $showExtensions)
         }
 
         CommandGroup(replacing: .newItem) {
@@ -164,12 +166,12 @@ private struct GlassCommands: Commands {
                 Button(glassText("Select All"), action: inspectorSelectAll)
                     .keyboardShortcut("a", modifiers: .command)
             }
-            Button(glassText("Find in Inspector")) { inspectorSearchPresented?.wrappedValue = true }
+            Button(glassText("Find"), action: openSearch)
                 .keyboardShortcut("f", modifiers: .command)
-                .disabled(inspectorSearchPresented == nil)
+                .disabled(!canOpenSearch)
         }
 
-        CommandGroup(after: .pasteboard) {
+        CommandGroup(after: .newItem) {
             Divider()
 
             Button(glassText("Paste Magnet Link")) {
@@ -178,14 +180,6 @@ private struct GlassCommands: Commands {
             }
             .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(actions == nil || Self.pasteboardMagnetLink == nil)
-        }
-
-        CommandMenu("Torrent") {
-            Button(glassText(actions?.isDownloadingFilterActive == true ? "Show All Torrents" : "Show Unfinished Torrents")) {
-                actions?.toggleDownloadingFilter()
-            }
-            .keyboardShortcut("d", modifiers: [.command])
-            .disabled(actions == nil)
 
             Divider()
 
@@ -200,6 +194,34 @@ private struct GlassCommands: Commands {
             }
             .keyboardShortcut(.delete, modifiers: [.command])
             .disabled(actions?.canRemoveSelectedTorrent != true || isInspectorFileFilterFocused == true)
+        }
+
+        CommandGroup(replacing: .help) { }
+    }
+
+    private var canOpenSearch: Bool {
+        switch searchDestination {
+        case .mainList:
+            mainListSearchPresented != nil
+        case .inspector:
+            inspectorSearchPresented != nil
+        case nil:
+            mainListSearchPresented != nil || inspectorSearchPresented != nil
+        }
+    }
+
+    private func openSearch() {
+        switch searchDestination {
+        case .inspector:
+            inspectorSearchPresented?.wrappedValue = true
+        case .mainList:
+            mainListSearchPresented?.wrappedValue = true
+        case nil:
+            if let mainListSearchPresented {
+                mainListSearchPresented.wrappedValue = true
+            } else {
+                inspectorSearchPresented?.wrappedValue = true
+            }
         }
     }
 
