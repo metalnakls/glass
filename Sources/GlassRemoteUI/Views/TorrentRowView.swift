@@ -447,8 +447,8 @@ struct TorrentRowView: View, Equatable {
         if additionPhase == .failed { return "Retry adding torrent" }
         if additionPhase == .queued { return "Queued torrent" }
         if isAdding { return "Adding torrent" }
-        if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
         if torrent.isCompleted { return "Finished" }
+        if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
         return torrent.canStopTransfer ? "Pause" : "Resume"
     }
 
