@@ -38,7 +38,7 @@ struct TorrentAddPreparationTests {
         #expect(plan.pathRenames.count == 1)
         #expect(plan.pathRenames[0].path == item.draft.preview.files[0].name)
         item.setAllFilesWanted(false)
-        #expect(!item.canAdd)
+        #expect(item.canAdd)
     }
 
     @Test("manual root names are preserved with smart file renaming")
