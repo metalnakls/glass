@@ -43,14 +43,22 @@ struct AddMagnetView: View {
         .padding(20)
         .frame(width: 540, height: 240)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            HStack {
-                Button(glassText("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
-                Spacer()
-                Button(glassText("Add")) { Task { await add() } }
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(normalizedMagnetLink(from: magnet) == nil || isAdding)
+            GlassEffectContainer(spacing: 12) {
+                HStack {
+                    Button(glassText("Cancel")) { dismiss() }
+                        .keyboardShortcut(.cancelAction)
+                        .disabled(isAdding)
+                        .buttonStyle(.plain)
+                        .modifier(InspectorGlassPill(interactive: true))
+                    Spacer()
+                    Button(glassText("Add")) { Task { await add() } }
+                        .keyboardShortcut(.defaultAction)
+                        .disabled(normalizedMagnetLink(from: magnet) == nil || isAdding)
+                        .buttonStyle(.plain)
+                        .modifier(InspectorGlassPill(interactive: true))
+                }
+                .padding(12)
             }
-            .controlSize(.large).padding(12).background(.ultraThinMaterial)
         }
     }
 

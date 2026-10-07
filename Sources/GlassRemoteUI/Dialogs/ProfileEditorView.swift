@@ -72,18 +72,24 @@ struct ProfileEditorView: View {
                 Button(glassText("Cancel")) {
                     dismiss()
                 }
+                .buttonStyle(.plain)
+                .modifier(InspectorGlassPill(interactive: true))
             }
             ToolbarItem(placement: .secondaryAction) {
                 Button(glassText("Test")) {
                     Task { await testConnection() }
                 }
                 .disabled(!canSave || isTesting)
+                .buttonStyle(.plain)
+                .modifier(InspectorGlassPill(interactive: true))
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button(glassText("Save")) {
                     Task { await save() }
                 }
                 .disabled(!canSave || isSaving)
+                .buttonStyle(.plain)
+                .modifier(InspectorGlassPill(interactive: true))
             }
         }
     }
