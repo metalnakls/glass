@@ -241,6 +241,31 @@ private struct TorrentInspectorContent: View {
     }
 
     var body: some View {
+        Group {
+            if let details = snapshot.details, snapshot.group == nil,
+               details.files.count == 1, let entry = fileEntries(for: details).first {
+                    TorrentSingleFilePreview(name: entry.displayName, size: entry.size, input: thumbnailInput(for: entry, details: details), onOpen: entry.isComplete ? {
+                        let row = TorrentFileTreeRow(id: entry.originalPath, name: entry.displayName, depth: 0, indices: [entry.index], size: entry.size, entry: entry)
+                        performFileAction(row, details: details, action: .open)
+                    } : nil)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                filesScrollView
+            }
+        }
+        .overlay(alignment: .topLeading) { topDock }
+        .overlay(alignment: .bottom) { bottomDock }
+        .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
+        .onChange(of: supportsSearch) { _, supported in
+            if !supported { searchPresented = false; fileSearchText = "" }
+        }
+        .onChange(of: searchPresented) { _, presented in
+            searchFocused = presented
+            if !presented { fileSearchText = "" }
+        }
+    }
+
+    private var filesScrollView: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if let group = snapshot.group {
@@ -268,11 +293,6 @@ private struct TorrentInspectorContent: View {
                         if let error = snapshot.filesError { detailErrorView(error) }
                         else { GlassActivityIndicator(label: "Loading files") }
                     }
-                } else if let details = snapshot.details, details.files.count == 1, let entry = fileEntries(for: details).first {
-                    TorrentSingleFilePreview(name: entry.displayName, size: entry.size, input: thumbnailInput(for: entry, details: details), onOpen: entry.isComplete ? {
-                        let row = TorrentFileTreeRow(id: entry.originalPath, name: entry.displayName, depth: 0, indices: [entry.index], size: entry.size, entry: entry)
-                        performFileAction(row, details: details, action: .open)
-                    } : nil)
                 } else if let details = snapshot.details {
                     if let error = snapshot.filesError, details.files.isEmpty { detailErrorView(error) }
                     else { filesBrowser(details, showsControls: false) }
@@ -283,18 +303,7 @@ private struct TorrentInspectorContent: View {
         }
         .contentMargins(.top, InspectorGlassPill.height + 34, for: .scrollContent)
         .contentMargins(.bottom, footerHeight, for: .scrollContent)
-        .scrollEdgeEffectStyle(.soft, for: .top)
-        .scrollEdgeEffectStyle(.soft, for: .bottom)
-        .overlay(alignment: .top) { topDock }
-        .overlay(alignment: .bottom) { bottomDock }
-        .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
-        .onChange(of: supportsSearch) { _, supported in
-            if !supported { searchPresented = false; fileSearchText = "" }
-        }
-        .onChange(of: searchPresented) { _, presented in
-            searchFocused = presented
-            if !presented { fileSearchText = "" }
-        }
+        .scrollEdgeEffectHidden()
     }
 
     private var topDock: some View {
@@ -313,17 +322,8 @@ private struct TorrentInspectorContent: View {
             }
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 18).padding(.bottom, 16)
-            .background { edgeFade(top: true).padding(.bottom, -24).allowsHitTesting(false) }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func edgeFade(top: Bool) -> some View {
-        Rectangle().fill(.ultraThinMaterial)
-            .mask(LinearGradient(stops: [
-                .init(color: .clear, location: 0),
-                .init(color: .black.opacity(0.55), location: 0.45),
-                .init(color: .black, location: 1)
-            ], startPoint: top ? .bottom : .top, endPoint: top ? .top : .bottom))
     }
 
     private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
@@ -357,7 +357,7 @@ private struct TorrentInspectorContent: View {
             .controlSize(.large)
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 22).padding(.bottom, 16)
-            .background { edgeFade(top: false).padding(.top, -24).allowsHitTesting(false) }
+
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: searchPresented)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasSelection)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
