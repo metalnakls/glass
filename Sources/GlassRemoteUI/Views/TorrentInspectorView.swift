@@ -384,7 +384,7 @@ private struct TorrentInspectorContent: View {
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 22).padding(.bottom, 16)
 
-            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: searchPresented)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: searchPresented)
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: editSession.hasSelection)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
             .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: allCompleted)

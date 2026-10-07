@@ -16,7 +16,7 @@ struct GlassSearchPill: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { focused = true; withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass") }
+            Button { focused = true; withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
                 .buttonStyle(.plain).accessibilityLabel(glassText(prompt))
             if expanded {
                 TextField(glassText(prompt), text: $text)
@@ -30,7 +30,6 @@ struct GlassSearchPill: View {
         .frame(width: expanded ? expandedWidth : nil)
         .frame(maxWidth: expanded && expandedWidth == nil ? .infinity : nil)
         .contentShape(Rectangle())
-        .onTapGesture { focused = true; isPresented = true }
         .modifier(InspectorGlassPill(interactive: true, iconOnly: !expanded))
         .glassEffectID(transitionID, in: transitionNamespace ?? glassNamespace)
         .glassEffectTransition(.matchedGeometry)
