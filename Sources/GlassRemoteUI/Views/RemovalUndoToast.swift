@@ -11,6 +11,7 @@ struct RemovalUndoToast: View {
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var countdownProgress = 1.0
     @State private var countdownTask: Task<Void, Never>?
+    @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @GestureState private var dragTranslation: CGFloat = 0
     @State private var trackpadTranslation: CGFloat = 0
 
@@ -57,8 +58,8 @@ struct RemovalUndoToast: View {
                         withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
                             if shouldDismiss {
                                 trackpadTranslation = offset
-                                NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
-                                dismiss()
+                                GlassHaptics.perform(.swipe)
+                                finishGesture(dismiss)
                             } else { trackpadTranslation = 0 }
                         }
                     } else {
@@ -75,11 +76,13 @@ struct RemovalUndoToast: View {
             .overlay(alignment: .bottomLeading) {
                 if !accessibilityReduceMotion {
                     GeometryReader { proxy in
-                        Rectangle()
-                            .fill(Color.accentColor.opacity(0.95))
-                            .frame(width: proxy.size.width, height: 2)
-                            .scaleEffect(x: max(0, countdownProgress), anchor: .leading)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                        HStack(spacing: 0) {
+                            Capsule().fill(Color.primary.opacity(0.9)).frame(width: 5, height: 7)
+                            Capsule().fill(Color.primary.opacity(0.9))
+                                .frame(width: max(0, (proxy.size.width - 32) * countdownProgress), height: 2)
+                        }
+                        .padding(.leading, 16).padding(.bottom, 3)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     }
                     .allowsHitTesting(false)
                 }
@@ -91,10 +94,10 @@ struct RemovalUndoToast: View {
         HStack(spacing: 10) {
             Image(systemName: iconName)
                 .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
                 .frame(width: 18)
 
-            Text(message)
+            Text(message).textCase(nil)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .frame(maxWidth: 320, alignment: .leading)
@@ -109,11 +112,11 @@ struct RemovalUndoToast: View {
 
     private var undoButton: some View {
         Button {
-            undo()
+            finishGesture(undo)
         } label: {
             Text(glassText("Undo"))
                 .fontWeight(.medium)
-                .foregroundStyle(.tint)
+                .foregroundStyle(.primary)
                 .padding(.horizontal, 2)
                 .padding(.vertical, 4)
         }
@@ -123,17 +126,19 @@ struct RemovalUndoToast: View {
 
     private var message: String {
         if removals.count == 1, let removal = removals.first {
-            return removal.deleteData ? "Deleted data for \(removal.torrent.name)" : "Removed \(removal.torrent.name)"
+            let title = showExtensions ? removal.torrent.name : TorrentExtensionPolicy.name(removal.torrent.name,
+                hiding: TorrentExtensionPolicy.hiddenExtension(paths: [removal.torrent.name]))
+            return "\(glassText(removal.deleteData ? "Deleted data for" : "Removed")) \(title)"
         }
 
         if removals.allSatisfy(\.deleteData) {
-            return "Deleted data for \(removals.count) torrents"
+            return glassText("Deleted data for \(removals.count) torrents")
         }
-        return "Removed \(removals.count) torrents"
+        return glassText("Removed \(removals.count) torrents")
     }
 
     private var iconName: String {
-        removals.contains { $0.deleteData } ? "trash.slash" : "trash"
+        TorrentRemovalStyle.symbol(deleteData: removals.contains { $0.deleteData })
     }
 
     private var dragOpacity: Double {
@@ -152,12 +157,21 @@ struct RemovalUndoToast: View {
             }
             .onEnded { value in
                 if shouldDismiss(with: value) {
-                    NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .now)
+                    GlassHaptics.perform(.swipe)
                     withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
-                        dismiss()
+                        finishGesture(dismiss)
                     }
                 }
             }
+    }
+
+    private func finishGesture(_ action: @escaping () -> Void) {
+        // Removing this toast in its own recognizer callback can deallocate
+        // SwiftUI's gesture source while AppKit is still hit testing it.
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(160))
+            action()
+        }
     }
 
     private func shouldDismiss(with value: DragGesture.Value) -> Bool {
