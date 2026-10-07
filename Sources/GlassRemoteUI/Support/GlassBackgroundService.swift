@@ -155,7 +155,8 @@ private actor GlassBackgroundWorker {
             let plan = TorrentNameCleaner.plan(rootName: preview.name, files: preview.files,
                 selectedFileIndices: Set(preview.files.indices))
             let title = plan?.season.map { "\($0.title) \($0.season)" } ?? plan?.rootName ?? preview.name
-            let safeTitle = String(title.replacingOccurrences(of: "/", with: "-")
+            let displayTitle = TorrentExtensionPolicy.name(title, hiding: TorrentExtensionPolicy.hiddenExtension(paths: [title]))
+            let safeTitle = String(displayTitle.replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-").prefix(180))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !safeTitle.isEmpty, safeTitle != ".", safeTitle != ".." else { continue }
