@@ -42,8 +42,8 @@ import GlassRemoteCore
         }
         } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
             guard token == revision else { return }
-            showEmptyPreview()
-            return
+            if action == .preview { showEmptyPreview(); return }
+            throw error
         }
         guard token == revision else { resolved.1?.stopAccessingSecurityScopedResource(); return }
         switch action {
@@ -70,13 +70,9 @@ import GlassRemoteCore
     func showEmptyPreview() {
         previewScope?.stopAccessingSecurityScopedResource()
         previewScope = nil
-        let status = FileManager.default.temporaryDirectory.appendingPathComponent("Glass-unavailable.txt")
-        try? glassText("No data found").write(to: status, atomically: true, encoding: .utf8)
-        previewURL = status
-        guard let panel = QLPreviewPanel.shared() else { return }
-        panel.dataSource = self
-        panel.reloadData()
-        panel.makeKeyAndOrderFront(nil)
+        previewURL = nil
+        if QLPreviewPanel.sharedPreviewPanelExists() { QLPreviewPanel.shared()?.orderOut(nil) }
+        NotificationCenter.default.post(name: .glassPreviewUnavailable, object: nil)
     }
 
     static func groupDirectory(_ torrents: [TorrentSummary]) -> String? {
@@ -103,4 +99,8 @@ import GlassRemoteCore
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { previewURL == nil ? 0 : 1 }
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! { previewURL as NSURL? }
     isolated deinit { previewScope?.stopAccessingSecurityScopedResource() }
+}
+
+extension Notification.Name {
+    static let glassPreviewUnavailable = Self("Glass.previewUnavailable")
 }
