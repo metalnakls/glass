@@ -52,7 +52,8 @@ struct TorrentFileListStyling: NSViewRepresentable {
                       table.visibleRect.contains(point), point.x > controlInset else { return }
                 let row = table.row(at: point)
                 guard row >= 0, table.selectedRowIndexes.contains(row) else { return }
-                if table.hitTest(point) is NSControl { return }
+                // The leading checkbox is excluded by controlInset; hosted text
+                // may itself be an NSControl and must still allow deselection.
                 selectedClick = (row, point)
             } else if let click = selectedClick {
                 selectedClick = nil
