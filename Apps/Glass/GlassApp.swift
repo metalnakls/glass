@@ -142,13 +142,9 @@ private struct GlassCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appSettings) {
             #if DEBUG
-            Menu(glassText("Tune")) {
-                Toggle(glassText("Enabled"), isOn: tuningPresented ?? .constant(false))
-                    .keyboardShortcut(",", modifiers: .command)
-                    .disabled(tuningPresented == nil)
-                Button(glassText("Test Torrents…")) { TorrentTestWindow.show() }
-                    .keyboardShortcut(",", modifiers: [.command, .shift])
-            }
+            Toggle(glassText("Tune"), isOn: tuningPresented ?? .constant(false))
+                .keyboardShortcut(",", modifiers: .command)
+                .disabled(tuningPresented == nil)
             #endif
         }
         CommandGroup(after: .appInfo) {
