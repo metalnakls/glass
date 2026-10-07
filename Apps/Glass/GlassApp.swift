@@ -6,14 +6,27 @@ import Sparkle
 import SwiftUI
 import UserNotifications
 
+/// The launch agent must not initialize NSApplication or register a foreground
+/// SwiftUI scene: Launch Services would otherwise reopen its empty worker window.
 @main
+private enum GlassEntryPoint {
+    @MainActor static func main() {
+        if GlassBackgroundService.isWorker {
+            Task { await GlassBackgroundService.run() }
+            RunLoop.main.run()
+        } else {
+            GlassApp.main()
+        }
+    }
+}
+
 struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate
     private let platformIntegration: GlassMacPlatformIntegration
     private let updaterController: SPUStandardUpdaterController?
     private let updaterDelegate: GlassUpdaterDelegate?
     @Environment(\.scenePhase) private var scenePhase
-    @State private var model: RemoteAppModel?
+    @State private var model: RemoteAppModel
 
     init() {
         GlassAppearanceDefaults.register()
@@ -41,21 +54,19 @@ struct GlassApp: App {
         }
 
         platformIntegration = GlassMacPlatformIntegration()
-        _model = State(initialValue: GlassBackgroundService.isWorker ? nil : Self.makeModel())
+        _model = State(initialValue: Self.makeModel())
     }
 
     var body: some Scene {
         Window("Glass", id: "main") {
-            if let model {
             GlassRootView(model: model, platformIntegration: platformIntegration)
                 .frame(minWidth: 680, minHeight: 260)
                 .task { await GlassTuningUpdates.shared.refresh() }
                 .onChange(of: scenePhase) { _, phase in
                     if phase == .active { Task { await GlassTuningUpdates.shared.refresh() } }
                 }
-            }
         }
-        .defaultLaunchBehavior(GlassBackgroundService.isWorker ? .suppressed : .presented)
+        .defaultLaunchBehavior(.presented)
         .windowStyle(.hiddenTitleBar)
         .defaultSize(width: GlassAppearanceDefaults.mainWindowSize.width,
                      height: GlassAppearanceDefaults.mainWindowSize.height)
@@ -254,10 +265,6 @@ private struct GlassCommands: Commands {
 @MainActor
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
-        if GlassBackgroundService.isWorker {
-            NSApp.setActivationPolicy(.prohibited)
-            Task { await GlassBackgroundService.run() }
-        }
         UNUserNotificationCenter.current().delegate = GlassCompletionNotificationCenter.shared
         NSAppleEventManager.shared().setEventHandler(
             self,

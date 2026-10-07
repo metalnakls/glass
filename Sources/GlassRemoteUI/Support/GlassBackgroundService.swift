@@ -51,7 +51,6 @@ public enum GlassBackgroundService {
     }
 
     public static func run() async {
-        NSApp.setActivationPolicy(.prohibited)
         await GlassBackgroundWorker.shared.run()
     }
 }
