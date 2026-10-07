@@ -163,6 +163,7 @@ final class TorrentStickyHeaders: NSObject {
     private var appearance = TorrentHeaderAppearance()
     private var updateScheduled = false
     private var rowIDs: [String?] = []
+    private var inlineMotionUntil = Date.distantPast
     private var lastPinned: [String: TorrentStickyHeaderGeometry.Placement] = [:]
     private var heldPinned: [String: TorrentStickyHeaderGeometry.Placement]?
     func configureAppearance(_ appearance: TorrentHeaderAppearance) {
@@ -229,6 +230,7 @@ final class TorrentStickyHeaders: NSObject {
 
     func configure(_ layout: TorrentListLayout, lowercase: Bool, inset: CGFloat) {
         if !rowIDs.isEmpty, rowIDs != layout.nativeRowIDs, heldPinned == nil { heldPinned = lastPinned }
+        if !rowIDs.isEmpty, rowIDs != layout.nativeRowIDs { inlineMotionUntil = Date().addingTimeInterval(0.35) }
         rowIDs = layout.nativeRowIDs
         let sections = layout.titledSections(lowercase: lowercase)
         let removed = Set(headers.keys).subtracting(sections.map(\.id))
@@ -297,7 +299,7 @@ final class TorrentStickyHeaders: NSObject {
         overlay.isHidden = false
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
                         backdropActive: sticky?.titles.contains { !$0.retiring } == true,
-                        viewport: viewport)
+                        viewport: viewport, animateInline: Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel)
     }
     isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview(); overlay.detachViewport() }
 }
@@ -389,7 +391,7 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil) {
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false) {
         isHidden = false
         setBackdropActive(backdropActive)
         CATransaction.begin()
@@ -432,10 +434,13 @@ final class HeaderBackdrop: NSView {
             // Scroll coordinates must bypass any inherited AppKit animation
             // context. Only opacity and blur use the tuned transition duration.
             NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0
-                context.allowsImplicitAnimation = false
+                context.duration = animateInline && !placement.pinned && !ReduceMotion.enabled ? 0.25 : 0
+                context.allowsImplicitAnimation = context.duration > 0
                 if host.frame.size != frame.size { host.setFrameSize(frame.size) }
-                if host.frame.origin != frame.origin { host.setFrameOrigin(frame.origin) }
+                if host.frame.origin != frame.origin {
+                    if context.duration > 0 { host.animator().setFrameOrigin(frame.origin) }
+                    else { host.setFrameOrigin(frame.origin) }
+                }
             }
             CATransaction.commit()
             host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
