@@ -1,15 +1,13 @@
 import AppKit
 import SwiftUI
 
-private struct StickyTitleLabel: View {
+struct StickyTitleLabel: View {
     let title: String
     let inset: CGFloat
-    var exitBlur = 0.0
     var body: some View {
         Text(title).font(.largeTitle.bold()).foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.leading, inset).padding(.vertical, 8)
-            .blur(radius: exitBlur)
     }
 }
 
@@ -133,6 +131,11 @@ private struct HeaderAnchor: NSViewRepresentable {
 
 @MainActor
 final class TorrentStickyHeaders: NSObject {
+    static let topInset: CGFloat = 0
+    fileprivate var barSurface: NSView {
+        overlay.externallyHosted = true
+        return overlay.pinnedSurface
+    }
     struct Header { var id: String; var title: String; var index: Int; var inset: CGFloat; var stickyAllowed = false }
     /// Identity of the section layout: only this invalidates the derived
     /// float-permission and release points, never a scroll offset.
@@ -282,7 +285,7 @@ final class TorrentStickyHeaders: NSObject {
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []
         let releases = structureCache?.releases ?? []
-        var sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: 20, releasePoints: releases, stickyAllowed: stickyAllowed)
+        var sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: Self.topInset, releasePoints: releases, stickyAllowed: stickyAllowed)
         if let heldPinned {
             let titles = ordered.enumerated().compactMap { index, header -> TorrentStickyHeaderGeometry.Placement? in
                 guard let title = heldPinned[header.id] else { return nil }
@@ -306,24 +309,26 @@ final class TorrentStickyHeaders: NSObject {
 
 final class HeaderBackdrop: NSView {
     let pinnedSurface = HeaderViewportSurface()
+    var externallyHosted = false
     private let effect = NSView()
     private let fadeMask = CAGradientLayer()
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
     private var settings = TorrentHeaderAppearance()
     func attachViewport(to scroll: NSScrollView) {
+        guard !externallyHosted else { return }
         if pinnedSurface.superview !== scroll {
             scroll.addSubview(pinnedSurface, positioned: .above, relativeTo: scroll.contentView)
         }
         if pinnedSurface.frame != scroll.contentView.frame { pinnedSurface.frame = scroll.contentView.frame }
         pinnedSurface.isHidden = false
     }
-    func detachViewport() { pinnedSurface.removeFromSuperview() }
+    func detachViewport() { if !externallyHosted { pinnedSurface.removeFromSuperview() } }
     func configure(_ settings: TorrentHeaderAppearance) {
         let old = self.settings
         self.settings = settings
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        effect.layer?.backgroundColor = settings.color.cgColor
+        effect.layer?.backgroundColor = NSColor.clear.cgColor
         CATransaction.commit()
         if old.strength != settings.strength, backdropIsActive { animateBackdrop(true) }
     }
@@ -336,7 +341,6 @@ final class HeaderBackdrop: NSView {
         host.isPinned = parent === pinnedSurface
         if host.superview !== parent { parent.addSubview(host) }
         host.frame = position
-        host.setExitProgress(1, duration: settings.titleOut)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = ReduceMotion.enabled ? 0 : settings.titleOut
             host.animator().setFrameOrigin(CGPoint(x: position.minX, y: position.minY - 20))
@@ -381,7 +385,7 @@ final class HeaderBackdrop: NSView {
         layer?.masksToBounds = true
         effect.alphaValue = 0
         effect.wantsLayer = true
-        effect.layer?.backgroundColor = settings.color.cgColor
+        effect.layer?.backgroundColor = NSColor.clear.cgColor
         fadeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
         fadeMask.locations = [0, 0.25, 1]
         fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
@@ -432,7 +436,7 @@ final class HeaderBackdrop: NSView {
             host.isHidden = false
             titles[header.id] = host
             // Scroll coordinates must bypass any inherited AppKit animation
-            // context. Only opacity and blur use the tuned transition duration.
+            // context.
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = animateInline && !placement.pinned && !ReduceMotion.enabled ? 0.25 : 0
                 context.allowsImplicitAnimation = context.duration > 0
@@ -443,8 +447,7 @@ final class HeaderBackdrop: NSView {
                 }
             }
             CATransaction.commit()
-            host.setExitProgress(placement.exitProgress, duration: placement.retiring ? settings.titleOut : settings.titleIn)
-            // Fade and blur animate inside the title without invalidating rows.
+            // Native scroll-edge blur owns the backdrop; the title stays sharp.
         }
     }
 }
@@ -466,20 +469,6 @@ final class HeaderViewportSurface: NSView {
 final class TitleHost: NSView {
     var isPinned = false
     var isRetiring = false
-    private var exitProgress: CGFloat = 0
-    func setExitProgress(_ progress: CGFloat, duration: Double) {
-        guard exitProgress != progress else { return }
-        exitProgress = progress
-        withAnimation(ReduceMotion.enabled ? nil :
-            .timingCurve(1.0 / 3, 0, 2.0 / 3, 1, duration: duration)) {
-            hosting.rootView = StickyTitleLabel(title: currentTitle, inset: currentInset, exitBlur: Double(progress) * 8)
-        }
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = ReduceMotion.enabled ? 0 : duration
-            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            animator().alphaValue = 1 - progress
-        }
-    }
     private let hosting: NSHostingController<StickyTitleLabel>
     private var titleKey = ""
     private var currentTitle = ""
@@ -518,7 +507,7 @@ final class TitleHost: NSView {
         titleKey = key
         measuredWidth = nil
         currentTitle = title; currentInset = inset
-        hosting.rootView = StickyTitleLabel(title: title, inset: inset, exitBlur: Double(exitProgress) * 8)
+        hosting.rootView = StickyTitleLabel(title: title, inset: inset)
     }
     override func setFrameSize(_ size: NSSize) {
         super.setFrameSize(size)
@@ -528,4 +517,23 @@ final class TitleHost: NSView {
         super.layout()
         if hosting.view.frame != bounds { hosting.view.frame = bounds }
     }
+}
+
+/// The existing AppKit title hosts are content of the native safe-area bar.
+/// SwiftUI can therefore blur the scrolling rows beneath their actual position.
+struct TorrentPinnedHeaderBar: View {
+    let controller: TorrentStickyHeaders
+    var body: some View {
+        StickyTitleLabel(title: " ", inset: 0)
+            .hidden()
+            .overlay { TorrentPinnedHeaderSurface(controller: controller) }
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
+private struct TorrentPinnedHeaderSurface: NSViewRepresentable {
+    let controller: TorrentStickyHeaders
+    func makeNSView(context: Context) -> NSView { controller.barSurface }
+    func updateNSView(_ view: NSView, context: Context) {}
 }

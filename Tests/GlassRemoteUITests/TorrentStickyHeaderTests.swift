@@ -177,13 +177,14 @@ struct TorrentStickyHeaderTests {
         #expect(short.titles[0].frame.minY == frames[1].minY - 60)
     }
 
-    @MainActor @Test("title fade and blur do not change the reserved header height")
+    @MainActor @Test("title updates keep their native height and full opacity")
     func stableHeaderHeight() {
         let host = TitleHost(title: "Completed", inset: 40)
         let size = host.fittingSize(width: 500)
-        host.setExitProgress(0.8, duration: 0)
+        host.setTitle("Loading", inset: 40)
         #expect(host.fittingSize(width: 500) == size)
-        host.setExitProgress(0, duration: 0)
+        host.setTitle("Completed", inset: 40)
+        #expect(host.alphaValue == 1)
         #expect(host.fittingSize(width: 500) == size)
         #expect(host.fittingSize(width: 600).width == 600)
     }

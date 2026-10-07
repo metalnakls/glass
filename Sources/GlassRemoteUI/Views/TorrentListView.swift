@@ -240,7 +240,7 @@ struct TorrentListView: View {
             })
             .environment(\.defaultMinListRowHeight, listRowHeight)
             .focusEffectDisabled()
-            .safeAreaBar(edge: .top, spacing: 0) { Color.clear.frame(height: headerFadeReach).allowsHitTesting(false) }
+            .safeAreaBar(edge: .top, spacing: 0) { TorrentPinnedHeaderBar(controller: stickyHeaders) }
             .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
