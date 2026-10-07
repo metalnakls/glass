@@ -90,7 +90,6 @@ struct AddTorrentBatchView: View {
                     isDisabled: isAdding)
                 ZStack(alignment: .topTrailing) {
                     GeometryReader { geometry in
-                        let titleAreaWidth = max(0, geometry.size.width - locationPicker.collapsedWidth - 14)
                         ScrollView(.horizontal) {
                             HStack(spacing: 14) {
                                 if showsIcon {
@@ -98,11 +97,11 @@ struct AddTorrentBatchView: View {
                                 }
                                 TextField(glassText("Torrent name"), text: titleBinding(for: group))
                                     .font(.title.weight(.bold)).textFieldStyle(.plain)
-                                    .frame(width: titleWidth(for: group, available: titleAreaWidth, showsIcon: showsIcon))
+                                    .frame(width: titleWidth(for: group, available: geometry.size.width, showsIcon: showsIcon))
                                     .disabled(isAdding || optionHeld)
                             }.frame(minHeight: 44)
                         }
-                        .frame(width: titleAreaWidth, height: 44, alignment: .leading)
+                        .frame(width: geometry.size.width, height: 44, alignment: .leading)
                         .scrollIndicators(.hidden)
                     }
                     .frame(height: 44, alignment: .leading)
