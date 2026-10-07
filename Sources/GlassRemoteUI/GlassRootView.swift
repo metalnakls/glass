@@ -8,7 +8,12 @@ public struct GlassRootView: View {
     private let externalTuningPresentation: Binding<Bool>?
     @State private var isTuningPresented = false
     private let isTestWorkspace: Bool
-    private let model: RemoteAppModel
+    private let liveModel: RemoteAppModel
+    @State private var testSession = TorrentTestSessionState()
+    @State private var tuningSection = TuningSection.icons
+    private var usesTestModel: Bool { tuningPresentation.wrappedValue && testSession.isEnabled }
+    private var model: RemoteAppModel { usesTestModel ? testSession.model : liveModel }
+    private var tuneOnLeft: Bool { GlassTuningMode.isEnabled && tuningPresentation.wrappedValue && tuningSection == .inspector }
     private let platformIntegration: any GlassPlatformIntegrating
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
@@ -39,12 +44,19 @@ public struct GlassRootView: View {
     ) {
         self.externalTuningPresentation = tuningPresented
         self.isTestWorkspace = isTestWorkspace
-        self.model = model
+        self.liveModel = model
         self.platformIntegration = platformIntegration
     }
 
     public var body: some View {
         NavigationStack {
+            HStack(spacing: 0) {
+            if tuneOnLeft {
+                SelectionAppearanceView(testSession: testSession, section: $tuningSection)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .padding(.horizontal, 38)
+                    .transition(.opacity.combined(with: .blurReplace))
+            } else {
             TorrentWorkspaceView(
                 model: model,
                 platformIntegration: platformIntegration,
@@ -62,8 +74,10 @@ public struct GlassRootView: View {
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
             )
-
+            }
+            }
         }
+        .animation(accessibilityReduceMotion ? nil : .smooth(duration: 0.25), value: tuneOnLeft)
         .environment(\.locale, GlassFormatting.shared.locale)
         .inspector(isPresented: inspectorPresentation) {
             let showsTune = GlassTuningMode.isEnabled && tuningPresentation.wrappedValue
@@ -74,13 +88,13 @@ public struct GlassRootView: View {
                     platformIntegration: platformIntegration,
                     selectedID: selectedTorrentID,
                     presentation: presentation,
-                    isVisible: !showsTune
+                    isVisible: !showsTune || tuneOnLeft
                 )
-                .opacity(showsTune ? 0 : 1)
-                .allowsHitTesting(!showsTune)
-                .accessibilityHidden(showsTune)
-                if showsTune {
-                    SelectionAppearanceView(onClose: { tuningPresentation.wrappedValue = false })
+                .opacity(showsTune && !tuneOnLeft ? 0 : 1)
+                .allowsHitTesting(!showsTune || tuneOnLeft)
+                .accessibilityHidden(showsTune && !tuneOnLeft)
+                if showsTune && !tuneOnLeft {
+                    SelectionAppearanceView(testSession: testSession, section: $tuningSection)
                 }
             }
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
@@ -214,6 +228,16 @@ public struct GlassRootView: View {
         .task { GlassBackgroundService.offerIfNeeded() }
         .task(id: TorrentAutoRefreshInput(profiles: model.profiles, isActive: model.isApplicationActive)) {
             await model.runAutoRefresh()
+        }
+        .onChange(of: tuningPresentation.wrappedValue) { _, presented in
+            if !presented { Task { await testSession.end() } }
+        }
+        .onChange(of: usesTestModel) { _, enabled in
+            selectedTorrentID = nil
+            presentation = TorrentListPresentationModel()
+            model.setApplicationActive(scenePhase == .active)
+            TorrentThumbnailService.shared.attach(model: model)
+            if enabled { Task { await model.refreshAllSources() } }
         }
         .onChange(of: model.selectedProfileID) { _, _ in
             persistSelectedSourceID()
