@@ -306,6 +306,8 @@ private struct TorrentInspectorContent: View {
         .scrollEdgeEffectHidden()
     }
 
+    @Namespace private var footerGlassNamespace
+
     private var topDock: some View {
         GlassEffectContainer(spacing: 8) {
             VStack(alignment: .leading, spacing: 16) {
@@ -336,8 +338,12 @@ private struct TorrentInspectorContent: View {
                 if editSession.hasSelection {
                     Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
+                        .glassEffectID("primary", in: footerGlassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
                     Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true, tint: .red))
+                        .glassEffectID("secondary", in: footerGlassNamespace)
+                        .glassEffectTransition(.matchedGeometry)
                 } else if editSession.hasChanges {
                     Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
@@ -345,11 +351,13 @@ private struct TorrentInspectorContent: View {
                     if !searchPresented || !supportsSearch {
                         TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                             .modifier(InspectorGlassPill())
+                            .glassEffectID("primary", in: footerGlassNamespace)
+                            .glassEffectTransition(.matchedGeometry)
                             .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                     if supportsSearch {
-                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented)
+                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented ? "primary" : "secondary")
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -359,7 +367,7 @@ private struct TorrentInspectorContent: View {
             .padding(.top, 22).padding(.bottom, 16)
 
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: searchPresented)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasSelection)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: editSession.hasSelection)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
             .disabled(editSession.isApplying)
         }
