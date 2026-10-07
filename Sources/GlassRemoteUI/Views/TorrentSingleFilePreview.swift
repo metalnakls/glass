@@ -9,6 +9,9 @@ struct TorrentSingleFilePreview: View {
     var input: TorrentThumbnailInput?
     var onOpen: (() -> Void)?
     @State private var thumbnail: NSImage?
+    @State private var hovering = false
+    @State private var refreshID = UUID()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var previewInput: TorrentThumbnailInput? {
         guard var input else { return nil }
@@ -19,8 +22,18 @@ struct TorrentSingleFilePreview: View {
     var body: some View {
         Group {
             if let onOpen {
-                Button(action: onOpen) { artwork }
-                    .buttonStyle(.plain)
+                Button(action: onOpen) {
+                    artwork.overlay {
+                        Image(systemName: "play.fill")
+                            .font(.title2)
+                            .modifier(InspectorGlassPill(interactive: true, iconOnly: true))
+                            .opacity(hovering ? 1 : 0)
+                            .blur(radius: hovering || reduceMotion ? 0 : 22)
+                            .animation(reduceMotion ? nil : .easeInOut(duration: hovering ? 0.25 : 0.30), value: hovering)
+                    }
+                }
+                    .buttonStyle(TorrentPreviewPressStyle())
+                    .onHover { hovering = $0 }
                     .accessibilityLabel(glassText("Open file"))
             } else {
                 artwork
@@ -28,12 +41,13 @@ struct TorrentSingleFilePreview: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(32)
-        .task(id: previewInput) {
-            thumbnail = previewInput.flatMap { TorrentThumbnailService.shared.cachedImage(for: $0) }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshID = UUID() }
+        .task(id: "\(previewInput?.key ?? "")-\(refreshID)") {
+            thumbnail = previewInput.flatMap { TorrentThumbnailService.shared.cachedArtwork(for: $0) }
             guard let input = previewInput else { return }
             let image = await TorrentThumbnailService.shared.image(for: input)
             guard !Task.isCancelled else { return }
-            thumbnail = image
+            if let image { thumbnail = image }
         }
     }
 
@@ -48,5 +62,13 @@ struct TorrentSingleFilePreview: View {
             }
         }
         .contentShape(Rectangle())
+    }
+}
+
+private struct TorrentPreviewPressStyle: ButtonStyle {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
     }
 }

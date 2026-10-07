@@ -349,6 +349,13 @@ final class TorrentThumbnailService {
 
     func cachedImage(for input: TorrentThumbnailInput) -> NSImage? { images.object(forKey: cacheKey(resolved(input)) as NSString)?.image }
 
+    func cachedArtwork(for input: TorrentThumbnailInput) -> NSImage? {
+        if let exact = cachedImage(for: input) { return exact }
+        var listInput = input
+        listInput.pixelSize = 72
+        return cachedImage(for: listInput)
+    }
+
     func image(for input: TorrentThumbnailInput) async -> NSImage? {
         let input = resolved(input)
         let key = cacheKey(input)
@@ -362,7 +369,7 @@ final class TorrentThumbnailService {
         guard !Task.isCancelled else { return nil }
         let fallback = disk.flatMap { cache($0, key: key) }
         if let disk, Date().timeIntervalSince(disk.stamp.checked) < Self.freshness { return fallback }
-        guard input.isComplete, failures[key].map({ Date().timeIntervalSince($0) < 15 * 60 }) != true else { return fallback }
+        guard input.isComplete, failures[key].map({ Date().timeIntervalSince($0) < 5 }) != true else { return fallback }
         let subscriber = UUID()
         return await withTaskCancellationHandler {
             await withCheckedContinuation { continuation in
