@@ -91,6 +91,7 @@ public struct GlassRootView: View {
         .contentShape(Rectangle())
         .dropDestination(for: TorrentWindowDropItem.self) { items, _ in
             isTorrentDropTargeted = false
+            guard !TorrentInternalDragState.active else { return false }
             let urls = items.compactMap(\.url).filter {
                 magnetLink(from: $0) != nil || $0.pathExtension.localizedCaseInsensitiveCompare("torrent") == .orderedSame
             }
@@ -100,7 +101,7 @@ public struct GlassRootView: View {
                 return true
             }
             return false
-        } isTargeted: { isTorrentDropTargeted = $0 }
+        } isTargeted: { isTorrentDropTargeted = $0 && !TorrentInternalDragState.active }
         .onDisappear { isTorrentDropTargeted = false }
         .overlay {
             ZStack {

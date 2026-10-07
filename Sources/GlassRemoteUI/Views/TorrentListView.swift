@@ -308,10 +308,14 @@ struct TorrentListView: View {
         .onDragSessionUpdated { session in
             switch session.phase {
             case .initial, .active:
-                reorderingIDs = Set(session.draggedItemIDs(for: String.self))
+                let dragged = Set(session.draggedItemIDs(for: String.self))
+                if reorderingIDs != dragged, !dragged.isEmpty { GlassHaptics.perform(.drag) }
+                reorderingIDs = dragged
                 elevationController.setReordering(!reorderingIDs.isEmpty)
+                TorrentInternalDragState.active = !reorderingIDs.isEmpty
             case .ended, .dataTransferCompleted:
                 reorderingIDs = []
+                TorrentInternalDragState.active = false
                 elevationController.setReordering(false)
             @unknown default: break
             }
@@ -374,8 +378,21 @@ struct TorrentListView: View {
         guard let plan = TorrentListReorderPlan(sources: sources, destination: destination, rows: presentation.rows) else { return }
         // SwiftUI already animates the move. Update the presentation immediately,
         // then send the same move to the server without another drag animation.
+        let movedRows = presentation.rows.filter { sources.contains($0.id) }
         presentation.applyNativeMove(plan.orderedRows)
-        Task { await model.reorder(plan.hashes, before: plan.beforeHashes, sourceID: plan.sourceID) }
+        Task {
+            // A deliberate drag chooses manual ordering for that section.
+            // Otherwise the automatic sort would snap the row back on refresh.
+            for row in movedRows {
+                let unfinished: Bool
+                switch row.kind {
+                case let .torrent(record, _): unfinished = record.isUnfinished
+                case let .group(records, _, _): unfinished = records.contains { $0.isUnfinished }
+                }
+                if unfinished { loadingSort = "transmission" } else { completedSort = "transmission" }
+            }
+            await model.reorder(plan.hashes, before: plan.beforeHashes, sourceID: plan.sourceID)
+        }
     }
 
     private func liveRow(for row: TorrentListRowPresentation) -> some View {
@@ -519,6 +536,7 @@ struct TorrentListView: View {
     }
 
     private func toggleTransfers(for row: TorrentListRowPresentation) async -> Bool {
+        GlassHaptics.perform(.playPause)
         switch row.kind {
         case let .torrent(record, _):
             if let id = record.additionID {
@@ -579,6 +597,7 @@ struct TorrentListView: View {
 }
 
 private struct TorrentListLiveRow: View {
+    @State private var isSwiping = false
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
     let iconPosition: Int
@@ -607,7 +626,10 @@ private struct TorrentListLiveRow: View {
     private var artworkOverflow: CGFloat { density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0 }
 
     var body: some View {
-        TorrentNativeSwipeRow(enabled: !grid && !isAdding, remove: removeRow, presentationChanged: swipePresentationChanged) {
+        TorrentNativeSwipeRow(enabled: !grid && !isAdding, remove: removeRow, presentationChanged: { shown in
+            isSwiping = shown
+            swipePresentationChanged(shown)
+        }) {
         TorrentRowView(
             torrent: summary,
             showsExtensions: showExtensions,
@@ -637,7 +659,7 @@ private struct TorrentListLiveRow: View {
         // swipe/glass/icon hierarchy for each row entering the viewport.
         .frame(height: grid ? 164 : max(density.showsIcon ? 48 : 28, rowHeight))
         .background {
-            if isReordering {
+            if isReordering || (isSelected && isSwiping) {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(Color(nsColor: .controlBackgroundColor))
                     .padding(.leading, -14 - artworkOverflow).padding(.trailing, -14)
@@ -650,6 +672,8 @@ private struct TorrentListLiveRow: View {
                 .padding(.trailing, -14)
                 .padding(.vertical, 3) }
         }
+        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 12))
+        .opacity(isReordering ? 0.45 : 1)
         .simultaneousGesture(TapGesture().onEnded { select() })
         .glassContextMenu(select: select) { contextMenuContent }
         .padding(.leading, grid ? 0 : leftPadding + 16)
