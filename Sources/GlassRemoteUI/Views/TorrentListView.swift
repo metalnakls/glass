@@ -361,7 +361,7 @@ struct TorrentListView: View {
             grid: grid,
             rowHeight: listRowHeight,
             folderMotion: folderMotion,
-            folderIDs: row.groupMemberIDs.map { Array($0.prefix(3)) } ?? [],
+            folderIDs: row.groupMemberIDs.map { Array($0.prefix(4)) } ?? [],
             folderID: presentation.movingFolderIDs.contains(row.id) ? row.id : nil,
             elevationController: elevationController,
             fileAction: { performFileAction(for: row, action: $0) },

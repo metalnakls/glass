@@ -291,7 +291,7 @@ struct TorrentListRowPresentation: Identifiable {
 
     var groupCount: Int {
         guard let groupMemberIDs else { return 0 }
-        return min(groupMemberIDs.count, 3)
+        return min(groupMemberIDs.count, 4)
     }
 
     static func rows(

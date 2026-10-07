@@ -121,7 +121,7 @@ final class TorrentFolderMotion {
             let sourceFrame = table.rect(ofRow: row)
             let landingFrame = sourceFrame.offsetBy(dx: 0, dy: CGFloat(slot + 1) * (table.rowHeight + table.intercellSpacing.height))
             let visible = expanding
-                ? (slot < 3 && sourceFrame.intersects(table.visibleRect)) || landingFrame.intersects(table.visibleRect)
+                ? (slot < 4 && sourceFrame.intersects(table.visibleRect)) || landingFrame.intersects(table.visibleRect)
                 : sourceFrame.intersects(table.visibleRect)
             guard visible else { continue }
             let source = endpoint(row: row, slot: slot, fan: expanding, id: sourceID)
@@ -138,9 +138,9 @@ final class TorrentFolderMotion {
             view.setFrameOrigin(CGPoint(x: center.x - 18, y: center.y - 18))
             layer.sublayerTransform = Self.transform(scale: interrupted[id]?.1 ?? source.size.width / 36)
             view.pose.rotation = interrupted[id]?.2 ?? source.angle
-            view.alphaValue = CGFloat(interrupted[id]?.3 ?? (expanding && slot >= 3 ? 0 : 1))
-            // Extra folders emerge from behind the three visible fan leaves.
-            layer.zPosition = slot < 3 ? CGFloat(100 + slot) : -CGFloat(slot)
+            view.alphaValue = CGFloat(interrupted[id]?.3 ?? (expanding && slot >= 4 ? 0 : 1))
+            // Extra folders emerge from behind the four visible fan leaves.
+            layer.zPosition = slot < 4 ? CGFloat(100 + slot) : -CGFloat(slot)
             views[id] = view
             layers[id] = layer
         }
@@ -170,12 +170,12 @@ final class TorrentFolderMotion {
                 let target = self.endpoint(row: row, slot: slot, fan: !self.expanding, id: self.expanding ? id : self.groupID)
                 self.fly(id, to: target, duration: 0.26,
                     timing: CAMediaTimingFunction(controlPoints: 1.0 / 3, 0, 2.0 / 3, 1), fromPresentation: false)
-                if slot >= 3 {
+                if slot >= 4 {
                     let opacity = CABasicAnimation(keyPath: "opacity")
                     opacity.fromValue = layer.opacity
                     opacity.toValue = self.expanding ? 1 : 0
                     opacity.duration = self.expanding ? 0.16 : 0.12
-                    opacity.beginTime = CACurrentMediaTime() + (self.expanding ? 0.04 + min(Double(slot - 3) * 0.015, 0.10) : 0.18)
+                    opacity.beginTime = CACurrentMediaTime() + (self.expanding ? 0.04 + min(Double(slot - 4) * 0.015, 0.10) : 0.18)
                     opacity.fillMode = .backwards
                     CATransaction.begin(); CATransaction.setDisableActions(true)
                     self.views[id]?.alphaValue = self.expanding ? 1 : 0
@@ -294,8 +294,8 @@ final class TorrentFolderMotion {
             return (CGPoint(x: landing.midX, y: landing.midY), landing.size, container.rotation)
         }
         let rowFrame = table.rect(ofRow: row)
-        let fanCount = min(members.count, 3)
-        let progress = slot >= 3 || fanCount < 2 ? 0.5 : Double(slot) / Double(fanCount - 1)
+        let fanCount = min(members.count, 4)
+        let progress = slot >= 4 || fanCount < 2 ? 0.5 : Double(slot) / Double(fanCount - 1)
         let size: CGFloat = fan ? 27 : 36
         let angle = fan ? (-9 + 18 * progress) * .pi / 180 : 0
         // The static fan rotates around the folder's bottom, whereas a layer
