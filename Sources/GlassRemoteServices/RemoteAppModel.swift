@@ -1041,10 +1041,11 @@ public final class RemoteAppModel {
         }
     }
 
-    public func setFileWanted(_ torrent: TorrentSummary, fileIndices: [Int], wanted: Bool, sourceID requestedSourceID: UUID? = nil) async {
+    @discardableResult
+    public func setFileWanted(_ torrent: TorrentSummary, fileIndices: [Int], wanted: Bool, sourceID requestedSourceID: UUID? = nil) async -> Bool {
         let sourceID = requestedSourceID ?? selectedSourceID
-        guard !fileIndices.isEmpty else { return }
-        await performProviderAction(
+        guard !fileIndices.isEmpty else { return true }
+        let succeeded = await performProviderAction(
             sourceID: sourceID,
             detailHash: torrent.hashString,
             detailSections: [.files],
@@ -1053,6 +1054,7 @@ public final class RemoteAppModel {
             try await provider.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
         }
         fileMutationRevision &+= 1
+        return succeeded
     }
 
     @discardableResult

@@ -29,6 +29,9 @@ struct TorrentFilesBrowser: View {
     var onSelectAll: (() -> Void)?
     var onSetPriorities: (([Int], Int) async -> Bool)?
     var sizeColumnText: String?
+    var onSetWantedAsync: ((Int, Bool) async -> Bool)?
+    @State private var wantedRequests: [Int: UUID] = [:]
+    @State private var optimisticWanted: [Int: Bool] = [:]
     @State private var pendingPriorities: [Int: PendingPriority] = [:]
     private struct PendingPriority {
         let value: Int
@@ -46,7 +49,7 @@ struct TorrentFilesBrowser: View {
         nonmutating set { if let editSession { editSession.wanted[editID] = newValue } else { localWanted = newValue } }
     }
 
-    private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { pendingWanted[entry.index] ?? entry.isWanted }
+    private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { optimisticWanted[entry.index] ?? pendingWanted[entry.index] ?? entry.isWanted }
 
     var body: some View {
         let layout = TorrentFileListLayout(isInspector: isCompact)
@@ -99,6 +102,9 @@ struct TorrentFilesBrowser: View {
                             }
                             Text(displayName(row, hiding: hiddenExtension)).textCase(nil)
                                 .lineLimit(1).truncationMode(.middle)
+                            if row.indices.contains(where: { wantedRequests[$0] != nil }) {
+                                ProgressView().controlSize(.mini).padding(.leading, 6)
+                            }
                             if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
                                 FilePriorityIcon(high: true)
                                     .foregroundStyle(.secondary)
@@ -209,6 +215,7 @@ struct TorrentFilesBrowser: View {
                 }.map(\.id))
             }
             .onChange(of: entries) { _, updated in
+                for entry in updated where optimisticWanted[entry.index] == entry.isWanted && wantedRequests[entry.index] == nil { optimisticWanted[entry.index] = nil }
                 for entry in updated where pendingPriorities[entry.index]?.value == entry.priority {
                     pendingPriorities[entry.index] = nil
                 }
@@ -281,7 +288,16 @@ struct TorrentFilesBrowser: View {
     private func setWanted(_ index: Int, _ value: Bool) {
         guard !isCompact || entries.first(where: { $0.index == index })?.isComplete != true else { return }
         pendingWanted[index] = nil
-        onSetWanted(index, value)
+        guard let onSetWantedAsync else { onSetWanted(index, value); return }
+        let request = UUID()
+        wantedRequests[index] = request
+        optimisticWanted[index] = value
+        Task {
+            let succeeded = await onSetWantedAsync(index, value)
+            guard wantedRequests[index] == request else { return }
+            wantedRequests[index] = nil
+            if !succeeded { optimisticWanted[index] = nil }
+        }
     }
     private func setPriority(_ row: TorrentFileTreeRow, _ value: Int) {
         let indices = selection.contains(row.indices.first ?? -1) ? Array(selection) : row.indices
