@@ -74,6 +74,13 @@ struct TorrentListView: View {
     @State private var artworkPreloader = TorrentArtworkPreloader()
     @State private var reorderingIDs: Set<String> = []
     @State private var swipingRowID: String?
+    @State private var searchPresented = false
+    @State private var searchText = ""
+
+    private var visibleRecords: [TorrentRecord] {
+        guard !searchText.isEmpty else { return records }
+        return records.filter { ($0.displayName ?? $0.summary.name).localizedStandardContains(searchText) }
+    }
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
     @AppearanceStorage("GlassList.highlightWidth") private var highlightWidth = 0.0
@@ -277,6 +284,17 @@ struct TorrentListView: View {
             }
             synchronizePresentation(animated: false)
         }
+        .focusedSceneValue(\.glassMainListSearchPresented, $searchPresented)
+        .focusedValue(\.glassSearchDestination, .mainList)
+        .overlay(alignment: .bottomTrailing) {
+            if searchPresented {
+                GlassSearchPill(text: $searchText, isPresented: $searchPresented,
+                    expandedWidth: 260, prompt: "Search Torrents", inspectorFocus: false)
+                    .padding(18).transition(.blurReplace.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .animation(.smooth(duration: 0.25), value: searchPresented)
+        .onKeyPress(.escape) { guard searchPresented else { return .ignored }; searchPresented = false; searchText = ""; return .handled }
         .onDragSessionUpdated { session in
             switch session.phase {
             case .initial, .active:
@@ -414,10 +432,10 @@ struct TorrentListView: View {
     private var structureInput: TorrentListStructureInput {
         TorrentListStructureInput(
             revision: structureRevision,
-            recordIDs: records.map(\.id),
+            recordIDs: visibleRecords.map(\.id),
             pendingRenameNames: pendingRenameNames,
-            unfinishedIDs: records.filter { $0.isUnfinished }.map(\.id),
-            sorting: sorting, sortInputs: records.map { sorting.input(for: $0) }
+            unfinishedIDs: visibleRecords.filter { $0.isUnfinished }.map(\.id),
+            sorting: sorting, sortInputs: visibleRecords.map { sorting.input(for: $0) }
         )
     }
 
@@ -440,7 +458,7 @@ struct TorrentListView: View {
         }
         let updatedRows = presentation.toggleGroup(
             row.id,
-            records: records,
+            records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
         )
@@ -451,7 +469,7 @@ struct TorrentListView: View {
 
     private func synchronizePresentation(animated: Bool) {
         let updatedRows = presentation.synchronize(
-            records: records,
+            records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
             animated: animated,
             reduceMotion: accessibilityReduceMotion,
@@ -471,7 +489,7 @@ struct TorrentListView: View {
         guard let selectedID else { return }
         let rows = presentation.revealTorrent(
             selectedID,
-            records: records,
+            records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
         )
