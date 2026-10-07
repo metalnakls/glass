@@ -242,7 +242,7 @@ private struct TorrentInspectorContent: View {
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+            LazyVStack(alignment: .leading, spacing: 0) {
                 if let group = snapshot.group {
                     ForEach(group.torrents, id: \.hashString) { torrent in
                         if let details = groupDetails[torrent.hashString] {
@@ -253,23 +253,12 @@ private struct TorrentInspectorContent: View {
                                 HStack {
                                     Text(groupMemberName(torrent, group: group)).textCase(nil).font(.subheadline.weight(.semibold))
                                     Spacer()
-                                    Text("\(details.files.count) files").font(.caption).foregroundStyle(.secondary)
+                                    Text(formatPercent(members.first { $0.hashString == torrent.hashString }?.percentDone ?? torrent.percentDone)).font(.caption).foregroundStyle(.secondary)
                                 }
                                 .padding(.leading, fileLayout.textLeadingInset)
                                 .padding(.trailing, fileLayout.outerInset)
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
-                                .background {
-                                    Rectangle().fill(.ultraThinMaterial)
-                                        .mask(LinearGradient(stops: [
-                                            .init(color: .clear, location: 0),
-                                            .init(color: .black, location: 0.35),
-                                            .init(color: .black, location: 0.65),
-                                            .init(color: .clear, location: 1)
-                                        ], startPoint: .top, endPoint: .bottom))
-                                        .padding(.vertical, -12)
-                                        .allowsHitTesting(false)
-                                }
                                 .glassTextStyle()
                                 .zIndex(1)
                             }
@@ -294,6 +283,9 @@ private struct TorrentInspectorContent: View {
         .overlay(alignment: .top) { topDock }
         .overlay(alignment: .bottom) { bottomDock }
         .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
+        .onChange(of: supportsSearch) { _, supported in
+            if !supported { searchPresented = false; fileSearchText = "" }
+        }
         .onChange(of: searchPresented) { _, presented in
             searchFocused = presented
             if !presented { fileSearchText = "" }
@@ -329,6 +321,8 @@ private struct TorrentInspectorContent: View {
             ], startPoint: top ? .bottom : .top, endPoint: top ? .top : .bottom))
     }
 
+    private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
+
     private var footerHeight: CGFloat { InspectorGlassPill.height + 38 }
 
     private var bottomDock: some View {
@@ -343,27 +337,16 @@ private struct TorrentInspectorContent: View {
                     Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
                 } else {
-                    if !searchPresented {
+                    if !searchPresented || !supportsSearch {
                         TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                             .modifier(InspectorGlassPill())
                             .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
-                    HStack(spacing: 8) {
-                        Button { searchPresented = true } label: { Image(systemName: "magnifyingglass") }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(glassText("Search Files"))
-                        if searchPresented {
-                            TextField(glassText("Search Files"), text: $fileSearchText)
-                                .textFieldStyle(.plain).focused($searchFocused)
-                                .focusedValue(\.glassInspectorFileFilterFocused, true)
-                                .onExitCommand { searchPresented = false }
-                            Button { searchPresented = false } label: { Image(systemName: "xmark") }
-                                .buttonStyle(.plain).accessibilityLabel(glassText("Close search"))
-                        }
+                    if supportsSearch {
+                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented)
+                            .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
-                    .frame(maxWidth: searchPresented ? .infinity : nil)
-                    .modifier(InspectorGlassPill(interactive: true, iconOnly: !searchPresented))
                 }
             }
             .controlSize(.large)
@@ -415,7 +398,10 @@ private struct TorrentInspectorContent: View {
             onSetPriorities: { indices, priority in
                 await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID)
             },
-            sizeColumnText: widestFileSize
+            sizeColumnText: widestFileSize,
+            onSetWantedAsync: { index, wanted in
+                await model.setFileWanted(details.summaryFallback, fileIndices: [index], wanted: wanted, sourceID: sourceID)
+            }
         )
         .id(details.hashString)
         .padding(.horizontal, fileLayout.contentInset)
@@ -423,7 +409,7 @@ private struct TorrentInspectorContent: View {
 
     private var widestFileSize: String {
         selectedDetails.flatMap { fileEntries(for: $0) }.map { formatBytes($0.size) }.max {
-            $0.count < $1.count
+            $0.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width < $1.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
         } ?? "0 KB"
     }
 

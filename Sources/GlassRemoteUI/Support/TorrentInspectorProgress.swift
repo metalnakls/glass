@@ -31,7 +31,6 @@ struct TorrentInspectorProgressView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
-                Text(formatPercent(progress.fraction)).fixedSize(horizontal: true, vertical: false)
                 GeometryReader { geometry in
                     HStack(spacing: 0) {
                         ForEach(progress.segments) { segment in
