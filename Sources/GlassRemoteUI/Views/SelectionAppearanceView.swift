@@ -157,29 +157,6 @@ public struct SelectionAppearanceView: View {
                     if testSession.isEnabled { Task { await testSession.end() } }
                     else { testSession.start() }
                 }
-                if testSession.isEnabled {
-                    ViewThatFits(in: .horizontal) {
-                        HStack(spacing: 6) {
-                            footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
-                            footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
-                            footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
-                        }
-                        VStack(spacing: 6) {
-                            HStack(spacing: 6) {
-                                footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
-                                footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
-                            }
-                            HStack(spacing: 6) {
-                                footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
-                                Spacer(minLength: 0)
-                            }
-                        }
-                    }
-                    HStack(spacing: 6) {
-                        footerButton("Reset", symbol: "arrow.counterclockwise") { Task { await testSession.reset() } }
-                        footerButton("Update sample", symbol: "arrow.down.circle") { testSession.showUpdateAvailabilitySample() }
-                    }
-                }
             }
             HStack(spacing: 6) {
                 footerButton("Reset appearance", symbol: "arrow.counterclockwise") { AppearancePreferences.shared.resetToDefaults() }

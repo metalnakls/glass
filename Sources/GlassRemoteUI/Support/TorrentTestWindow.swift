@@ -81,6 +81,46 @@ import SwiftUI
     private static let offlineProfileID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
 }
 
+struct TorrentTestActions: View {
+    let session: TorrentTestSessionState
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 6) {
+                action("Add", symbol: "plus") { Task { await session.addSample() } }
+                action("Failed", symbol: "exclamationmark.triangle") { Task { await session.addFailedRemoteAdd() } }
+                action("Complete", symbol: "checkmark.circle") { Task { await session.completeAll() } }
+                action("Reset", symbol: "arrow.counterclockwise") { Task { await session.reset() } }
+                action("Update", symbol: "arrow.down.circle") { session.showUpdateAvailabilitySample() }
+            }
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    action("Add", symbol: "plus") { Task { await session.addSample() } }
+                    action("Failed", symbol: "exclamationmark.triangle") { Task { await session.addFailedRemoteAdd() } }
+                    action("Complete", symbol: "checkmark.circle") { Task { await session.completeAll() } }
+                }
+                HStack(spacing: 6) {
+                    action("Reset", symbol: "arrow.counterclockwise") { Task { await session.reset() } }
+                    action("Update", symbol: "arrow.down.circle") { session.showUpdateAvailabilitySample() }
+                }
+            }
+        }
+        .controlSize(.small)
+    }
+
+    private func action(_ title: String, symbol: String, perform: @escaping () -> Void) -> some View {
+        Button(action: perform) {
+            Label(glassText(title), systemImage: symbol)
+                .font(.caption)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(.plain)
+        .modifier(InspectorGlassPill(interactive: true))
+        .help(glassText(title))
+    }
+}
+
 /// All sample remote traffic fails locally, without reaching any server.
 private final class OfflineTestRPCProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
