@@ -2,8 +2,12 @@ import AppKit
 import SwiftUI
 
 public struct SelectionAppearanceView: View {
-    private let onClose: () -> Void
-    public init(onClose: @escaping () -> Void = {}) { self.onClose = onClose }
+    private let externalSection: Binding<TuningSection>?
+    private let testSession: TorrentTestSessionState?
+    public init(section: Binding<TuningSection>? = nil, testSession: TorrentTestSessionState? = nil) {
+        self.externalSection = section
+        self.testSession = testSession
+    }
     @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
     @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
     @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
@@ -32,7 +36,13 @@ public struct SelectionAppearanceView: View {
     @State private var backgroundEnabled = GlassBackgroundService.isEnabled
     @State private var saveStatus: String?
     @SceneStorage("GlassTune.section") private var sectionName = TuningSection.icons.rawValue
-    private var section: TuningSection { TuningSection(rawValue: sectionName) ?? .icons }
+    private var section: TuningSection {
+        externalSection?.wrappedValue ?? TuningSection(rawValue: sectionName) ?? .icons
+    }
+    private func selectSection(_ selection: TuningSection) {
+        if let externalSection { externalSection.wrappedValue = selection }
+        else { sectionName = selection.rawValue }
+    }
 
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -91,53 +101,99 @@ public struct SelectionAppearanceView: View {
 
     public var body: some View {
         VStack(spacing: 16) {
-            HStack {
-                Text(glassText("Tune")).font(.headline)
-                Spacer()
-                Button(action: onClose) { Image(systemName: "xmark") }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Close Tune")
-                    .help("Return to the torrent inspector")
-            }
-            Picker(glassText("Section"), selection: $sectionName) {
-                ForEach(TuningSection.allCases) { section in
-                    Label(glassText(section.title), systemImage: section.symbol).tag(section.rawValue)
+            Menu {
+                ForEach(TuningSection.allCases) { item in
+                    Button {
+                        withAnimation(.smooth(duration: 0.24)) { selectSection(item) }
+                    } label: {
+                        Label(glassText(item.title), systemImage: item.symbol)
+                    }
+                }
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: section.symbol)
+                    Text(glassText(section.title))
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .buttonStyle(.plain)
+            .modifier(InspectorGlassPill(interactive: true))
             .accessibilityLabel("Tune section")
             .frame(maxWidth: .infinity, alignment: .leading)
             Divider()
             ScrollView {
-                VStack(alignment: .leading, spacing: 20) { controls }
+                ZStack(alignment: .topLeading) {
+                    controls
+                        .id(section.rawValue)
+                        .transition(.opacity.combined(with: .blurReplace))
+                }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 4)
             }
-            .id(sectionName)
+            .animation(.smooth(duration: 0.24), value: section)
             .scrollEdgeEffectHidden(true, for: .top)
             Divider()
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Button(glassText("Test Torrents…")) { TorrentTestWindow.show() }
-                    Spacer(minLength: 4)
-                    Button(glassText("Reset")) { AppearancePreferences.shared.resetToDefaults() }
-                    Button(glassText("Save…")) {
-                        do {
-                            if try GlassAppearanceDefaults.save() { saveStatus = "Appearance defaults saved." }
-                        } catch { saveStatus = error.localizedDescription }
-                    }
-                    .help("Save appearance values and the main window size as defaults.")
-                }.controlSize(.small)
-                if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
-            }
+            footer
         }
-        .padding(.horizontal, 18)
-        .padding(.top, 18)
-        .padding(.bottom, 16)
+        .padding(.horizontal, 22)
+        .padding(.top, 22)
+        .padding(.bottom, 20)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .glassTextStyle()
+    }
+
+    @ViewBuilder private var footer: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let testSession {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 6) {
+                        footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
+                        footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
+                        footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
+                    }
+                    VStack(spacing: 6) {
+                        HStack(spacing: 6) {
+                            footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
+                            footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
+                        }
+                        HStack(spacing: 6) {
+                            footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
+                            Spacer(minLength: 0)
+                        }
+                    }
+                }
+                HStack(spacing: 6) {
+                    footerButton("Reset", symbol: "arrow.counterclockwise") { Task { await testSession.reset() } }
+                    footerButton("Update sample", symbol: "arrow.down.circle") { testSession.showUpdateAvailabilitySample() }
+                }
+            }
+            HStack(spacing: 6) {
+                footerButton("Reset appearance", symbol: "arrow.counterclockwise") { AppearancePreferences.shared.resetToDefaults() }
+                Spacer(minLength: 4)
+                footerButton("Save", symbol: "square.and.arrow.down") {
+                    do {
+                        if try GlassAppearanceDefaults.save() { saveStatus = "Appearance defaults saved." }
+                    } catch { saveStatus = error.localizedDescription }
+                }
+                .help("Save appearance values and the main window size as defaults.")
+            }
+            if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
+        }
+        .controlSize(.small)
+    }
+
+    private func footerButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(glassText(title), systemImage: symbol)
+                .font(.caption)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+        }
+        .buttonStyle(.plain)
+        .modifier(InspectorGlassPill(interactive: true))
+        .help(glassText(title))
     }
 
     @ViewBuilder private var controls: some View {
@@ -340,11 +396,11 @@ public struct SelectionAppearanceView: View {
 
 }
 
-private enum TuningSection: String, CaseIterable, Identifiable {
+public enum TuningSection: String, CaseIterable, Identifiable {
     case icons, selection, layout, headers, progress, inspector, motion, sorting, add, haptics, background
-    var id: Self { self }
-    var title: String { rawValue.capitalized }
-    var symbol: String {
+    public var id: Self { self }
+    public var title: String { rawValue.capitalized }
+    public var symbol: String {
         switch self {
         case .icons: "folder"
         case .selection: "square.on.square"

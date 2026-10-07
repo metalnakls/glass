@@ -1,52 +1,19 @@
 import AppKit
 import GlassRemoteCore
 import GlassRemoteServices
+import Observation
 import SwiftUI
 
-@MainActor public enum TorrentTestWindow {
-    private static var window: NSWindow?
-    public static func show() {
-        guard GlassTuningMode.isEnabled else { return }
-        if window == nil {
-            let panel = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 820, height: 620),
-                styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            panel.title = glassText("Test Torrents")
-            panel.contentView = NSHostingView(rootView: TorrentTestWorkspace())
-            panel.isReleasedWhenClosed = false
-            panel.setFrameAutosaveName("GlassTestTorrents")
-            panel.center(); window = panel
-        }
-        window?.makeKeyAndOrderFront(nil)
-    }
-}
+/// A disposable alternate model used by Tune to put sample torrents in the main list.
+@MainActor @Observable public final class TorrentTestSessionState {
+    private let session: TorrentTestSession
+    public let model: RemoteAppModel
+    @ObservationIgnored private var failedAdditionID: UUID?
+    @ObservationIgnored private var updateAvailabilityBeforeSample: Bool?
 
-private struct TorrentTestWorkspace: View {
-    @State private var isTuningPresented = false
-    @State private var library = TorrentTestLibrary()
-    @AppearanceStorage("GlassList.funMode") private var funMode = false
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Text(glassText("Test Torrents")).font(.headline)
-                Toggle(glassText("Fun mode"), isOn: $funMode).toggleStyle(.switch).controlSize(.small)
-                Spacer()
-                Button(glassText("Failed remote add")) { Task { await library.addOfflineFixture() } }
-                Button(glassText("Complete downloads")) { Task { await library.session.completeAll(); await library.model.refresh() } }
-                Button(glassText("Reset")) { library = TorrentTestLibrary() }
-                Button(isTuningPresented ? "Hide Tune" : "Tune") { isTuningPresented.toggle() }
-            }.controlSize(.small).padding(10)
-            GlassRootView(model: library.model, isTestWorkspace: true, tuningPresented: $isTuningPresented)
-                .id(ObjectIdentifier(library))
-                .environment(\.glassSampleArtwork, true)
-        }.frame(minWidth: 700, minHeight: 360).glassTextStyle()
-    }
-}
-
-@MainActor private final class TorrentTestLibrary {
-    let session = TorrentTestSession()
-    let model: RemoteAppModel
-    init() {
-        let session = self.session
+    public init() {
+        let session = TorrentTestSession()
+        self.session = session
         model = RemoteAppModel(profileStore: TestProfileStore(), credentialStore: TestCredentials(),
             rpcClientFactory: { config in
                 let configuration = URLSessionConfiguration.ephemeral
@@ -54,19 +21,61 @@ private struct TorrentTestWorkspace: View {
                 return TransmissionRPCClient(config: config, session: URLSession(configuration: configuration))
             }, localSessionFactory: { session })
     }
-    func addOfflineFixture() async {
-        let profile = RemoteProfile(id: UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!,
+
+    public func addSample() async {
+        _ = await session.addTorrentFile(data: Data([1]), torrentName: "New Sample.mkv",
+            downloadDirectory: "/Sample/Downloads", fileSelection: nil)
+        await model.refresh(sourceID: model.localSourceID)
+    }
+
+    public func addFailedRemoteAdd() async {
+        if let failedAdditionID { model.cancelTorrentAddition(failedAdditionID) }
+        let profile = RemoteProfile(id: Self.offlineProfileID,
             name: "Offline sample NAS", rpcURL: URL(string: "http://offline.invalid/transmission/rpc")!, username: "")
         model.saveProfile(profile, password: "")
         let id = UUID()
+        failedAdditionID = id
         model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Queued Movie.mkv", size: 1_000_000_000,
             fileCount: 1, downloadDirectory: "/Sample/NAS", namingPlan: nil, data: Data([1]))
         _ = await model.retryTorrentAddition(id)
+        model.selectedProfileID = model.localSourceID
     }
 
+    public func completeAll() async {
+        await session.completeAll()
+        await model.refresh(sourceID: model.localSourceID)
+    }
+
+    public func reset() async {
+        if let failedAdditionID { model.cancelTorrentAddition(failedAdditionID) }
+        failedAdditionID = nil
+        if let profile = model.profiles.first(where: { $0.id == Self.offlineProfileID }) {
+            model.deleteProfile(profile)
+        }
+        await session.reset()
+        model.selectedProfileID = model.localSourceID
+        model.selectedTorrentGroup = .all
+        if let updateAvailabilityBeforeSample {
+            GlassUpdateAvailability.shared.setAvailable(updateAvailabilityBeforeSample)
+            self.updateAvailabilityBeforeSample = nil
+        }
+        model.errorMessage = nil
+        await model.refreshAllSources()
+    }
+
+    public func end() async { await reset() }
+
+    public func showUpdateAvailabilitySample() {
+        if updateAvailabilityBeforeSample == nil {
+            updateAvailabilityBeforeSample = GlassUpdateAvailability.shared.isAvailable
+        }
+        GlassUpdateAvailability.shared.setAvailable(true)
+    }
+
+    private static let offlineProfileID = UUID(uuidString: "AAAAAAAA-0000-0000-0000-000000000001")!
 }
 
-/// All remote traffic in the test workspace fails here, without reaching any server.
+/// All sample remote traffic fails locally, without reaching any server.
 private final class OfflineTestRPCProtocol: URLProtocol, @unchecked Sendable {
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -98,6 +107,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
     private var removed = Set<Int>()
     private var wanted: [String: [Int: Bool]] = [:]
     private var priorities: [String: [Int: Int]] = [:]
+    private var allFixtures: [Fixture] { Self.fixtures + addedFixtures }
     private func summary(_ item: Fixture) -> TorrentSummary {
         let progress = completed.contains(item.id) ? 1 : item.progress
         let size = UInt64(item.id + 4) * 1_000_000_000
@@ -111,7 +121,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
     }
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         TorrentProviderSnapshot(stats: SessionStats(downloadSpeed: 1_800_000, uploadSpeed: 0),
-            torrents: (Self.fixtures + addedFixtures).filter { !removed.contains($0.id) }.map(summary),
+            torrents: allFixtures.filter { !removed.contains($0.id) }.map(summary),
             freeSpace: ServerFreeSpace(path: "/Sample/Downloads", sizeBytes: 185_000_000_000))
     }
     func fetchDefaultDownloadDirectory() async throws -> String? { "/Sample/Downloads" }
@@ -120,7 +130,7 @@ actor TorrentTestSession: LocalTransmissionServicing {
     }
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        guard let item = (Self.fixtures + addedFixtures).first(where: { "glass-sample-\($0.id)" == hashString }) else {
+        guard let item = allFixtures.first(where: { "glass-sample-\($0.id)" == hashString }) else {
             throw LocalTransmissionSessionError.unavailable("Sample removed")
         }
         let torrent = summary(item)
@@ -138,15 +148,23 @@ actor TorrentTestSession: LocalTransmissionServicing {
             percentDone: torrent.percentDone, sizeWhenDone: torrent.sizeWhenDone, leftUntilDone: torrent.leftUntilDone,
             downloadDir: torrent.downloadDir, doneDate: torrent.doneDate, files: files, fileStats: stats)
     }
-    func completeAll() { completed = Set(Self.fixtures.map(\.id)) }
+    func completeAll() { completed = Set(allFixtures.map(\.id)) }
+    func reset() {
+        addedFixtures = []
+        statuses = [:]
+        completed = []
+        removed = []
+        wanted = [:]
+        priorities = [:]
+    }
     private func setRunning(_ ids: [String], running: Bool) async throws {
         try await Task.sleep(for: .milliseconds(180))
-        for item in Self.fixtures where ids.contains("glass-sample-\(item.id)") { statuses[item.id] = running ? 4 : 0 }
+        for item in allFixtures where ids.contains("glass-sample-\(item.id)") { statuses[item.id] = running ? 4 : 0 }
     }
     func start(ids: [String]) async throws { try await setRunning(ids, running: true) }
     func stop(ids: [String]) async throws { try await setRunning(ids, running: false) }
     func remove(ids: [String], deleteLocalData: Bool) async throws {
-        removed.formUnion(Self.fixtures.filter { ids.contains("glass-sample-\($0.id)") }.map(\.id))
+        removed.formUnion(allFixtures.filter { ids.contains("glass-sample-\($0.id)") }.map(\.id))
     }
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {
         for id in ids { for index in fileIndices { self.wanted[id, default: [:]][index] = wanted } }
