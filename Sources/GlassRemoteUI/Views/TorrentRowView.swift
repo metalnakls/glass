@@ -354,8 +354,8 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateSymbol: String {
-        if shareUnavailable { return "questionmark" }
         if torrent.isCompleted { return "checkmark" }
+        if shareUnavailable { return "questionmark" }
         return (pendingRunning ?? torrent.canStopTransfer) ? "pause.fill" : "play.fill"
     }
 
