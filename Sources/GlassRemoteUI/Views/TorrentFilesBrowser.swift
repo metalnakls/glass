@@ -19,6 +19,8 @@ struct TorrentFilesBrowser: View {
     var onSmartRename: (() -> Void)?
     @AppStorage("GlassList.showExtensions") private var showsExtensions = false
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
+    @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeHighlight = false
+    @AppearanceStorage("GlassInspector.fileSideInset") private var fileSideInset = 18.0
     @State private var collapsed = Set<String>()
     @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
@@ -51,6 +53,7 @@ struct TorrentFilesBrowser: View {
         let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
         let rows = treeCache.rows(entries: entries, byIndex: byIndex, collapsed: collapsed, query: searchText)
         let nextRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), rows.dropFirst().map(\.id)))
+        let previousRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.dropFirst().map(\.id), rows.map(\.id)))
         let hiddenExtension = showsExtensions ? nil : treeCache.hiddenExtension
         let widestSize = sizeColumnText ?? entries.map { formatBytes($0.size) }.max {
             $0.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
@@ -139,24 +142,26 @@ struct TorrentFilesBrowser: View {
                     }
                     .frame(minHeight: layout.contentHeight)
                     .background {
-                        if isCompact && nativeSelection.contains(row.id) {
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        if isCompact && !nativeHighlight && nativeSelection.contains(row.id) {
+                            let above = previousRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
+                            let below = nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
+                            UnevenRoundedRectangle(topLeadingRadius: above ? 0 : 12, bottomLeadingRadius: below ? 0 : 12, bottomTrailingRadius: below ? 0 : 12, topTrailingRadius: above ? 0 : 12)
                                 .fill(Color.primary.opacity(0.07))
                                 .padding(.horizontal, -layout.horizontalInset)
-                                .padding(.vertical, -layout.verticalInset + 2)
+                                .padding(.vertical, -layout.verticalInset)
                         }
                         if isCompact && row.id == rows.first?.id {
                             TorrentFileListStyling(onDeselect: { index in
                                 guard rows.indices.contains(index) else { return }
                                 nativeSelection.remove(rows[index].id)
                                 selection.subtract(rows[index].indices)
-                            }, controlInset: layout.nativeCellInset + layout.leadingIconWidth + layout.columnGap)
+                            }, controlInset: layout.nativeCellInset + layout.leadingIconWidth + layout.columnGap, nativeHighlight: nativeHighlight)
                         }
                     }
                     .contentShape(Rectangle())
                     .contentShape(.focusEffect, TorrentFileContextShape(horizontalOutset: layout.horizontalInset))
                     .simultaneousGesture(TapGesture().onEnded {
-                        if NSEvent.modifierFlags.contains(.command) { onFileAction?(row, .reveal) }
+                        GlassHaptics.perform(.selection)
                     })
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
@@ -170,7 +175,7 @@ struct TorrentFilesBrowser: View {
                     }
                     .tag(row.id)
                     .listRowInsets(layout.insets)
-                    .listRowSeparator(isCompact && (row.id == rows.last?.id
+                    .listRowSeparator(!TorrentInternalDragState.active && isCompact && (row.id == rows.last?.id
                         || nativeSelection.contains(row.id)
                         || (nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false)) ? .hidden : (isCompact ? .visible : .automatic), edges: .bottom)
                     .contextMenu {
@@ -182,6 +187,7 @@ struct TorrentFilesBrowser: View {
                 }
             }
             .focusedValue(\.glassInspectorSelectAll, onSelectAll)
+            .focusedValue(\.glassSearchDestination, .inspector)
             .contextMenu(forSelectionType: String.self) { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) {
                     Button(glassText("High Priority"), systemImage: "star.fill") { setPriority(row, 1) }

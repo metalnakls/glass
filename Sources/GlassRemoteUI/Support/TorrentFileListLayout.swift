@@ -1,10 +1,11 @@
 import SwiftUI
 
 /// Shared row metrics keep the content, native row and list height in agreement.
+@MainActor
 struct TorrentFileListLayout {
     static let inspector = Self(isInspector: true)
     let isInspector: Bool
-    var outerInset: CGFloat { isInspector ? 18 : 0 }
+    var outerInset: CGFloat { isInspector ? AppearancePreferences.shared.value(for: "GlassInspector.fileSideInset", fallback: 18.0) : 0 }
     var nativeCellInset: CGFloat { isInspector ? 8 : 0 }
     var contentInset: CGFloat { max(0, outerInset - nativeCellInset) }
     var leadingIconWidth: CGFloat { isInspector ? 28 : 16 }
