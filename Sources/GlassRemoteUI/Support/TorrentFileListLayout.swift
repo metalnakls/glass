@@ -13,6 +13,7 @@ struct TorrentFileListLayout {
     var textLeadingInset: CGFloat { outerInset + leadingIconWidth + columnGap }
     var verticalInset: CGFloat { isInspector ? 6 : 3 }
     var horizontalInset: CGFloat { nativeCellInset }
+    var selectionOutset: CGFloat { nativeCellInset + 4 }
     var contentHeight: CGFloat { isInspector ? 36 : 32 }
     var rowHeight: CGFloat { contentHeight + verticalInset * 2 }
     var columnGap: CGFloat { isInspector ? 10 : 8 }

@@ -153,7 +153,7 @@ struct TorrentFilesBrowser: View {
                             let below = nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
                             UnevenRoundedRectangle(topLeadingRadius: above ? 0 : 12, bottomLeadingRadius: below ? 0 : 12, bottomTrailingRadius: below ? 0 : 12, topTrailingRadius: above ? 0 : 12)
                                 .fill(Color.primary.opacity(0.07))
-                                .padding(.horizontal, -layout.horizontalInset + 4)
+                                .padding(.horizontal, -layout.selectionOutset)
                                 .padding(.vertical, -layout.verticalInset)
                         }
                         if isCompact && row.id == rows.first?.id {
