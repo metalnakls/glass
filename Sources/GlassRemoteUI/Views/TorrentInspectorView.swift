@@ -311,7 +311,7 @@ private struct TorrentInspectorContent: View {
                         torrentErrors: snapshot.group.map { group in
                             TorrentNameSequenceGroup(id: group.id, displayName: group.displayName, torrents: members).locationErrors
                         } ?? members.compactMap { $0.errorString }.filter { !$0.isEmpty },
-                        platformIntegration: platformIntegration, glassPills: true)
+                        platformIntegration: platformIntegration, glassPills: true, showsCapacity: false)
                 }
             }
             .padding(.horizontal, fileLayout.outerInset)

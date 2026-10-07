@@ -43,6 +43,7 @@ struct TorrentDownloadLocationView: View {
     var torrentErrors: [String] = []
     let platformIntegration: any GlassPlatformIntegrating
     var glassPills = false
+    var showsCapacity = true
     @State private var feedbackID: UUID?
     @State private var feedback: String?
     @State private var isOpening = false
@@ -88,6 +89,7 @@ struct TorrentDownloadLocationView: View {
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
+            if showsCapacity {
             if glassPills { Spacer(minLength: 8) }
             VStack(alignment: .trailing, spacing: 4) {
                 if !torrentErrors.isEmpty {
@@ -102,6 +104,7 @@ struct TorrentDownloadLocationView: View {
                 }
             }
             .modifier(LocationGlassPill(enabled: glassPills, interactive: false))
+            }
         }
         .frame(minHeight: 36)
         .task(id: feedbackID) {
