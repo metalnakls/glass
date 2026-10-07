@@ -35,7 +35,7 @@ struct TorrentDownloadLocationPicker: View {
                         HStack(spacing: 8) {
                             NativeLocationIcon(path: nativeLocationPath,
                                 sourceID: sourceID == model.localSourceID ? nil : sourceID,
-                                serverName: model.sourceName(for: sourceID), size: 24)
+                                serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
                             Text(locationName).textCase(nil).fontWeight(.semibold)
                                 .lineLimit(1).truncationMode(.middle)
                                 .fixedSize(horizontal: true, vertical: false)

@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Custom search and progress surfaces match the native extra-large text button height.
@@ -5,6 +6,11 @@ import SwiftUI
 struct InspectorGlassPill: ViewModifier {
     static let height: CGFloat = 36
     static let spacing: CGFloat = 8
+    // Artwork occupies one native label line, so it cannot enlarge the button.
+    static var locationIconSize: CGFloat {
+        let font = NSFont.preferredFont(forTextStyle: .body)
+        return ceil(font.ascender - font.descender + font.leading)
+    }
     var interactive = false
     var tint: Color?
     var iconOnly = false
