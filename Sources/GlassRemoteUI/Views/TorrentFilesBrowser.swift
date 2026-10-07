@@ -154,7 +154,8 @@ struct TorrentFilesBrowser: View {
                         .fixedSize(horizontal: true, vertical: false)
                     }
                     .frame(minHeight: layout.contentHeight)
-                    .padding(.horizontal)
+                    .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
+                    .padding(.horizontal, scrolls ? nil : 0)
                     .background {
                         if isCompact && !nativeHighlight && nativeSelection.contains(row.id) {
                             let above = previousRowIDs[row.id].map { nativeSelection.contains($0) } ?? false

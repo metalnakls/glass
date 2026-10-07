@@ -14,6 +14,8 @@ public enum GlassAppearanceDefaults {
     }
 
     private static let fallbackDefaults: [String: Any] = [
+        "GlassList.initialPadding": 16.0,
+        "GlassList.endPadding": 68.0,
         "GlassList.loadingSort": "priority",
         "GlassList.completedSort": "lastDownloaded",
         "GlassInspector.blurEnabled": false,

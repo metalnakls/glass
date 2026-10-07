@@ -49,6 +49,8 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
+    @AppearanceStorage("GlassList.initialPadding") private var initialPadding = 16.0
+    @AppearanceStorage("GlassList.endPadding") private var endPadding = 68.0
     @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
@@ -115,14 +117,12 @@ public struct SelectionAppearanceView: View {
         }
         .glassFloatingChrome(top: {
             HStack {
-                GlassPillButton { sectionPickerPresented.toggle() } label: {
+                GlassMorphingPicker(isPresented: $sectionPickerPresented) {
                     HStack {
                         Label(glassText(section.title), systemImage: section.symbol)
                         Image(systemName: "chevron.down").font(.caption)
                     }
-                }
-                .accessibilityLabel("Tune section")
-                .popover(isPresented: $sectionPickerPresented, arrowEdge: .top) {
+                } choices: {
                     VStack(alignment: .leading) {
                         ForEach(TuningSection.allCases) { item in
                             Button {
@@ -131,12 +131,12 @@ public struct SelectionAppearanceView: View {
                             } label: {
                                 Label(glassText(item.title), systemImage: item.symbol)
                                     .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.vertical)
                                     .contentShape(Rectangle())
                             }.buttonStyle(.plain)
                         }
-                    }.padding()
+                    }.fixedSize(horizontal: true, vertical: false)
                 }
+                .accessibilityLabel("Tune section")
                 Spacer()
             }
         }, bottom: { footer })
@@ -256,6 +256,8 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Right padding", value: $rightPadding, range: 0...160)
                 shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
                 shadowSlider("Between sections", value: $sectionSpacing, range: 0...120)
+                shadowSlider("Before first header", value: $initialPadding, range: 0...160)
+                shadowSlider("After last item", value: $endPadding, range: 0...160)
                 shadowSlider("Below headers", value: $headerBottomPadding, range: 0...120)
             }
             Divider()

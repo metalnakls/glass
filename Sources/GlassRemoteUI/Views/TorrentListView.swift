@@ -33,6 +33,8 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.rightPadding") private var rightPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
+    @AppearanceStorage("GlassList.initialPadding") private var initialPadding = 16.0
+    @AppearanceStorage("GlassList.endPadding") private var endPadding = 68.0
     @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
     @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
     @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
@@ -130,7 +132,7 @@ struct TorrentListView: View {
         let entries = layout.entries(lowercase: lowercaseTitles)
         let headerPositions = layout.headerIndices
         let separatorLeading = CGFloat(leftPadding) + (density.showsIcon ? 64 : 16)
-        let separatorTrailing = CGFloat(rightPadding) + 16
+        let separatorTrailing = CGFloat(rightPadding) + 32
         ScrollViewReader { scrollProxy in
             Group {
             if grid {
@@ -179,7 +181,7 @@ struct TorrentListView: View {
                                     .padding(.trailing, rightPadding + 16)
                                 }
                             }
-                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? TorrentInspectorLayout.listEdgePadding / 2 : sectionSpacing)
+                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? initialPadding : sectionSpacing)
                             .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
                             // A section title is a label, not a row: it must not
@@ -189,7 +191,7 @@ struct TorrentListView: View {
                             // Room to breathe above the title. Zeroing the top
                             // inset is what made the header sit flush against
                             // the row before it.
-                            .listRowInsets(EdgeInsets(top: TorrentInspectorLayout.listEdgePadding / 2, leading: 0, bottom: 0, trailing: 0))
+                            .listRowInsets(EdgeInsets(top: (headerPositions[section.id] ?? 0) == 0 ? 0 : TorrentInspectorLayout.listEdgePadding / 2, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                     case let .torrent(row):
                         liveRow(for: row)
@@ -229,7 +231,7 @@ struct TorrentListView: View {
             .scrollContentBackground(.hidden)
             .background(listSurface)
             .contentMargins(.horizontal, 0, for: .scrollContent)
-            .contentMargins(.bottom, TorrentInspectorLayout.listEdgePadding, for: .scrollContent)
+            .contentMargins(.bottom, endPadding, for: .scrollContent)
             .background(GeometryReader { proxy in
                 Color.clear.preference(
                     key: TorrentListColumnWidthKey.self,
@@ -238,7 +240,8 @@ struct TorrentListView: View {
             })
             .environment(\.defaultMinListRowHeight, listRowHeight)
             .focusEffectDisabled()
-            .scrollEdgeEffectHidden(true, for: .top)
+            .safeAreaBar(edge: .top, spacing: 0) { Color.clear.frame(height: headerFadeReach).allowsHitTesting(false) }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)

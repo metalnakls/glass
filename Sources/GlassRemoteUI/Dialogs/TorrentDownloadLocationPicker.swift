@@ -17,9 +17,7 @@ struct TorrentDownloadLocationPicker: View {
     @State private var previousProfileIDs = Set<UUID>()
     @State private var isChoosingFolder = false
 
-    @Namespace private var locationGlass
     @State private var isPresented = false
-    @State private var pillSize = CGSize(width: 0, height: InspectorGlassPill.height)
     @State private var optionHeld = false
     @AppStorage("GlassAdd.locationIconOrder") private var iconOrder = ""
     @AppStorage("GlassAdd.hiddenLocations") private var hiddenLocations = ""
@@ -27,42 +25,23 @@ struct TorrentDownloadLocationPicker: View {
     @AppearanceStorage("GlassAdd.recentLocations") private var recentCount = 4
 
     var body: some View {
-        GlassEffectContainer(spacing: 12) {
-            ZStack(alignment: .topTrailing) {
-                VStack(alignment: .trailing, spacing: 8) {
-                if !isPresented {
-                    GlassPillButton { withAnimation(.smooth) { isPresented = true } } label: {
-                        HStack(spacing: 8) {
-                            NativeLocationIcon(path: nativeLocationPath,
-                                sourceID: sourceID == model.localSourceID ? nil : sourceID,
-                                serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
-                            Text(locationName).textCase(nil).fontWeight(.semibold)
-                                .lineLimit(1).truncationMode(.middle)
-                                .fixedSize(horizontal: true, vertical: false)
-                            Image(systemName: "chevron.down").font(.caption)
-                        }
-                    }
-                    .fixedSize()
-                    .onGeometryChange(for: CGSize.self) { $0.size } action: { pillSize = $0 }
-                    .glassEffectID("location", in: locationGlass)
-                    .glassEffectTransition(.matchedGeometry)
-                    .disabled(isDisabled || isChoosingFolder)
-                    .transition(.blurReplace)
-                } else {
-                    Color.clear.frame(width: pillSize.width, height: pillSize.height)
+        VStack(alignment: .trailing) {
+            GlassMorphingPicker(isPresented: $isPresented, alignment: .topTrailing) {
+                HStack {
+                    NativeLocationIcon(path: nativeLocationPath,
+                        sourceID: sourceID == model.localSourceID ? nil : sourceID,
+                        serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
+                    Text(locationName).textCase(nil).lineLimit(1).truncationMode(.middle)
+                    Image(systemName: "chevron.down").font(.caption)
                 }
-                    if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
-                        Text("\(formatBytes(bytes)) \(glassText("free"))")
-                            .font(.caption2).padding(.horizontal)
-                            .opacity(isPresented ? 0 : 1)
-                    }
-                }
-                if isPresented { locationChoices.transition(.blurReplace) }
-            }.frame(width: pillSize.width > 0 ? pillSize.width : nil, height: 58, alignment: .topTrailing)
+            } choices: { locationChoices }
+            .disabled(isDisabled || isChoosingFolder)
+            if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
+                Text("\(formatBytes(bytes)) \(glassText("free"))")
+                    .font(.caption2).padding(.horizontal)
+                    .opacity(isPresented ? 0 : 1)
+            }
         }
-        .animation(.smooth, value: isPresented)
-        .animation(.smooth, value: locationName)
-        .onExitCommand { withAnimation(.smooth) { isPresented = false } }
         .sheet(isPresented: $isEditingServer, onDismiss: {
             if let added = model.profiles.first(where: { !previousProfileIDs.contains($0.id) }) {
                 select(added.id, directory: nil)
@@ -148,10 +127,7 @@ struct TorrentDownloadLocationPicker: View {
                     previousProfileIDs = Set(model.profiles.map(\.id)); isPresented = false; isEditingServer = true
                 }.buttonStyle(.plain)
             }
-            .padding().frame(width: menuWidth)
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
-            .glassEffectID("location", in: locationGlass)
-            .glassEffectTransition(.matchedGeometry)
+            .frame(width: menuWidth)
             .background(ModifierKeyObserver { optionHeld = $0 })
     }
 

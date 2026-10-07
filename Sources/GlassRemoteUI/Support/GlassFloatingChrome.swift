@@ -22,6 +22,7 @@ private struct GlassFloatingChrome<Top: View, Bottom: View>: ViewModifier {
             .safeAreaBar(edge: .top, spacing: 0) {
                 GlassFloatingDock(content: top)
             }
+            .scrollEdgeEffectHidden(true, for: .bottom)
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 GlassFloatingDock(content: bottom)
             }
@@ -63,6 +64,7 @@ struct GlassChromeScrollView<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         ScrollView { content() }
-            .scrollEdgeEffectStyle(.soft, for: .all)
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(true, for: .bottom)
     }
 }
