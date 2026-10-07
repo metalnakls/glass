@@ -47,3 +47,12 @@ Bump rules:
 See `Docs/UPDATES.md` for the release pipeline.
 
 Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using the private key in the login Keychain (`-a ed25519 -s https://sparkle-project.org`), and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.
+
+## Shared interface conventions
+
+- Inspector and Add use the same file browser, glass pill metrics, search controls and floating dock style. Edit their shared component when behavior or appearance should stay synchronized; do not copy a second implementation.
+- Present app-owned dialogs through shared modal chrome and dimensions. Loading and loaded content retain the same presentation geometry.
+- Use native selection, keyboard navigation, inline rename and drag behavior. Keep filenames and folder names in their original case.
+- State changes apply immediately. Async work reports pending state without blocking clicks. Animations remain interruptible, respect Reduce Motion and use native glass transitions with shared timing; never delay an action until its animation completes.
+- Put adjustable appearance values in Tune. Avoid duplicated dimensions, glyphs and motion constants.
+- Commit each feature separately. Validate the behavior affected by the change; do not add tests that merely duplicate layout constants or implementation details.
