@@ -372,7 +372,6 @@ private struct TorrentInspectorContent: View {
                             .modifier(InspectorGlassPill())
                             .glassEffectID("primary", in: footerGlassNamespace)
                             .glassEffectTransition(.matchedGeometry)
-                            .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                     if supportsSearch {
