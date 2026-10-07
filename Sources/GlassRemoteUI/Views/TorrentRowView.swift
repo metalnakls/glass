@@ -229,7 +229,7 @@ struct TorrentRowView: View, Equatable {
         BlurReplacementContent(identity: additionStatus ?? (showsDownloadSpeed ? "speed" : "size")) {
             HStack(spacing: 3) {
                 if showsDownloadSpeed { Image(systemName: "arrow.down").font(.system(size: 9, weight: .semibold)) }
-                Text(additionStatus.map { glassText($0) } ?? (showsDownloadSpeed ? formatRate(torrent.rateDownload) : formatBytes(torrent.sizeWhenDone))).textCase(nil)
+                Text(additionStatus.map { glassText($0) } ?? (showsDownloadSpeed ? "\(formatRate(torrent.rateDownload)) · \(formatPercent(progress))" : formatBytes(torrent.sizeWhenDone))).textCase(nil)
             }
         }
         .font(.caption)
