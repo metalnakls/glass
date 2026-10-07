@@ -136,7 +136,13 @@ struct TorrentFilesBrowser: View {
                                 .padding(.horizontal, -layout.horizontalInset)
                                 .padding(.vertical, -layout.verticalInset + 2)
                         }
-                        if isCompact && row.id == rows.first?.id { TorrentFileListStyling() }
+                        if isCompact && row.id == rows.first?.id {
+                            TorrentFileListStyling(onDeselect: { index in
+                                guard rows.indices.contains(index) else { return }
+                                nativeSelection.remove(rows[index].id)
+                                selection.subtract(rows[index].indices)
+                            }, controlInset: layout.nativeCellInset + layout.leadingIconWidth + layout.columnGap)
+                        }
                     }
                     .contentShape(Rectangle())
                     .contentShape(.focusEffect, TorrentFileContextShape(horizontalOutset: layout.horizontalInset))
