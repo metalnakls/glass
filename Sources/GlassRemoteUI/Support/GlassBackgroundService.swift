@@ -172,10 +172,6 @@ private actor GlassBackgroundWorker {
                 try mutableTarget.setResourceValues(values)
                 fingerprints[target.path] = modified
                 present.insert(target.path)
-                await MainActor.run {
-                    let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
-                    NSWorkspace.shared.setIcon(icon, forFile: target.path, options: [])
-                }
             } catch { logger.error("Torrent rename failed: \(error.localizedDescription, privacy: .public)") }
             await Task.yield()
         }
