@@ -9,11 +9,19 @@ import UserNotifications
 @MainActor
 public enum GlassBackgroundService {
     public static let isWorker = CommandLine.arguments.contains("--background-worker")
+    public static var isAvailable: Bool {
+        #if DEBUG
+        true
+        #else
+        false
+        #endif
+    }
     private static var service: SMAppService { .agent(plistName: "tsmc.glass.background.plist") }
-    public static var isEnabled: Bool { service.status == .enabled }
-    public static var requiresApproval: Bool { service.status == .requiresApproval }
+    public static var isEnabled: Bool { isAvailable && service.status == .enabled }
+    public static var requiresApproval: Bool { isAvailable && service.status == .requiresApproval }
 
     public static func setEnabled(_ enabled: Bool) throws {
+        guard !enabled || isAvailable else { return }
         if enabled, service.status != .enabled { try service.register() }
         else if !enabled, service.status != .notRegistered { try service.unregister() }
         UserDefaults.standard.set(enabled, forKey: "GlassBackground.enabled")
@@ -23,6 +31,12 @@ public enum GlassBackgroundService {
     }
 
     public static func offerIfNeeded() {
+        guard isAvailable else {
+            // A release upgrade retires a previously approved debug agent.
+            if service.status != .notRegistered { try? service.unregister() }
+            UserDefaults.standard.set(false, forKey: "GlassBackground.enabled")
+            return
+        }
         guard !isWorker else { return }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         if isEnabled, UserDefaults.standard.string(forKey: "GlassBackground.registeredVersion") != version {
@@ -51,6 +65,7 @@ public enum GlassBackgroundService {
     }
 
     public static func run() async {
+        guard isAvailable else { return }
         await GlassBackgroundWorker.shared.run()
     }
 }

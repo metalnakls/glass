@@ -12,6 +12,7 @@ import UserNotifications
 private enum GlassEntryPoint {
     @MainActor static func main() {
         if GlassBackgroundService.isWorker {
+            guard GlassBackgroundService.isAvailable else { return }
             Task { await GlassBackgroundService.run() }
             RunLoop.main.run()
         } else {
