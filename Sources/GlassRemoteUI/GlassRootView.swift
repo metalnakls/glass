@@ -211,6 +211,7 @@ public struct GlassRootView: View {
                 self.openURLRegistrationID = nil
             }
         }
+        .task { GlassBackgroundService.offerIfNeeded() }
         .task(id: TorrentAutoRefreshInput(profiles: model.profiles, isActive: model.isApplicationActive)) {
             await model.runAutoRefresh()
         }

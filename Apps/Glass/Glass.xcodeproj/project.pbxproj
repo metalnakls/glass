@@ -6,6 +6,11 @@
 	objectVersion = 60;
 	objects = {
 
+
+        120000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = LaunchAgents/tsmc.glass.background.plist; sourceTree = "<group>"; };
+        120000000000000000000006 = {isa = PBXBuildFile; fileRef = 120000000000000000000003; };
+        12000000000000000000000C = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = Contents/Library/LaunchAgents; dstSubfolderSpec = 1; files = (120000000000000000000006, ); name = "Embed Launch Agent"; runOnlyForDeploymentPostprocessing = 0; };
+
 /* Begin PBXBuildFile section */
 		101000000000000000000001 /* GlassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000001 /* GlassApp.swift */; };
 		10100000000000000000000E /* GlassMacPlatformIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000F /* GlassMacPlatformIntegration.swift */; };
@@ -64,6 +69,7 @@
 		104000000000000000000002 /* Glass */ = {
 			isa = PBXGroup;
 			children = (
+                120000000000000000000003,
 				102000000000000000000001 /* GlassApp.swift */,
 				10200000000000000000000F /* GlassMacPlatformIntegration.swift */,
 				10200000000000000000000C /* LocalTransmissionSession.swift */,
@@ -118,6 +124,7 @@
 				106000000000000000000001 /* Sources */,
 				103000000000000000000001 /* Frameworks */,
 				107000000000000000000001 /* Resources */,
+                12000000000000000000000C,
 			);
 			buildRules = (
 			);
