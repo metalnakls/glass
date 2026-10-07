@@ -114,6 +114,8 @@ struct AddTorrentBatchView: View {
         }
         .animation(.smooth, value: selectedGroupID)
         .overlay(alignment: .top) {
+            LinearGradient(colors: [Color(nsColor: .windowBackgroundColor).opacity(0.95), .clear], startPoint: .top, endPoint: .bottom)
+                .frame(height: headerClearance + 24).allowsHitTesting(false)
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
                 header(for: group).zIndex(10)
             }
