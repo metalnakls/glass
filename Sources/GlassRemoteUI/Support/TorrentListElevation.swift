@@ -261,7 +261,7 @@ final class TorrentListElevationController: NSObject {
     private func update(animated: Bool) {
         guard let table, let clip = table.enclosingScrollView?.contentView else { return }
         if overlay.frame != clip.frame { overlay.frame = clip.frame }
-        guard !isReordering, let selectedID, table.numberOfRows == rowIDs.count,
+        guard !isReordering, let selectedID, selectedID != swipingID, table.numberOfRows == rowIDs.count,
               let rowIndex = rowIndices[selectedID] else {
             surface.layer?.removeAnimation(forKey: "glide")
             surface.layer?.removeAnimation(forKey: "appear")
