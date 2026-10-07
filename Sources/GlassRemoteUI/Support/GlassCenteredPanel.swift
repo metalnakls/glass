@@ -79,7 +79,13 @@ private struct GlassCenteredPanelHost<PanelContent: View>: NSViewRepresentable {
         let dismissAction = GlassPanelDismissAction(isAvailable: true) { [weak coordinator = context.coordinator] in
             coordinator?.dismissPanel()
         }
-        let hostedContent = AnyView(content().environment(\.glassPanelDismiss, dismissAction))
+        let hostedContent = AnyView(
+            content()
+                .environment(\.glassPanelDismiss, dismissAction)
+                .frame(width: size.width, height: size.height)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        )
         context.coordinator.update(
             parentWindow: nsView.window,
             isPresented: $isPresented,
@@ -170,6 +176,9 @@ private struct GlassCenteredPanelHost<PanelContent: View>: NSViewRepresentable {
             panel.title = ""
             panel.titleVisibility = .hidden
             panel.titlebarAppearsTransparent = true
+            panel.standardWindowButton(.closeButton)?.isHidden = true
+            panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
+            panel.standardWindowButton(.zoomButton)?.isHidden = true
             panel.isMovableByWindowBackground = true
             panel.isFloatingPanel = true
             panel.hidesOnDeactivate = false
