@@ -262,25 +262,42 @@ final class TorrentThumbnailService {
                               item.path.hasPrefix(root.path == "/" ? "/" : root.path + "/") else {
                             throw CocoaError(.fileReadInvalidFileName)
                         }
-                        guard FileManager.default.fileExists(atPath: item.path) else { throw CocoaError(.fileNoSuchFile) }
-                        continuation.resume(returning: (item, nil))
+                        guard let existing = Self.revealTarget(item: item, root: root) else { throw CocoaError(.fileNoSuchFile) }
+                        continuation.resume(returning: (existing, nil))
                     } else {
                         guard let link else { throw CocoaError(.fileNoSuchFile) }
                         var stale = false
                         let root = try URL(resolvingBookmarkData: link.bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
                         let scoped = root.startAccessingSecurityScopedResource()
                         guard let item = TorrentThumbnailFolderLink.fileURL(remoteRoot: link.remoteRoot, localRoot: root, directory: directory, filePath: itemPath),
-                              FileManager.default.fileExists(atPath: item.path) else {
+                              let existing = Self.revealTarget(item: item, root: root) else {
                             if scoped { root.stopAccessingSecurityScopedResource() }
                             throw CocoaError(.fileNoSuchFile)
                         }
-                        continuation.resume(returning: (item, scoped ? root : nil))
+                        continuation.resume(returning: (existing, scoped ? root : nil))
                     }
                 } catch { continuation.resume(throwing: error) }
             }
         }
         defer { target.scope?.stopAccessingSecurityScopedResource() }
         NSWorkspace.shared.activateFileViewerSelecting([target.target])
+    }
+
+    /// Preserve the mapped share boundary while falling back through torrent parents.
+    nonisolated static func revealTarget(item: URL, root: URL) -> URL? {
+        guard item.path == root.path || item.path.hasPrefix(root.path + "/") else { return nil }
+        let manager = FileManager.default
+        if manager.fileExists(atPath: item.path) { return item }
+        let partial = URL(fileURLWithPath: item.path + ".part")
+        if manager.fileExists(atPath: partial.path) { return partial }
+        var parent = item.deletingLastPathComponent()
+        while parent.path == root.path || parent.path.hasPrefix(root.path + "/") {
+            if manager.fileExists(atPath: parent.path) { return parent }
+            let next = parent.deletingLastPathComponent()
+            guard next != parent else { break }
+            parent = next
+        }
+        return nil
     }
 
     func updateRemoteRoot(sourceID: UUID, remoteRoot: String) throws {

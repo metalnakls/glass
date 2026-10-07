@@ -326,7 +326,7 @@ private struct TorrentInspectorContent: View {
     private var topDock: some View {
             HStack(alignment: .center, spacing: 8) {
                 if let first = members.first {
-                    TorrentDownloadLocationView(directory: first.downloadDir, itemPath: first.name,
+                    TorrentDownloadLocationView(directory: first.downloadDir, itemPath: selectedDetails.first.flatMap { fileEntries(for: $0).first?.originalPath } ?? first.name,
                         sourceID: sourceID, isLocal: sourceID == model.localSourceID,
                         localName: model.localSourceName, serverName: model.sourceName(for: sourceID),
                         availableBytes: model.serverFreeSpace[sourceID]?.availableBytes,
@@ -372,7 +372,7 @@ private struct TorrentInspectorContent: View {
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                     if supportsSearch {
-                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented || permanentSearch ? "primary" : "secondary", permanentlyExpanded: permanentSearch)
+                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented || permanentSearch ? "primary" : "secondary", permanentlyExpanded: permanentSearch || allCompleted)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }

@@ -73,10 +73,7 @@ struct TorrentDownloadLocationView: View {
                 } label: {
                     HStack(spacing: TorrentFileListLayout.inspector.columnGap) {
                         NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: InspectorGlassPill.locationIconSize)
-                        Text(location.sourceName).hidden()
-                            .overlay(alignment: .leading) {
-                                TransientStatusText(text: location.sourceName, message: feedback)
-                            }
+                        TransientStatusText(text: location.sourceName, message: feedback)
                             .font(.headline)
                             .fixedSize(horizontal: true, vertical: false)
                             .lineLimit(1).truncationMode(.middle)
