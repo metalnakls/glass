@@ -214,6 +214,7 @@ private struct TorrentInspectorContent: View {
     let editSession: TorrentFileEditSession
     let commandsEnabled: Bool
     let onApply: (Bool?) -> Void
+    @AppearanceStorage("GlassInspector.permanentSearch") private var permanentSearch = true
     @State private var searchPresented = false
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -255,6 +256,8 @@ private struct TorrentInspectorContent: View {
         }
         .overlay(alignment: .topLeading) { topDock }
         .overlay(alignment: .bottom) { bottomDock }
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: snapshot.selectionKey)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: allCompleted)
         .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
         .onChange(of: supportsSearch) { _, supported in
             if !supported { searchPresented = false; fileSearchText = "" }
@@ -266,8 +269,10 @@ private struct TorrentInspectorContent: View {
     }
 
     private var filesScrollView: some View {
+        ScrollViewReader { scroll in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
+                Color.clear.frame(height: 0).id("inspector-top")
                 if let group = snapshot.group {
                     ForEach(group.torrents, id: \.hashString) { torrent in
                         if let details = groupDetails[torrent.hashString] {
@@ -304,13 +309,19 @@ private struct TorrentInspectorContent: View {
         .contentMargins(.top, InspectorGlassPill.height + 34, for: .scrollContent)
         .contentMargins(.bottom, footerHeight, for: .scrollContent)
         .scrollEdgeEffectHidden()
+        .onChange(of: snapshot.selectionKey) { _, _ in
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
+                scroll.scrollTo("inspector-top", anchor: .top)
+            }
+        }
+        }
     }
 
     @Namespace private var footerGlassNamespace
 
     private var topDock: some View {
         GlassEffectContainer(spacing: 8) {
-            VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center, spacing: 8) {
                 if let first = members.first {
                     TorrentDownloadLocationView(directory: first.downloadDir, itemPath: first.name,
                         sourceID: sourceID, isLocal: sourceID == model.localSourceID,
@@ -321,6 +332,12 @@ private struct TorrentInspectorContent: View {
                         } ?? members.compactMap { $0.errorString }.filter { !$0.isEmpty },
                         platformIntegration: platformIntegration, glassPills: true, showsCapacity: false)
                 }
+                Spacer(minLength: 8)
+                if permanentSearch && supportsSearch && !allCompleted {
+                    TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
+                        .modifier(InspectorGlassPill())
+                        .transition(.opacity.combined(with: .blurReplace))
+                }
             }
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 18).padding(.bottom, 16)
@@ -329,6 +346,8 @@ private struct TorrentInspectorContent: View {
     }
 
     private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
+
+    private var allCompleted: Bool { !members.isEmpty && members.allSatisfy(\.isCompleted) }
 
     private var footerHeight: CGFloat { InspectorGlassPill.height + 38 }
 
@@ -348,7 +367,7 @@ private struct TorrentInspectorContent: View {
                     Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
                 } else {
-                    if !searchPresented || !supportsSearch {
+                    if !allCompleted && (!permanentSearch || !supportsSearch) && (!searchPresented || !supportsSearch) {
                         TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                             .modifier(InspectorGlassPill())
                             .glassEffectID("primary", in: footerGlassNamespace)
@@ -357,7 +376,7 @@ private struct TorrentInspectorContent: View {
                             .transition(.move(edge: .leading).combined(with: .opacity))
                     }
                     if supportsSearch {
-                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented ? "primary" : "secondary")
+                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented || permanentSearch ? "primary" : "secondary", permanentlyExpanded: permanentSearch)
                             .transition(.move(edge: .trailing).combined(with: .opacity))
                     }
                 }
@@ -369,7 +388,7 @@ private struct TorrentInspectorContent: View {
             .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: searchPresented)
             .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: editSession.hasSelection)
             .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
-            .disabled(editSession.isApplying)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: allCompleted)
         }
     }
 

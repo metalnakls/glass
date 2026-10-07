@@ -9,25 +9,29 @@ struct GlassSearchPill: View {
     var transitionID = "search"
     var prompt = "Search Files"
     var inspectorFocus = true
+    var permanentlyExpanded = false
+    private var expanded: Bool { isPresented || permanentlyExpanded }
     @FocusState private var focused: Bool
     @Namespace private var glassNamespace
 
     var body: some View {
         HStack(spacing: 8) {
-            Button { withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass") }
+            Button { focused = true; withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass") }
                 .buttonStyle(.plain).accessibilityLabel(glassText(prompt))
-            if isPresented {
+            if expanded {
                 TextField(glassText(prompt), text: $text)
                     .textFieldStyle(.plain).focused($focused)
                     .focusedValue(\.glassInspectorFileFilterFocused, inspectorFocus)
-                    .onExitCommand { isPresented = false }
-                Button { withAnimation(.smooth(duration: 0.35)) { isPresented = false } } label: { Image(systemName: "xmark") }
-                    .buttonStyle(.plain).accessibilityLabel(glassText("Close search"))
+                    .onExitCommand { isPresented = false; focused = false; text = "" }
+                if !permanentlyExpanded { Button { withAnimation(.smooth(duration: 0.35)) { isPresented = false } } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel(glassText("Close search")) }
             }
         }
-        .frame(width: isPresented ? expandedWidth : nil)
-        .frame(maxWidth: isPresented && expandedWidth == nil ? .infinity : nil)
-        .modifier(InspectorGlassPill(interactive: true, iconOnly: !isPresented))
+        .frame(width: expanded ? expandedWidth : nil)
+        .frame(maxWidth: expanded && expandedWidth == nil ? .infinity : nil)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true; isPresented = true }
+        .modifier(InspectorGlassPill(interactive: true, iconOnly: !expanded))
         .glassEffectID(transitionID, in: transitionNamespace ?? glassNamespace)
         .glassEffectTransition(.matchedGeometry)
         .onChange(of: isPresented) { _, presented in focused = presented; if !presented { text = "" } }
