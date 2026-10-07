@@ -9,6 +9,8 @@
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
+			<key>CFBundleTypeIconFile</key>
+			<string>TransmissionDocument.icns</string>
 			<key>CFBundleTypeName</key>
 			<string>BitTorrent Metainfo</string>
 			<key>CFBundleTypeRole</key>

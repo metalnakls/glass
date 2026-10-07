@@ -27,6 +27,7 @@
         120000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_ENTITLEMENTS = ../GlassQuickLook/GlassQuickLook.entitlements; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ../GlassQuickLook/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = tsmc.glass.quicklook; PRODUCT_NAME = GlassQuickLook; SKIP_INSTALL = YES; MACOSX_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 6.0; GLASS_VERSION = 1.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks", );}; name = Release; };
 
 /* Begin PBXBuildFile section */
+        130000000000000000000002 = {isa = PBXBuildFile; fileRef = 130000000000000000000001; };
 		101000000000000000000001 /* GlassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000001 /* GlassApp.swift */; };
 		10100000000000000000000E /* GlassMacPlatformIntegration.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000F /* GlassMacPlatformIntegration.swift */; };
 		10100000000000000000000C /* LocalTransmissionSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10200000000000000000000C /* LocalTransmissionSession.swift */; };
@@ -40,6 +41,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+        130000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = image.icns; path = ../../Vendor/transmission/source/macosx/Images/TransmissionDocument.icns; sourceTree = "<group>"; };
 		102000000000000000000001 /* GlassApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassApp.swift; sourceTree = "<group>"; };
 		10200000000000000000000F /* GlassMacPlatformIntegration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassMacPlatformIntegration.swift; sourceTree = "<group>"; };
 		10200000000000000000000B /* Glass-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "Glass-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 			files = (
 				10100000000000000000000A /* Transmission.icon in Resources */,
 				101000000000000000000010 /* Appearance.xcassets in Resources */,
+                130000000000000000000002,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
