@@ -261,34 +261,25 @@ final class TorrentThumbnailService {
                               item.path.hasPrefix(root.path == "/" ? "/" : root.path + "/") else {
                             throw CocoaError(.fileReadInvalidFileName)
                         }
-                        let target = FileManager.default.fileExists(atPath: item.path) ? item : root
-                        guard FileManager.default.fileExists(atPath: target.path) else { throw CocoaError(.fileNoSuchFile) }
-                        continuation.resume(returning: (target, nil))
+                        guard FileManager.default.fileExists(atPath: item.path) else { throw CocoaError(.fileNoSuchFile) }
+                        continuation.resume(returning: (item, nil))
                     } else {
                         guard let link else { throw CocoaError(.fileNoSuchFile) }
                         var stale = false
                         let root = try URL(resolvingBookmarkData: link.bookmark, options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
                         let scoped = root.startAccessingSecurityScopedResource()
-                        guard TorrentThumbnailFolderLink.directoryURL(remoteRoot: link.remoteRoot, localRoot: root, directory: directory) != nil,
-                              FileManager.default.fileExists(atPath: root.path) else {
+                        guard let item = TorrentThumbnailFolderLink.fileURL(remoteRoot: link.remoteRoot, localRoot: root, directory: directory, filePath: itemPath),
+                              FileManager.default.fileExists(atPath: item.path) else {
                             if scoped { root.stopAccessingSecurityScopedResource() }
                             throw CocoaError(.fileNoSuchFile)
                         }
-                        // Open the mounted share, even when its linked download folder is nested.
-                        let components = root.pathComponents
-                        let share = components.count > 2 && components[1] == "Volumes"
-                            ? URL(fileURLWithPath: "/Volumes").appendingPathComponent(components[2], isDirectory: true) : root
-                        continuation.resume(returning: (share, scoped ? root : nil))
+                        continuation.resume(returning: (item, scoped ? root : nil))
                     }
                 } catch { continuation.resume(throwing: error) }
             }
         }
         defer { target.scope?.stopAccessingSecurityScopedResource() }
-        if isLocal {
-            NSWorkspace.shared.activateFileViewerSelecting([target.target])
-        } else if !NSWorkspace.shared.open(target.target) {
-            throw CocoaError(.fileReadUnknown)
-        }
+        NSWorkspace.shared.activateFileViewerSelecting([target.target])
     }
 
     func updateRemoteRoot(sourceID: UUID, remoteRoot: String) throws {
