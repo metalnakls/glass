@@ -136,7 +136,8 @@ public struct GlassRootView: View {
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(item: $activeSheet) { sheet in
+        .glassCenteredPanel(isPresented: addPanelPresented, size: GlassCenteredPanelSize.addTorrent) { addPanelContent }
+        .sheet(item: ordinarySheet) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
@@ -145,29 +146,8 @@ public struct GlassRootView: View {
                     ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: profile)
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
-                case .loadingTorrentFiles:
-                    VStack(spacing: 18) {
-                        ProgressView()
-                        Text(glassText("Opening torrent…")).foregroundStyle(.secondary)
-                    }.frame(width: 640, height: 500)
-                        .onExitCommand { activeSheet = nil }
-                case let .addTorrentFiles(drafts):
-                    AddTorrentBatchView(
-                        model: model,
-                        platformIntegration: platformIntegration,
-                        drafts: drafts,
-                        submit: { draft, sourceID, name, downloadDirectory, fileSelection, namingPlan in
-                            await submitTorrentFile(
-                                draft,
-                                sourceID: sourceID,
-                                name: name,
-                                downloadDirectory: downloadDirectory,
-                                fileSelection: fileSelection,
-                                namingPlan: namingPlan
-                            )
-                        },
-                        didFinishAdding: showAddedTorrent
-                    )
+                case .loadingTorrentFiles, .addTorrentFiles:
+                    EmptyView()
                 case let .renameTorrent(torrent, sourceID):
                     RenameTorrentView(torrent: torrent) { newName in
                         submitRename(torrent, sourceID: sourceID, newName: newName)
@@ -251,6 +231,41 @@ public struct GlassRootView: View {
         .glassTextStyle()
         .focusedSceneValue(\.glassTuningPresented, tuningPresentation)
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
+    }
+
+    private var addPanelPresented: Binding<Bool> {
+        Binding(get: {
+            switch activeSheet { case .loadingTorrentFiles, .addTorrentFiles: true; default: false }
+        }, set: { if !$0 { activeSheet = nil } })
+    }
+    private var ordinarySheet: Binding<ActiveSheet?> {
+        Binding(get: {
+            switch activeSheet { case .loadingTorrentFiles, .addTorrentFiles: nil; default: activeSheet }
+        }, set: { activeSheet = $0 })
+    }
+    @ViewBuilder private var addPanelContent: some View {
+        switch activeSheet {
+        case .loadingTorrentFiles:
+            DelayedTorrentLoadingView()
+        case let .addTorrentFiles(drafts):
+                    AddTorrentBatchView(
+                        model: model,
+                        platformIntegration: platformIntegration,
+                        drafts: drafts,
+                        submit: { draft, sourceID, name, downloadDirectory, fileSelection, namingPlan in
+                            await submitTorrentFile(
+                                draft,
+                                sourceID: sourceID,
+                                name: name,
+                                downloadDirectory: downloadDirectory,
+                                fileSelection: fileSelection,
+                                namingPlan: namingPlan
+                            )
+                        },
+                        didFinishAdding: showAddedTorrent
+                    )
+        default: EmptyView()
+        }
     }
 
     private var selectedRecord: TorrentRecord? {
@@ -797,5 +812,17 @@ private struct TorrentWindowDropItem: Transferable, Sendable {
     static var transferRepresentation: some TransferRepresentation {
         ProxyRepresentation(importing: { (url: URL) in Self(url: url, text: nil) })
         ProxyRepresentation(importing: { (text: String) in Self(url: nil, text: text) })
+    }
+}
+
+private struct DelayedTorrentLoadingView: View {
+    @State private var showSpinner = false
+    var body: some View {
+        Color.clear.overlay { if showSpinner { ProgressView().controlSize(.small) } }
+            .frame(width: GlassCenteredPanelSize.addTorrent.width, height: GlassCenteredPanelSize.addTorrent.height)
+            .task {
+                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                showSpinner = true
+            }
     }
 }
