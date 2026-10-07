@@ -145,6 +145,10 @@ private struct GlassCommands: Commands {
                 Divider()
             }
             Toggle(glassText("Show Extensions"), isOn: $showExtensions)
+            Toggle(glassText("Rounded Sizes"), isOn: Binding(
+                get: { glassRoundedSizes },
+                set: { glassRoundedSizes = $0 }
+            ))
         }
 
         CommandGroup(replacing: .newItem) {

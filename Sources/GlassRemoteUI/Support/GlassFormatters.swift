@@ -9,13 +9,20 @@ final class GlassFormatting {
     @ObservationIgnored private let defaults: UserDefaults
     var usesSystemLocale: Bool { didSet { defaults.set(usesSystemLocale, forKey: "Glass.Formatting.useSystemLocale") } }
     var overrideIdentifier: String { didSet { defaults.set(overrideIdentifier, forKey: "Glass.Formatting.localeIdentifier") } }
+    var usesRoundedSizes: Bool { didSet { defaults.set(usesRoundedSizes, forKey: "GlassList.roundedSizes") } }
     var locale: Locale { usesSystemLocale ? .autoupdatingCurrent : Locale(identifier: overrideIdentifier) }
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
         usesSystemLocale = defaults.bool(forKey: "Glass.Formatting.useSystemLocale")
         overrideIdentifier = defaults.string(forKey: "Glass.Formatting.localeIdentifier") ?? "en_US"
+        usesRoundedSizes = defaults.object(forKey: "GlassList.roundedSizes") as? Bool ?? true
     }
+}
+
+@MainActor public var glassRoundedSizes: Bool {
+    get { GlassFormatting.shared.usesRoundedSizes }
+    set { GlassFormatting.shared.usesRoundedSizes = newValue }
 }
 
 @MainActor
@@ -37,7 +44,13 @@ private enum SharedGlassFormatters {
 
 @MainActor
 func formatBytes(_ bytes: UInt64) -> String {
-    Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(GlassFormatting.shared.locale))
+    if GlassFormatting.shared.usesRoundedSizes {
+        let units = ["bytes", "KB", "MB", "GB", "TB", "PB", "EB"]
+        var value = Double(bytes), index = 0
+        while value >= 1000 && index < units.count - 1 { value /= 1000; index += 1 }
+        return value.formatted(.number.precision(.fractionLength(0)).locale(GlassFormatting.shared.locale)) + " " + units[index]
+    }
+    return Int64(clamping: bytes).formatted(.byteCount(style: .file).locale(GlassFormatting.shared.locale))
 }
 
 @MainActor
