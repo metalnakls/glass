@@ -130,6 +130,12 @@ public struct GlassRootView: View {
                     ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: profile)
                 case let .addMagnet(magnet):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
+                case .loadingTorrentFiles:
+                    VStack(spacing: 18) {
+                        ProgressView()
+                        Text(glassText("Opening torrent…")).foregroundStyle(.secondary)
+                    }.frame(width: 640, height: 500)
+                        .onExitCommand { activeSheet = nil }
                 case let .addTorrentFiles(drafts):
                     AddTorrentBatchView(
                         model: model,
@@ -332,6 +338,8 @@ public struct GlassRootView: View {
         }
 
         guard !torrentFileURLs.isEmpty else { return }
+        let importID = UUID()
+        activeSheet = .loadingTorrentFiles(importID)
         Task {
             var drafts: [TorrentFileAddDraft] = []
             for url in torrentFileURLs {
@@ -339,9 +347,9 @@ public struct GlassRootView: View {
                     drafts.append(draft)
                 }
             }
-            if !drafts.isEmpty {
-                activeSheet = .addTorrentFiles(drafts)
-            }
+            guard case let .loadingTorrentFiles(currentID) = activeSheet, currentID == importID else { return }
+            if !drafts.isEmpty { activeSheet = .addTorrentFiles(drafts) }
+            else { activeSheet = nil }
         }
     }
 
@@ -670,6 +678,7 @@ private enum ActiveSheet: Identifiable {
     case newProfile
     case editProfile(RemoteProfile)
     case addMagnet(String)
+    case loadingTorrentFiles(UUID)
     case addTorrentFiles([TorrentFileAddDraft])
     case renameTorrent(TorrentSummary, UUID)
 
@@ -681,8 +690,8 @@ private enum ActiveSheet: Identifiable {
             return "edit-profile-\(profile.id.uuidString)"
         case let .addMagnet(magnet):
             return "add-magnet-\(magnet)"
-        case let .addTorrentFiles(drafts):
-            return "add-torrent-files-\(drafts.map(\.id.uuidString).joined(separator: "-"))"
+        case .loadingTorrentFiles, .addTorrentFiles:
+            return "add-torrent-files"
         case let .renameTorrent(torrent, sourceID):
             return "rename-torrent-\(sourceID.uuidString)-\(torrent.hashString)"
         }

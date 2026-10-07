@@ -507,7 +507,11 @@ struct TorrentFileAddDraft: Identifiable, Sendable {
         try Task.checkCancellation()
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
-        let data = try Data(contentsOf: url)
+        // Metainfo is metadata, never payload. Bound malicious/accidental huge inputs
+        // before parsing while allowing large real-world file collections.
+        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+        guard size <= 64 * 1_024 * 1_024 else { throw CocoaError(.fileReadTooLarge) }
+        let data = try Data(contentsOf: url, options: .mappedIfSafe)
         let preview = TorrentFilePreview(data: data, fallbackURL: url)
         try Task.checkCancellation()
         return Self(data: data, preview: preview, sourceURL: url)

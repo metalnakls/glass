@@ -34,7 +34,7 @@ struct AddTorrentBatchView: View {
     @State private var commandHeld = false
     @State private var fileSearchText = ""
     @State private var searchPresented = false
-    @State private var namingReady = true
+    @State private var namingReady = false
     @AppearanceStorage("GlassAdd.showIcon") private var showsTitleIcon = true
     @State private var disableSmartNamesForAdd = false
     @State private var isAdding = false
@@ -61,14 +61,9 @@ struct AddTorrentBatchView: View {
         self.submit = submit
         self.didFinishAdding = didFinishAdding
 
-        let items = drafts.map { TorrentBatchItemState(draft: $0) }
-        let groups = TorrentNameCleaner.batchGroups(for: drafts.map {
-            TorrentBatchNamingInput(rootName: $0.preview.name, files: $0.preview.files)
-        })
-        for group in groups where group.isSeasonGroup {
-            for (offset, itemIndex) in group.itemIndices.enumerated() {
-                items[itemIndex].applySeasonDisplayName(group.displayName, season: group.seasons[offset])
-            }
+        let items = drafts.map { TorrentBatchItemState(draft: $0, defersNaming: true) }
+        let groups = drafts.indices.map {
+            TorrentBatchGroup(displayName: drafts[$0].preview.name, itemIndices: [$0])
         }
         _items = State(initialValue: items)
         _groups = State(initialValue: groups)
@@ -137,6 +132,7 @@ struct AddTorrentBatchView: View {
         .background(ModifierKeyObserver { optionHeld = $0 })
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
         .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismiss() } }
+        .task { await prepareNames() }
         .frame(width: 640, height: 500)
     }
 
@@ -158,6 +154,36 @@ struct AddTorrentBatchView: View {
     private var hasMultipleFiles: Bool {
         guard let group = groups.first(where: { $0.id == selectedGroupID }) else { return false }
         return group.itemIndices.reduce(0) { $0 + items[$1].draft.preview.files.count } > 1
+    }
+
+    private func prepareNames() async {
+        let result = await AddNamingPreparation.prepare(drafts)
+        guard !Task.isCancelled else { return }
+        withAnimation(.smooth) {
+            groups = result.groups
+            selectedGroupID = groups.first?.id ?? ""
+            let oldNames = groupNamesByID
+            groupNamesByID = Dictionary(uniqueKeysWithValues: groups.map { group in
+                let entered = oldNames[group.id]
+                let original = group.itemIndices.first.map { items[$0].draft.preview.name }
+                return (group.id, entered != nil && entered != original ? entered! : group.displayName)
+            })
+            smartNamesByGroupID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, true) })
+            for (index, plan) in result.plans.enumerated() {
+                items[index].cachedSuggestion = plan
+                if items[index].name == items[index].draft.preview.name {
+                    items[index].name = plan?.suggestedName ?? items[index].name
+                }
+            }
+            for group in groups where group.isSeasonGroup {
+                for (offset, index) in group.itemIndices.enumerated() {
+                    if items[index].name == items[index].draft.preview.name || items[index].name == items[index].cachedSuggestion?.suggestedName {
+                        items[index].applySeasonDisplayName(group.displayName, season: group.seasons[offset])
+                    }
+                }
+            }
+            namingReady = true
+        }
     }
 
     private func titleBinding(for group: TorrentBatchGroup) -> Binding<String> {
@@ -498,6 +524,29 @@ final class TorrentBatchItemState {
 
     func applySeasonDisplayName(_ title: String, season: Int) {
         name = "\(title) \(season)"
+    }
+}
+
+private enum AddNamingPreparation {
+    struct Result: Sendable {
+        let groups: [TorrentBatchGroup]
+        let plans: [TorrentAddNamingPlan?]
+    }
+    @concurrent static func prepare(_ drafts: [TorrentFileAddDraft]) async -> Result {
+        let start = ContinuousClock.now
+        let groups = TorrentNameCleaner.batchGroups(for: drafts.map {
+            TorrentBatchNamingInput(rootName: $0.preview.name, files: $0.preview.files)
+        })
+        var plans: [TorrentAddNamingPlan?] = []
+        for draft in drafts {
+            if Task.isCancelled { break }
+            plans.append(TorrentNameCleaner.plan(rootName: draft.preview.name,
+                files: draft.preview.files, selectedFileIndices: Set(draft.preview.files.indices)))
+        }
+        #if DEBUG
+        print("Smart Rename: \(drafts.count) drafts, \(drafts.reduce(0) { $0 + $1.preview.files.count }) files, \(start.duration(to: .now))")
+        #endif
+        return Result(groups: groups, plans: plans)
     }
 }
 
