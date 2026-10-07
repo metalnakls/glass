@@ -16,6 +16,11 @@ struct TorrentRowView: View, Equatable {
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
+    @State private var isEditingTitle = false
+    @State private var renameDraft = ""
+    @State private var renameTask: Task<Void, Never>?
+    @State private var ignoreTitleRenameUntil = Date.distantPast
+    @FocusState private var renameFieldFocused: Bool
     @AppearanceStorage("GlassList.funMode") private var funMode = false
     @AppearanceStorage("GlassList.stateGap") private var stateGap = 8.0
     @AppearanceStorage("GlassList.progressGlowBlur") private var progressGlowBlur = 3.0
@@ -26,6 +31,10 @@ struct TorrentRowView: View, Equatable {
     var groupIsExpanded: Bool?
     var groupCount = 0
     var toggleGroupExpansion: (() -> Void)?
+    var isSelected = false
+    var select: (() -> Void)?
+    var allowsInlineRename = false
+    var commitInlineRename: ((String) -> Void)?
     var pendingOldName: String?
     var isAdding = false
     var additionPhase: TorrentAdditionPhase?
@@ -57,7 +66,15 @@ struct TorrentRowView: View, Equatable {
         .onChange(of: torrent.isCompleted) { _, completed in
             if completed { pendingRunning = nil; commandTask?.cancel() }
         }
-        .onDisappear { commandTask?.cancel(); pendingRunning = nil }
+        .onChange(of: isSelected) { _, selected in
+            if !selected { cancelPendingTitleRename() }
+        }
+        .onDisappear {
+            commandTask?.cancel()
+            pendingRunning = nil
+            cancelPendingTitleRename()
+            isEditingTitle = false
+        }
     }
 
     var iconRole: TorrentIconRole {
@@ -80,9 +97,8 @@ struct TorrentRowView: View, Equatable {
 
             torrentContent
                 .contentShape(Rectangle())
-                .onTapGesture(count: 2) { fileAction?(.open) }
                 .simultaneousGesture(TapGesture().onEnded {
-                    if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                    if !isEditingTitle, NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
                 })
             transferButton
                 .padding(.leading, stateGap)
@@ -102,6 +118,8 @@ struct TorrentRowView: View, Equatable {
             && lhs.folderID == rhs.folderID
             && lhs.groupIsExpanded == rhs.groupIsExpanded
             && lhs.groupCount == rhs.groupCount
+            && lhs.isSelected == rhs.isSelected
+            && lhs.allowsInlineRename == rhs.allowsInlineRename
             && lhs.pendingOldName == rhs.pendingOldName
             && lhs.isAdding == rhs.isAdding
             && lhs.additionPhase == rhs.additionPhase
@@ -188,11 +206,7 @@ struct TorrentRowView: View, Equatable {
 
     private var titleLine: some View {
         HStack(alignment: .center) {
-            Text(displayName(torrent.name)).textCase(nil)
-                .font(density == .compact ? .callout : .body)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(3)
+            title
 
             if let priority = torrent.bandwidthPriority, priority != 0 {
                 Image(systemName: priority > 0 ? "star.fill" : "arrow.down.circle.fill")
@@ -207,6 +221,75 @@ struct TorrentRowView: View, Equatable {
             sizeLabel
         }
         .animation(.easeInOut(duration: 0.2), value: pendingOldName)
+    }
+
+    @ViewBuilder
+    private var title: some View {
+        if isEditingTitle {
+            TextField(glassText("Torrent name"), text: $renameDraft)
+                .textFieldStyle(.plain)
+                .font(density == .compact ? .callout : .body)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(3)
+                .focused($renameFieldFocused)
+                .onSubmit(commitTitleRename)
+                .onExitCommand { isEditingTitle = false }
+                .onAppear {
+                    renameDraft = displayName(torrent.name)
+                    renameFieldFocused = true
+                }
+        } else {
+            Text(displayName(torrent.name)).textCase(nil)
+                .font(density == .compact ? .callout : .body)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .layoutPriority(3)
+                .onTapGesture {
+                    guard allowsInlineRename else { return }
+                    if isSelected {
+                        guard Date() >= ignoreTitleRenameUntil else { return }
+                        scheduleTitleRename()
+                    } else {
+                        select?()
+                    }
+                }
+                .onTapGesture(count: 2) {
+                    cancelPendingTitleRename()
+                    ignoreTitleRenameUntil = Date().addingTimeInterval(NSEvent.doubleClickInterval)
+                    fileAction?(.open)
+                }
+                .help(allowsInlineRename ? glassText("Click the selected name to rename") : "")
+        }
+    }
+
+    private func scheduleTitleRename() {
+        cancelPendingTitleRename()
+        renameTask = Task { @MainActor in
+            let delay = UInt64(max(0, NSEvent.doubleClickInterval) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled, isSelected, allowsInlineRename else { return }
+            isEditingTitle = true
+        }
+    }
+
+    private func cancelPendingTitleRename() {
+        renameTask?.cancel()
+        renameTask = nil
+    }
+
+    private func commitTitleRename() {
+        let title = renameDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        isEditingTitle = false
+        guard !title.isEmpty else { return }
+        let proposedName = TorrentExtensionPolicy.editedName(title, original: torrent.name, hiding: hiddenTorrentExtension)
+        guard proposedName != torrent.name else { return }
+        commitInlineRename?(proposedName)
+    }
+
+    private var hiddenTorrentExtension: String? {
+        guard !showsExtensions, groupIsExpanded == nil, torrent.fileCount.map({ $0 <= 1 }) ?? true else { return nil }
+        return TorrentExtensionPolicy.hiddenExtension(paths: [torrent.name])
     }
 
     @ViewBuilder

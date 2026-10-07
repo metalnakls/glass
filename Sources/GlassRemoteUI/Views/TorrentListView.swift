@@ -21,7 +21,7 @@ struct TorrentListView: View {
     @Binding var selection: String?
     let presentation: TorrentListPresentationModel
     let revealSelectionToken: UUID
-    let rename: (TorrentSummary, UUID) -> Void
+    var commitRename: (TorrentSummary, UUID, String) -> Void = { _, _, _ in }
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
 
@@ -422,7 +422,7 @@ struct TorrentListView: View {
                 if accessibilityReduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.20), update) }
             },
             toggleGroupExpansion: { toggleAutoGroup(row) },
-            rename: rename,
+            commitRename: commitRename,
             remove: remove,
             toggleTransfers: { await toggleTransfers(for: row) }
         )
@@ -621,7 +621,7 @@ private struct TorrentListLiveRow: View {
     let select: () -> Void
     let swipePresentationChanged: (Bool) -> Void
     let toggleGroupExpansion: () -> Void
-    let rename: (TorrentSummary, UUID) -> Void
+    let commitRename: (TorrentSummary, UUID, String) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let toggleTransfers: () async -> Bool
 
@@ -649,6 +649,10 @@ private struct TorrentListLiveRow: View {
             isAdding: isAdding,
             additionPhase: row.torrentRecord?.additionPhase,
             additionError: row.torrentRecord?.additionError,
+            isSelected: isSelected,
+            select: select,
+            allowsInlineRename: allowsInlineRename,
+            commitInlineRename: { commitRename(summary, row.sourceID, $0) },
             additionAccepted: row.torrentRecord?.additionAccepted ?? false,
             shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
