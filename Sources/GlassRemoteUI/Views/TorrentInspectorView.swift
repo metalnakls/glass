@@ -329,63 +329,50 @@ private struct TorrentInspectorContent: View {
             ], startPoint: top ? .bottom : .top, endPoint: top ? .top : .bottom))
     }
 
-    private var footerHeight: CGFloat {
-        InspectorGlassPill.height + 38
-            + (searchPresented ? InspectorGlassPill.height + 8 : 0)
-            + (editSession.hasSelection || editSession.hasChanges ? InspectorGlassPill.height + 8 : 0)
-    }
+    private var footerHeight: CGFloat { InspectorGlassPill.height + 38 }
 
     private var bottomDock: some View {
         GlassEffectContainer(spacing: 8) {
-            VStack(spacing: 8) {
-                if searchPresented {
-                    HStack(spacing: 8) {
-                        Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                        TextField(glassText("Search Files"), text: $fileSearchText)
-                            .textFieldStyle(.plain)
-                            .focused($searchFocused)
-                            .focusedValue(\.glassInspectorFileFilterFocused, true)
-                            .onExitCommand { searchPresented = false }
-                        Button { searchPresented = false } label: { Image(systemName: "xmark") }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(glassText("Close search"))
-                    }
-                    .modifier(InspectorGlassPill())
-                    .transition(.opacity)
-                }
-                HStack(spacing: 8) {
-                    TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
-                        .modifier(InspectorGlassPill())
-                        .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
-                    if !searchPresented {
-                        Button { searchPresented = true } label: {
-                            Image(systemName: "magnifyingglass").frame(width: InspectorGlassPill.height, height: InspectorGlassPill.height)
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(.regular.interactive(), in: .circle)
-                        .accessibilityLabel(glassText("Search Files"))
-                        .transition(.opacity)
-                    }
-                }
+            HStack(spacing: 8) {
                 if editSession.hasSelection {
-                    HStack(spacing: 8) {
-                        Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
-                            .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
-                        Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
-                            .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true, tint: .red))
-                    }
+                    Button { onApply(true) } label: { Text(glassText("Download")).frame(maxWidth: .infinity) }
+                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
+                    Button { onApply(false) } label: { Text(glassText("Skip")).frame(maxWidth: .infinity) }
+                        .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true, tint: .red))
                 } else if editSession.hasChanges {
                     Button { onApply(nil) } label: { Text(glassText("Apply")).frame(maxWidth: .infinity) }
                         .buttonStyle(.plain).modifier(InspectorGlassPill(interactive: true))
+                } else {
+                    if !searchPresented {
+                        TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
+                            .modifier(InspectorGlassPill())
+                            .contextMenu { TorrentTransferInfoMenu(model: model, sourceID: sourceID, torrents: members) }
+                            .transition(.move(edge: .leading).combined(with: .opacity))
+                    }
+                    HStack(spacing: 8) {
+                        Button { searchPresented = true } label: { Image(systemName: "magnifyingglass") }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(glassText("Search Files"))
+                        if searchPresented {
+                            TextField(glassText("Search Files"), text: $fileSearchText)
+                                .textFieldStyle(.plain).focused($searchFocused)
+                                .focusedValue(\.glassInspectorFileFilterFocused, true)
+                                .onExitCommand { searchPresented = false }
+                            Button { searchPresented = false } label: { Image(systemName: "xmark") }
+                                .buttonStyle(.plain).accessibilityLabel(glassText("Close search"))
+                        }
+                    }
+                    .frame(maxWidth: searchPresented ? .infinity : nil)
+                    .modifier(InspectorGlassPill(interactive: true))
                 }
             }
             .controlSize(.large)
             .padding(.horizontal, fileLayout.outerInset)
             .padding(.top, 22).padding(.bottom, 16)
-            .background {
-                edgeFade(top: false).padding(.top, -24).allowsHitTesting(false)
-            }
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: searchPresented)
+            .background { edgeFade(top: false).padding(.top, -24).allowsHitTesting(false) }
+            .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: searchPresented)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasSelection)
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
             .disabled(editSession.isApplying)
         }
     }
