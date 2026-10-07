@@ -68,7 +68,7 @@ public struct GlassRootView: View {
                 committingRemovalKeys: committingRemovalKeys,
                 pendingRemovalResetToken: pendingRemovalResetToken,
                 pendingRemovalDuration: pendingRemovalDuration,
-                rename: beginRename,
+                commitRename: { torrent, sourceID, name in submitRename(torrent, sourceID: sourceID, newName: name) },
                 remove: scheduleRemoval,
                 removeSelected: removeSelectedTorrent,
                 undoRemovals: cancelPendingRemovals,
@@ -148,10 +148,6 @@ public struct GlassRootView: View {
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
                 case .loadingTorrentFiles, .addTorrentFiles:
                     EmptyView()
-                case let .renameTorrent(torrent, sourceID):
-                    RenameTorrentView(torrent: torrent) { newName in
-                        submitRename(torrent, sourceID: sourceID, newName: newName)
-                    }
                 }
             }
             .toolbarVisibility(.visible, for: .windowToolbar)
@@ -331,10 +327,6 @@ public struct GlassRootView: View {
 
     private func toggleDownloadingFilter() {
         model.selectedTorrentGroup = model.selectedTorrentGroup == .downloading ? .all : .downloading
-    }
-
-    private func beginRename(_ torrent: TorrentSummary, sourceID: UUID) {
-        activeSheet = .renameTorrent(torrent, sourceID)
     }
 
     private func submitRename(_ torrent: TorrentSummary, sourceID: UUID, newName proposedName: String) {
@@ -597,7 +589,7 @@ private struct TorrentWorkspaceView: View {
     let committingRemovalKeys: Set<PendingRemovalKey>
     let pendingRemovalResetToken: UUID
     let pendingRemovalDuration: TimeInterval
-    let rename: (TorrentSummary, UUID) -> Void
+    let commitRename: (TorrentSummary, UUID, String) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
     let undoRemovals: () -> Void
@@ -613,7 +605,7 @@ private struct TorrentWorkspaceView: View {
             pendingRenames: pendingRenames,
             pendingRemovals: pendingRemovals,
             committingRemovalKeys: committingRemovalKeys,
-            rename: rename,
+            commitRename: commitRename,
             remove: remove,
             removeSelected: removeSelected
         )
@@ -648,7 +640,7 @@ private struct TorrentListContent: View {
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
     let committingRemovalKeys: Set<PendingRemovalKey>
-    let rename: (TorrentSummary, UUID) -> Void
+    let commitRename: (TorrentSummary, UUID, String) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
 
@@ -663,7 +655,7 @@ private struct TorrentListContent: View {
             selection: $selection,
             presentation: presentation,
             revealSelectionToken: torrentRevealToken,
-            rename: rename,
+            commitRename: commitRename,
             remove: remove,
             removeSelected: removeSelected
         )
@@ -721,7 +713,6 @@ private enum ActiveSheet: Identifiable {
     case addMagnet(String)
     case loadingTorrentFiles(UUID)
     case addTorrentFiles([TorrentFileAddDraft])
-    case renameTorrent(TorrentSummary, UUID)
 
     var id: String {
         switch self {
@@ -733,8 +724,6 @@ private enum ActiveSheet: Identifiable {
             return "add-magnet-\(magnet)"
         case .loadingTorrentFiles, .addTorrentFiles:
             return "add-torrent-files"
-        case let .renameTorrent(torrent, sourceID):
-            return "rename-torrent-\(sourceID.uuidString)-\(torrent.hashString)"
         }
     }
 }

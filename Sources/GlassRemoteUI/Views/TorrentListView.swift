@@ -207,8 +207,8 @@ struct TorrentListView: View {
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                             .listItemTint(.monochrome)
-                            .focusEffectDisabled()
                             .tag(row.id)
+                            .focusEffectDisabled()
                             .accessibilityElement(children: .contain)
                             .moveDisabled(rowIsAdding(row))
                     }
@@ -649,14 +649,14 @@ private struct TorrentListLiveRow: View {
             groupIsExpanded: row.groupIsExpanded,
             groupCount: row.groupCount,
             toggleGroupExpansion: toggleGroupExpansion,
-            pendingOldName: pendingOldName,
-            isAdding: isAdding,
-            additionPhase: row.torrentRecord?.additionPhase,
-            additionError: row.torrentRecord?.additionError,
             isSelected: isSelected,
             select: select,
             allowsInlineRename: allowsInlineRename,
             commitInlineRename: { commitRename(summary, row.sourceID, $0) },
+            pendingOldName: pendingOldName,
+            isAdding: isAdding,
+            additionPhase: row.torrentRecord?.additionPhase,
+            additionError: row.torrentRecord?.additionError,
             additionAccepted: row.torrentRecord?.additionAccepted ?? false,
             shareUnavailable: shareUnavailable,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
