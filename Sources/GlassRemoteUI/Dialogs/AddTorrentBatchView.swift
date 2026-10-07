@@ -153,10 +153,11 @@ struct AddTorrentBatchView: View {
                         commandHeld = NSEvent.modifierFlags.contains(.command)
                         Task { await addAll() }
                     } label: {
-                        Text(glassText(commandHeld ? "Stall" : "Add"))
-                            .id(commandHeld).transition(.blurReplace)
+                        Text(glassText(startsPaused ? "Stall" : "Add"))
+                            .id(startsPaused).transition(.blurReplace)
                             .modifier(InspectorGlassPill(interactive: true))
                     }.buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!canAdd)
+                        .animation(.smooth, value: startsPaused)
                 }
             }
             .padding(20)
@@ -235,6 +236,20 @@ struct AddTorrentBatchView: View {
         return Binding(get: { items[index].presentedName(holdingOption: false, showExtensions: showExtensions) }, set: { items[index].editPresentedName($0, showExtensions: showExtensions) })
     }
 
+    /// A known insufficient destination defaults to paused; Command reverses
+    /// whichever action is the current default rather than always forcing pause.
+    private var startsPaused: Bool { insufficientCapacity != commandHeld }
+    private var insufficientCapacity: Bool {
+        guard let available = model.serverFreeSpace[sourceID]?.availableBytes,
+              let group = groups.first(where: { $0.id == selectedGroupID }) else { return false }
+        let selectedSize = group.itemIndices.reduce(UInt64.zero) { total, index in
+            items[index].selectedFileIndices.reduce(total) { subtotal, fileIndex in
+                subtotal + items[index].draft.preview.files[fileIndex].length
+            }
+        }
+        return selectedSize > available
+    }
+
     private var canAdd: Bool {
         !isAdding && namingReady
             && (!groups.contains(where: needsSeriesDirectory) || resolvedBaseDownloadDirectory != nil)
@@ -273,7 +288,7 @@ struct AddTorrentBatchView: View {
                 namingPlan: plan ?? (name == item.draft.preview.name ? nil : TorrentAddNamingPlan(rootName: name, pathRenames: [])),
                 data: item.draft.data, fileSelection: item.fileSelection,
                 sourceURL: item.draft.sourceURL, trashSourceOnSuccess: true,
-                renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: commandHeld)
+                renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: startsPaused)
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
