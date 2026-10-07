@@ -16,72 +16,100 @@ struct TorrentDownloadLocationPicker: View {
     @State private var previousProfileIDs = Set<UUID>()
     @State private var isChoosingFolder = false
 
+    @State private var isPresented = false
+    @State private var optionHeld = false
+    @AppStorage("GlassAdd.locationIconOrder") private var iconOrder = ""
+    @AppStorage("GlassAdd.hiddenLocations") private var hiddenLocations = ""
+    @AppearanceStorage("GlassAdd.locationColumns") private var iconColumns = 3
+    @AppearanceStorage("GlassAdd.recentLocations") private var recentCount = 4
+
     var body: some View {
-        LabeledContent(glassText("Download to")) {
-            Menu {
-                Section(glassText("On This Mac")) {
-                    Button(glassText("Default Folder"), systemImage: sourceID == model.localSourceID && directory == nil ? "checkmark" : "folder") {
-                        select(model.localSourceID, directory: nil)
-                    }
-                    let favorites = model.favoriteDownloadDirectories(for: model.localSourceID)
-                    let recents = model.downloadDirectories(for: model.localSourceID).filter { !favorites.contains($0) }
-                    if !favorites.isEmpty {
-                        Section(glassText("Favorites")) {
-                            ForEach(favorites, id: \.self) { path in locationButton(path) }
-                        }
-                    }
-                    if !recents.isEmpty {
-                        Section(glassText("Recent Folders")) {
-                            ForEach(recents, id: \.self) { path in locationButton(path) }
-                        }
-                    }
-                    ForEach(standardFolders.filter { !favorites.contains($0) && !recents.contains($0) }, id: \.self) { path in
-                        locationButton(path)
-                    }
-                    Button(glassText("Choose Folder…"), systemImage: "folder.badge.plus") {
-                        Task { await chooseMacFolder() }
+        Button { withAnimation(.smooth) { isPresented.toggle() } } label: {
+            HStack(spacing: 8) {
+                NativeLocationIcon(path: nativeLocationPath,
+                    sourceID: sourceID == model.localSourceID ? nil : sourceID,
+                    serverName: model.sourceName(for: sourceID), size: 24)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(locationName).textCase(nil).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
+                    if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
+                        Text("\(formatBytes(bytes)) \(glassText("free"))").font(.caption2)
                     }
                 }
-                if !model.profiles.isEmpty {
-                    Section(glassText("Shares")) {
-                        ForEach(model.profiles) { profile in
-                            Button(shareName(for: profile.id), systemImage: sourceID == profile.id ? "checkmark" : "externaldrive.connected.to.line.below") {
-                                select(profile.id, directory: nil)
+                Image(systemName: "chevron.down").font(.caption)
+            }
+            .modifier(InspectorGlassPill(interactive: true))
+        }
+        .buttonStyle(.plain).disabled(isDisabled || isChoosingFolder)
+        .animation(.smooth, value: locationName)
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: max(1, min(6, iconColumns))), spacing: 14) {
+                    ForEach(quickLocations) { location in
+                        ZStack(alignment: .topTrailing) {
+                            Button {
+                                if let path = location.path { Task { await prepareMacFolder(path); isPresented = false } }
+                                else { select(location.sourceID, directory: nil); isPresented = false }
+                            } label: {
+                                VStack(spacing: 6) {
+                                    NativeLocationIcon(path: location.path,
+                                        sourceID: location.path == nil ? location.sourceID : nil,
+                                        serverName: location.name, size: 38)
+                                    Text(location.name).textCase(nil).font(.caption).lineLimit(1)
+                                }.frame(maxWidth: .infinity).padding(6)
+                            }.buttonStyle(.plain)
+                            .draggable(location.key)
+                            .dropDestination(for: String.self) { keys, _ in
+                                guard let key = keys.first else { return false }
+                                var order = quickLocations.map(\.key)
+                                guard let from = order.firstIndex(of: key), let to = order.firstIndex(of: location.key) else { return false }
+                                order.remove(at: from); order.insert(key, at: min(to, order.count))
+                                iconOrder = order.joined(separator: "|"); GlassHaptics.perform(.drag); return true
                             }
-                            .help("Use the download folder configured by Transmission on \(profile.name)")
+                            if optionHeld {
+                                Button { hiddenLocations += "|" + location.key } label: {
+                                    Image(systemName: "minus.circle.fill")
+                                }.buttonStyle(.plain)
+                            }
+                        }
+                        .rotationEffect(.degrees(optionHeld ? 1.5 : 0))
+                        .animation(optionHeld ? .easeInOut(duration: 0.14).repeatForever(autoreverses: true) : .smooth, value: optionHeld)
+                    }
+                }
+                let recents = model.downloadDirectories(for: model.localSourceID).filter {
+                    !hiddenLocations.components(separatedBy: "|").contains($0)
+                }
+                ForEach(Array(recents.prefix(max(0, recentCount))), id: \.self) { path in
+                    HStack {
+                        Button { Task { await prepareMacFolder(path); isPresented = false } } label: {
+                            HStack(spacing: 8) {
+                                NativeLocationIcon(path: path, sourceID: nil, serverName: "", size: 22)
+                                Text(URL(fileURLWithPath: path).lastPathComponent).textCase(nil)
+                            }
+                        }.buttonStyle(.plain)
+                        Spacer()
+                        if optionHeld {
+                            Button { hiddenLocations += "|" + path } label: { Image(systemName: "minus.circle.fill") }.buttonStyle(.plain)
                         }
                     }
                 }
                 Divider()
-                if sourceID == model.localSourceID, let currentDirectory {
-                    Button(glassText(isFavorite ? "Remove from Favorites" : "Add to Favorites"), systemImage: isFavorite ? "star.slash" : "star") {
-                        model.setDownloadDirectory(currentDirectory, isFavorite: !isFavorite, for: model.localSourceID)
-                    }
-                }
-                Button(glassText("Add Server…"), systemImage: "plus") {
-                    previousProfileIDs = Set(model.profiles.map(\.id))
-                    isEditingServer = true
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    NativeLocationIcon(path: nativeLocationPath, sourceID: sourceID == model.localSourceID ? nil : sourceID, serverName: model.sourceName(for: sourceID), size: 22)
-                    Text(locationName).lineLimit(1).truncationMode(.middle)
-                    Image(systemName: "chevron.down").font(.caption)
-                }
+                Button(glassText("Choose location…"), systemImage: "folder.badge.plus") {
+                    Task { await chooseMacFolder(); isPresented = false }
+                }.buttonStyle(.plain)
+                Button(glassText("Add server…"), systemImage: "plus") {
+                    previousProfileIDs = Set(model.profiles.map(\.id)); isPresented = false; isEditingServer = true
+                }.buttonStyle(.plain)
             }
-            .menuStyle(.borderedButton)
-            .disabled(isDisabled || isChoosingFolder)
-            .help(sourceID == model.localSourceID ? (currentDirectory ?? "Default download folder on this Mac") : "Transmission chooses the folder on \(model.sourceName(for: sourceID))")
+            .padding(18).frame(width: CGFloat(max(1, min(6, iconColumns))) * 82 + 36)
+            .background(ModifierKeyObserver { optionHeld = $0 })
         }
         .sheet(isPresented: $isEditingServer, onDismiss: {
             if let added = model.profiles.first(where: { !previousProfileIDs.contains($0.id) }) {
                 select(added.id, directory: nil)
             }
         }) {
-            NavigationStack {
-                ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil)
-            }
-            .toolbarVisibility(.visible, for: .windowToolbar)
+            NavigationStack { ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil) }
+                .toolbarVisibility(.visible, for: .windowToolbar)
         }
         .task(id: sourceID) {
             let requestedSourceID = sourceID
@@ -90,12 +118,33 @@ struct TorrentDownloadLocationPicker: View {
             guard !Task.isCancelled, requestedSourceID == sourceID else { return }
             defaultDirectory = path
         }
-        if let capacity = model.serverFreeSpace[sourceID], let bytes = capacity.availableBytes {
-            LabeledContent(glassText("Free space")) {
-                Text(formatBytes(bytes)).textCase(nil).foregroundStyle(.secondary)
-                    .help("Available in \(capacity.path)")
-            }
+    }
+
+    private struct QuickLocation: Identifiable {
+        let sourceID: UUID
+        let key: String
+        var id: String { key }
+        let name: String
+        let path: String?
+    }
+    private var quickLocations: [QuickLocation] {
+        var choices = model.profiles.reversed().map {
+            QuickLocation(sourceID: $0.id, key: $0.id.uuidString, name: shareName(for: $0.id), path: nil)
         }
+        choices += standardFolders.map {
+            QuickLocation(sourceID: model.localSourceID, key: $0, name: URL(fileURLWithPath: $0).lastPathComponent, path: $0)
+        }
+        let hidden = Set(hiddenLocations.components(separatedBy: "|"))
+        let order = iconOrder.components(separatedBy: "|")
+        let ranked = choices.enumerated().filter { !hidden.contains($0.element.key) }
+        return ranked.sorted {
+            let lhs = order.firstIndex(of: $0.element.key)
+            let rhs = order.firstIndex(of: $1.element.key)
+            if lhs == nil && rhs == nil { return $0.offset < $1.offset }
+            if lhs == nil { return $0.element.path == nil }
+            if rhs == nil { return $1.element.path != nil }
+            return lhs! < rhs!
+        }.map(\.element)
     }
 
     private var standardFolders: [String] {
@@ -134,6 +183,7 @@ struct TorrentDownloadLocationPicker: View {
     }
 
     private func select(_ id: UUID, directory path: String?) {
+        GlassHaptics.perform(.selection)
         if sourceID != id { defaultDirectory = nil }
         sourceID = id
         directory = path

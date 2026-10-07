@@ -3,6 +3,7 @@ import GlassRemoteCore
 import GlassRemoteServices
 import Observation
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct AddTorrentBatchView: View {
     let model: RemoteAppModel
@@ -30,6 +31,11 @@ struct AddTorrentBatchView: View {
     @State private var downloadDirectory: String?
     @State private var defaultDownloadDirectory: String?
     @State private var optionHeld = false
+    @State private var commandHeld = false
+    @State private var fileSearchText = ""
+    @State private var searchPresented = false
+    @State private var namingReady = true
+    @AppearanceStorage("GlassAdd.showIcon") private var showsTitleIcon = true
     @State private var disableSmartNamesForAdd = false
     @State private var isAdding = false
     @State private var addErrorMessage: String?
@@ -55,7 +61,7 @@ struct AddTorrentBatchView: View {
         self.submit = submit
         self.didFinishAdding = didFinishAdding
 
-        let items = drafts.map(TorrentBatchItemState.init)
+        let items = drafts.map { TorrentBatchItemState(draft: $0) }
         let groups = TorrentNameCleaner.batchGroups(for: drafts.map {
             TorrentBatchNamingInput(rootName: $0.preview.name, files: $0.preview.files)
         })
@@ -77,70 +83,81 @@ struct AddTorrentBatchView: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 18) {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                TextField(glassText("Torrent name"), text: titleBinding(for: group))
-                    .font(.largeTitle.weight(.bold)).textFieldStyle(.plain)
-                    .frame(maxWidth: .infinity, alignment: .leading).disabled(isAdding || optionHeld)
-                    .id("\(group.id):\(optionHeld)")
-            }
-            Form {
-                TorrentDownloadLocationPicker(
-                    model: model,
-                    platformIntegration: platformIntegration,
-                    sourceID: $sourceID,
-                    directory: $downloadDirectory,
-                    defaultDirectory: $defaultDownloadDirectory,
-                    errorMessage: $addErrorMessage,
-                    isDisabled: isAdding
-                )
-
-                if groups.count > 1 {
-                    Picker(glassText("Torrent"), selection: $selectedGroupID) {
-                        ForEach(groups) { group in
-                            Text(groupNamesByID[group.id] ?? group.displayName).tag(group.id)
-                        }
+                HStack(spacing: 14) {
+                    if showsTitleIcon {
+                        addTitleIcon(group)
+                            .accessibilityHidden(true)
                     }
-                    .disabled(isAdding)
+                    TextField(glassText("Torrent name"), text: titleBinding(for: group))
+                        .font(.title.weight(.bold)).textFieldStyle(.plain)
+                        .disabled(isAdding || optionHeld)
+                    TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
+                        sourceID: $sourceID, directory: $downloadDirectory,
+                        defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
+                        isDisabled: isAdding)
                 }
-            }
-            .formStyle(.columns)
-            .fixedSize(horizontal: false, vertical: true)
-
-            if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                TorrentBatchGroupEditor(
-                    group: group,
-                    items: items,
+                TorrentBatchGroupEditor(group: group, items: items,
                     groupName: groupNameBinding(for: group),
-                    smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) }, set: { smartNamesByGroupID[group.id] = $0 }),
-                    isAdding: isAdding
-                )
-                .id(group.id)
+                    smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
+                        set: { smartNamesByGroupID[group.id] = $0 }),
+                    isAdding: isAdding, fileSearchText: $fileSearchText)
+                    .id(group.id)
+                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
+                        removal: .move(edge: .top).combined(with: .opacity)))
             }
-
             if let addErrorMessage {
                 Label(addErrorMessage, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.red)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(.red).textSelection(.enabled)
             }
         }
         .padding(20)
-        .background(ModifierKeyObserver { optionHeld = $0 })
-        .safeAreaInset(edge: .bottom) {
-            HStack {
-                Button(glassText("Cancel")) { dismiss() }.keyboardShortcut(.cancelAction).disabled(isAdding)
-                Spacer()
-                Button(glassText(drafts.count == 1 ? "Add" : "Add All")) {
-                    disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
-                    Task { await addAll() }
+        .padding(.bottom, 62)
+        .overlay(alignment: .bottom) {
+            GlassEffectContainer(spacing: 10) {
+                HStack(spacing: 10) {
+                    if hasMultipleFiles {
+                        GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, expandedWidth: 220)
+                    }
+                    Spacer(minLength: 12)
+                    Button {
+                        disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
+                        commandHeld = NSEvent.modifierFlags.contains(.command)
+                        Task { await addAll() }
+                    } label: {
+                        Text(glassText(commandHeld ? "Stall" : "Add"))
+                            .id(commandHeld).transition(.blurReplace)
+                            .modifier(InspectorGlassPill(interactive: true))
+                    }.buttonStyle(.plain).keyboardShortcut(.defaultAction).disabled(!canAdd)
                 }
-                .keyboardShortcut(.defaultAction).disabled(!canAdd)
             }
-            .controlSize(.large).padding(12)
-            .background(.ultraThinMaterial)
+            .padding(20)
         }
-        .frame(width: 540, height: 460)
+        .background(ModifierKeyObserver { optionHeld = $0 })
+        .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
+        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismiss() } }
+        .frame(width: 640, height: 500)
+    }
+
+    private func addTitleIcon(_ group: TorrentBatchGroup) -> some View {
+        let files = group.itemIndices.flatMap { items[$0].draft.preview.files }
+        let folder = group.isSeasonGroup || files.count > 1
+        let type = folder ? UTType.folder : (UTType(filenameExtension: URL(fileURLWithPath: files.first?.name ?? "").pathExtension) ?? .data)
+        let image = NSWorkspace.shared.icon(for: type)
+        return ZStack {
+            if group.isSeasonGroup {
+                NativeGlassIcon(image: image, size: 32, isFolder: true, rotation: -0.15).offset(x: -6)
+                NativeGlassIcon(image: image, size: 32, isFolder: true, rotation: 0.15).offset(x: 6)
+            } else {
+                NativeGlassIcon(image: image, size: 34, isFolder: folder)
+            }
+        }.frame(width: group.isSeasonGroup ? 46 : 34, height: 36)
+    }
+
+    private var hasMultipleFiles: Bool {
+        guard let group = groups.first(where: { $0.id == selectedGroupID }) else { return false }
+        return group.itemIndices.reduce(0) { $0 + items[$1].draft.preview.files.count } > 1
     }
 
     private func titleBinding(for group: TorrentBatchGroup) -> Binding<String> {
@@ -153,9 +170,9 @@ struct AddTorrentBatchView: View {
     }
 
     private var canAdd: Bool {
-        !isAdding
+        !isAdding && namingReady
             && (!groups.contains(where: needsSeriesDirectory) || resolvedBaseDownloadDirectory != nil)
-            && items.filter({ !$0.wasAdded }).allSatisfy(\.canAdd)
+            && (groups.first(where: { $0.id == selectedGroupID })?.itemIndices.allSatisfy { items[$0].canAdd } ?? false)
     }
 
     private func needsSeriesDirectory(_ group: TorrentBatchGroup) -> Bool {
@@ -189,7 +206,7 @@ struct AddTorrentBatchView: View {
                 namingPlan: plan ?? (name == item.draft.preview.name ? nil : TorrentAddNamingPlan(rootName: name, pathRenames: [])),
                 data: item.draft.data, fileSelection: item.fileSelection,
                 sourceURL: item.draft.sourceURL, trashSourceOnSuccess: true,
-                renameDuplicateRoot: plan == nil && name != item.draft.preview.name)
+                renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: commandHeld)
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
@@ -302,21 +319,15 @@ private struct TorrentBatchGroupEditor: View {
     @Binding var groupName: String
     @Binding var smartNamesEnabled: Bool
     let isAdding: Bool
-    @State private var fileSearchText = ""
+    @Binding var fileSearchText: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Toggle(glassText("Select all files"), isOn: Binding(get: {
-                    group.itemIndices.allSatisfy { items[$0].selectedFileIndices.count == items[$0].draft.preview.files.count }
-                }, set: { value in
-                    for index in group.itemIndices where !items[index].wasAdded { items[index].setAllFilesWanted(value) }
-                })).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                TextField(glassText("Search Files"), text: $fileSearchText).textFieldStyle(.roundedBorder).controlSize(.small)
-            }
-            .padding(.horizontal, 8)
+            if fileCount == 1, let index = group.itemIndices.first, let file = items[index].draft.preview.files.first {
+                TorrentSingleFilePreview(name: file.name, size: file.length)
+            } else {
             ScrollView {
-                VStack(alignment: .leading, spacing: 10) {
+                LazyVStack(alignment: .leading, spacing: 10) {
                     ForEach(Array(group.itemIndices.enumerated()), id: \.element) { offset, index in
                         let item = items[index]
                         if group.isSeasonGroup {
@@ -327,13 +338,14 @@ private struct TorrentBatchGroupEditor: View {
                             onSetWanted: { item.setFileWanted($0, $1) },
                             onSetPriority: { item.filePriorities[$0] = $1 },
                             onSetAllWanted: { item.setAllFilesWanted($0) },
-                            showsControls: false, isCompact: true
+                            showsControls: false, isCompact: true, showsActionBar: false
                         )
                         .disabled(item.wasAdded)
                     }
                 }
             }
         }
+            }
         .disabled(isAdding)
 
     }
@@ -353,15 +365,16 @@ private struct TorrentBatchGroupEditor: View {
     }
 
     private func fileEntries(for item: TorrentBatchItemState) -> [TorrentFileBrowserEntry] {
-        let suggestion = smartNamesEnabled ? item.suggestion() : nil
+        let suggestion = smartNamesEnabled ? item.cachedSuggestion : nil
         let renamedFiles = Dictionary(
             uniqueKeysWithValues: (suggestion?.pathRenames ?? []).map { ($0.path, $0.name) }
         )
+        let rootName = TorrentFileBrowserEntry.commonRoot(paths: item.draft.preview.files.map(\.name)) ?? item.draft.preview.name
         return item.draft.preview.files.enumerated().map { index, file in
             TorrentFileBrowserEntry(
                 index: index,
                 file: file,
-                rootName: TorrentFileBrowserEntry.commonRoot(paths: item.draft.preview.files.map(\.name)) ?? item.draft.preview.name,
+                rootName: rootName,
                 displayName: renamedFiles[file.name],
                 isWanted: item.selectedFileIndices.contains(index),
                 priority: item.filePriorities[index] ?? 0
@@ -393,15 +406,14 @@ final class TorrentBatchItemState {
     var selectedFileIndices: Set<Int>
     var filePriorities: [Int: Int] = [:]
     var wasAdded = false
+    var cachedSuggestion: TorrentAddNamingPlan?
 
-    init(draft: TorrentFileAddDraft) {
+    init(draft: TorrentFileAddDraft, defersNaming: Bool = false) {
         self.draft = draft
         let selected = Set(draft.preview.files.indices)
-        let suggestion = TorrentNameCleaner.plan(
-            rootName: draft.preview.name,
-            files: draft.preview.files,
-            selectedFileIndices: selected
-        )
+        let suggestion = defersNaming ? nil : TorrentNameCleaner.plan(rootName: draft.preview.name,
+            files: draft.preview.files, selectedFileIndices: selected)
+        self.cachedSuggestion = suggestion
         self.name = suggestion?.suggestedName ?? draft.preview.name
         self.selectedFileIndices = selected
     }
@@ -418,10 +430,11 @@ final class TorrentBatchItemState {
     }
 
     var normalizedName: String { name.trimmingCharacters(in: .whitespacesAndNewlines) }
-    var canAdd: Bool { !normalizedName.isEmpty && !selectedFileIndices.isEmpty }
+    var canAdd: Bool { !normalizedName.isEmpty  }
 
     func suggestion() -> TorrentAddNamingPlan? {
-        TorrentNameCleaner.plan(
+        if selectedFileIndices.count == draft.preview.files.count, let cachedSuggestion { return cachedSuggestion }
+        return TorrentNameCleaner.plan(
             rootName: draft.preview.name,
             files: draft.preview.files,
             selectedFileIndices: selectedFileIndices
@@ -485,5 +498,26 @@ final class TorrentBatchItemState {
 
     func applySeasonDisplayName(_ title: String, season: Int) {
         name = "\(title) \(season)"
+    }
+}
+
+private struct AddCommandKeyObserver: NSViewRepresentable {
+    let changed: (Bool) -> Void
+    func makeNSView(context: Context) -> Anchor { Anchor() }
+    func updateNSView(_ view: Anchor, context: Context) { view.changed = changed }
+    final class Anchor: NSView {
+        var changed: ((Bool) -> Void)?
+        private var monitor: Any?
+        override func hitTest(_ point: NSPoint) -> NSView? { nil }
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let monitor { NSEvent.removeMonitor(monitor) }; monitor = nil
+            guard window != nil else { return }
+            changed?(NSEvent.modifierFlags.contains(.command))
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { [weak self] event in
+                self?.changed?(event.modifierFlags.contains(.command)); return event
+            }
+        }
+        isolated deinit { if let monitor { NSEvent.removeMonitor(monitor) } }
     }
 }
