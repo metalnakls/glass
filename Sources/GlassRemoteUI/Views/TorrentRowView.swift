@@ -505,7 +505,11 @@ struct TorrentFileIcon: View {
         } else {
         Group {
             if let displayedThumbnail {
+                let wide = displayedThumbnail.size.width > displayedThumbnail.size.height * 1.3
                 Image(nsImage: displayedThumbnail).resizable().aspectRatio(contentMode: .fit)
+                    // Spend the extra width into the outer gutter, preserving title alignment.
+                    .frame(width: wide ? size * 1.22 : size, height: size)
+                    .offset(x: wide ? -size * 0.11 : 0)
                     .frame(width: size, height: size)
                     .modifier(TorrentIconShadow(tint: coloredShadows ? artworkTint : .black))
             } else {
