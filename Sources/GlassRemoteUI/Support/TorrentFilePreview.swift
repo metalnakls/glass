@@ -27,6 +27,7 @@ private struct BencodeTorrentPreview {
     let files: [TorrentFile]
 
     init?(data: Data) {
+        guard data.count <= 8 * 1_024 * 1_024 else { return nil }
         var parser = BencodeParser(data: data)
         guard
             let root = parser.parse(),
@@ -59,7 +60,10 @@ private struct BencodeTorrentPreview {
                 )
             }
             self.files = parsedFiles
-            self.size = parsedFiles.reduce(0) { $0 + $1.length }
+            self.size = parsedFiles.reduce(0) { total, file in
+                let (sum, overflow) = total.addingReportingOverflow(file.length)
+                return overflow ? UInt64.max : sum
+            }
         } else {
             self.size = UInt64(data.count)
             self.files = [TorrentFile(name: name, length: UInt64(data.count), bytesCompleted: 0)]
@@ -89,6 +93,8 @@ private enum BencodeValue {
 private struct BencodeParser {
     private let data: Data
     private var index = 0
+    private var depth = 0
+    private var nodes = 0
 
     init(data: Data) {
         self.data = data
@@ -99,7 +105,9 @@ private struct BencodeParser {
     }
 
     private mutating func parseValue() -> BencodeValue? {
-        guard index < data.count else { return nil }
+        guard index < data.count, depth < 64, nodes < 500_000 else { return nil }
+        depth += 1; nodes += 1
+        defer { depth -= 1 }
         switch data[index] {
         case UInt8(ascii: "i"):
             return parseInteger()
@@ -141,7 +149,7 @@ private struct BencodeParser {
         guard
             let lengthText = String(data: lengthData, encoding: .ascii),
             let length = Int(lengthText),
-            index + length <= data.count
+            length >= 0, length <= data.count - index
         else {
             return nil
         }

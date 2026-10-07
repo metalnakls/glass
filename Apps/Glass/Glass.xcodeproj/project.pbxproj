@@ -7,9 +7,24 @@
 	objects = {
 
 
+        120000000000000000000001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../GlassQuickLook/PreviewViewController.swift; sourceTree = "<group>"; };
+        120000000000000000000002 = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; path = GlassQuickLook.appex; sourceTree = BUILT_PRODUCTS_DIR; };
         120000000000000000000003 = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = LaunchAgents/tsmc.glass.background.plist; sourceTree = "<group>"; };
+        120000000000000000000004 = {isa = PBXBuildFile; fileRef = 120000000000000000000001; };
+        120000000000000000000005 = {isa = PBXBuildFile; fileRef = 120000000000000000000002; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
         120000000000000000000006 = {isa = PBXBuildFile; fileRef = 120000000000000000000003; };
+        120000000000000000000007 = {isa = PBXBuildFile; productRef = 120000000000000000000008; };
+        120000000000000000000008 = {isa = XCSwiftPackageProductDependency; package = 10B000000000000000000001; productName = GlassRemoteUI; };
+        120000000000000000000009 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (120000000000000000000004, ); runOnlyForDeploymentPostprocessing = 0; };
+        12000000000000000000000A = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (120000000000000000000007, ); runOnlyForDeploymentPostprocessing = 0; };
+        12000000000000000000000B = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = ""; dstSubfolderSpec = 13; files = (120000000000000000000005, ); name = "Embed Quick Look"; runOnlyForDeploymentPostprocessing = 0; };
         12000000000000000000000C = {isa = PBXCopyFilesBuildPhase; buildActionMask = 2147483647; dstPath = Contents/Library/LaunchAgents; dstSubfolderSpec = 1; files = (120000000000000000000006, ); name = "Embed Launch Agent"; runOnlyForDeploymentPostprocessing = 0; };
+        12000000000000000000000D = {isa = PBXContainerItemProxy; containerPortal = 108000000000000000000001; proxyType = 1; remoteGlobalIDString = 12000000000000000000000F; remoteInfo = GlassQuickLook; };
+        12000000000000000000000E = {isa = PBXTargetDependency; target = 12000000000000000000000F; targetProxy = 12000000000000000000000D; };
+        12000000000000000000000F = {isa = PBXNativeTarget; buildConfigurationList = 120000000000000000000010; buildPhases = (120000000000000000000009, 12000000000000000000000A, ); buildRules = (); dependencies = (); name = GlassQuickLook; packageProductDependencies = (120000000000000000000008, ); productName = GlassQuickLook; productReference = 120000000000000000000002; productType = "com.apple.product-type.app-extension"; };
+        120000000000000000000010 = {isa = XCConfigurationList; buildConfigurations = (120000000000000000000011, 120000000000000000000012, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+        120000000000000000000011 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_ENTITLEMENTS = ../GlassQuickLook/GlassQuickLook.entitlements; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ../GlassQuickLook/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = tsmc.glass.quicklook; PRODUCT_NAME = GlassQuickLook; SKIP_INSTALL = YES; MACOSX_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 6.0; GLASS_VERSION = 1.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks", );}; name = Debug; };
+        120000000000000000000012 = {isa = XCBuildConfiguration; buildSettings = {APPLICATION_EXTENSION_API_ONLY = YES; CODE_SIGN_STYLE = Automatic; CODE_SIGN_IDENTITY = "-"; CODE_SIGN_ENTITLEMENTS = ../GlassQuickLook/GlassQuickLook.entitlements; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = ../GlassQuickLook/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = tsmc.glass.quicklook; PRODUCT_NAME = GlassQuickLook; SKIP_INSTALL = YES; MACOSX_DEPLOYMENT_TARGET = 27.0; SWIFT_VERSION = 6.0; GLASS_VERSION = 1.0; LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@executable_path/../../../../Frameworks", );}; name = Release; };
 
 /* Begin PBXBuildFile section */
 		101000000000000000000001 /* GlassApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102000000000000000000001 /* GlassApp.swift */; };
@@ -69,6 +84,7 @@
 		104000000000000000000002 /* Glass */ = {
 			isa = PBXGroup;
 			children = (
+                120000000000000000000001,
                 120000000000000000000003,
 				102000000000000000000001 /* GlassApp.swift */,
 				10200000000000000000000F /* GlassMacPlatformIntegration.swift */,
@@ -89,6 +105,7 @@
 			isa = PBXGroup;
 			children = (
 				102000000000000000000009 /* Glass.app */,
+                120000000000000000000002,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -124,11 +141,13 @@
 				106000000000000000000001 /* Sources */,
 				103000000000000000000001 /* Frameworks */,
 				107000000000000000000001 /* Resources */,
+                12000000000000000000000B,
                 12000000000000000000000C,
 			);
 			buildRules = (
 			);
 			dependencies = (
+                12000000000000000000000E,
 			);
 			name = Glass;
 			packageProductDependencies = (
@@ -174,6 +193,7 @@
 			projectRoot = "";
 			targets = (
 				105000000000000000000001 /* Glass */,
+                12000000000000000000000F,
 			);
 		};
 /* End PBXProject section */

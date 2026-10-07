@@ -70,7 +70,9 @@ import GlassRemoteCore
     func showEmptyPreview() {
         previewScope?.stopAccessingSecurityScopedResource()
         previewScope = nil
-        previewURL = nil
+        let status = FileManager.default.temporaryDirectory.appendingPathComponent("Glass-unavailable.txt")
+        try? glassText("No data found").write(to: status, atomically: true, encoding: .utf8)
+        previewURL = status
         guard let panel = QLPreviewPanel.shared() else { return }
         panel.dataSource = self
         panel.reloadData()
