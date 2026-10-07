@@ -6,6 +6,7 @@ import SwiftUI
 
 /// A disposable alternate model used by Tune to put sample torrents in the main list.
 @MainActor @Observable public final class TorrentTestSessionState {
+    public private(set) var isEnabled = false
     private let session: TorrentTestSession
     public let model: RemoteAppModel
     @ObservationIgnored private var failedAdditionID: UUID?
@@ -22,8 +23,10 @@ import SwiftUI
             }, localSessionFactory: { session })
     }
 
+    public func start() { isEnabled = true }
+
     public func addSample() async {
-        _ = await session.addTorrentFile(data: Data([1]), torrentName: "New Sample.mkv",
+        _ = try? await session.addTorrentFile(data: Data([1]), torrentName: "New Sample.mkv",
             downloadDirectory: "/Sample/Downloads", fileSelection: nil)
         await model.refresh(sourceID: model.localSourceID)
     }
@@ -63,7 +66,10 @@ import SwiftUI
         await model.refreshAllSources()
     }
 
-    public func end() async { await reset() }
+    public func end() async {
+        isEnabled = false
+        await reset()
+    }
 
     public func showUpdateAvailabilitySample() {
         if updateAvailabilityBeforeSample == nil {

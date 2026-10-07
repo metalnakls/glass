@@ -4,9 +4,9 @@ import SwiftUI
 public struct SelectionAppearanceView: View {
     private let externalSection: Binding<TuningSection>?
     private let testSession: TorrentTestSessionState?
-    public init(section: Binding<TuningSection>? = nil, testSession: TorrentTestSessionState? = nil) {
-        self.externalSection = section
+    public init(testSession: TorrentTestSessionState? = nil, section: Binding<TuningSection>? = nil) {
         self.testSession = testSession
+        self.externalSection = section
     }
     @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
     @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
@@ -143,31 +143,42 @@ public struct SelectionAppearanceView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .glassTextStyle()
+        .onDisappear {
+            guard let testSession, testSession.isEnabled else { return }
+            Task { await testSession.end() }
+        }
     }
 
     @ViewBuilder private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let testSession {
-                ViewThatFits(in: .horizontal) {
-                    HStack(spacing: 6) {
-                        footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
-                        footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
-                        footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
-                    }
-                    VStack(spacing: 6) {
+                footerButton(testSession.isEnabled ? "Stop testing" : "Test Torrents",
+                    symbol: testSession.isEnabled ? "stop.fill" : "play.fill") {
+                    if testSession.isEnabled { Task { await testSession.end() } }
+                    else { testSession.start() }
+                }
+                if testSession.isEnabled {
+                    ViewThatFits(in: .horizontal) {
                         HStack(spacing: 6) {
                             footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
                             footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
-                        }
-                        HStack(spacing: 6) {
                             footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
-                            Spacer(minLength: 0)
+                        }
+                        VStack(spacing: 6) {
+                            HStack(spacing: 6) {
+                                footerButton("Add", symbol: "plus") { Task { await testSession.addSample() } }
+                                footerButton("Failed", symbol: "exclamationmark.triangle") { Task { await testSession.addFailedRemoteAdd() } }
+                            }
+                            HStack(spacing: 6) {
+                                footerButton("Complete", symbol: "checkmark.circle") { Task { await testSession.completeAll() } }
+                                Spacer(minLength: 0)
+                            }
                         }
                     }
-                }
-                HStack(spacing: 6) {
-                    footerButton("Reset", symbol: "arrow.counterclockwise") { Task { await testSession.reset() } }
-                    footerButton("Update sample", symbol: "arrow.down.circle") { testSession.showUpdateAvailabilitySample() }
+                    HStack(spacing: 6) {
+                        footerButton("Reset", symbol: "arrow.counterclockwise") { Task { await testSession.reset() } }
+                        footerButton("Update sample", symbol: "arrow.down.circle") { testSession.showUpdateAvailabilitySample() }
+                    }
                 }
             }
             HStack(spacing: 6) {
