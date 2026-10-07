@@ -50,10 +50,78 @@ Releases are unsigned: no Developer ID certificate, no Apple notarization, no st
 
 ## Shared interface conventions
 
-- Use system spacing: `.padding()` without a length, default stack spacing, and `nil` for native row/content margins. Use `GlassPillButton` for native glass buttons and `GlassSearchPill` for every search surface. Keep deliberate optical corrections or Tune overrides in shared metrics and document their purpose.
-- Inspector and Add use the same file browser, glass pill metrics, search controls and floating dock style. Edit their shared component when behavior or appearance should stay synchronized; do not copy a second implementation.
-- Present app-owned dialogs through shared modal chrome and dimensions. Loading and loaded content retain the same presentation geometry.
-- Use native selection, keyboard navigation, inline rename and drag behavior. Keep filenames and folder names in their original case.
-- State changes apply immediately. Async work reports pending state without blocking clicks. Animations remain interruptible, respect Reduce Motion and use native glass transitions with shared timing; never delay an action until its animation completes.
-- Put adjustable appearance values in Tune. Avoid duplicated dimensions, glyphs and motion constants.
-- Commit each feature separately. Validate the behavior affected by the change; do not add tests that merely duplicate layout constants or implementation details.
+For UI layout, controls, animation, Tune, or presentation changes, read
+[Docs/DESIGN-SYSTEM.md](Docs/DESIGN-SYSTEM.md) before editing. It defines component
+owners, variants, and protected behavior. For the current list/import recovery,
+also read [Docs/UI-RECOVERY-PLAN.md](Docs/UI-RECOVERY-PLAN.md). A plan does not
+authorize implementation after the user asks to stop.
+
+### Required workflow
+
+1. State the requested change and existing behavior it must preserve. Read the
+   relevant recent conversation, current diff, shared owner, and callers. When
+   the user says it worked before, locate the relevant history before choosing a
+   replacement. An old commit is evidence, not automatically a safe app rollback.
+2. Identify one owner for the faulty behavior and a falsifiable cause. Record
+   the observed failure, proposed change, and affected variants. If the cause is
+   uncertain, use a focused reproduction before changing production code.
+3. Reuse the existing component. If a real use case needs different behavior,
+   add a named semantic variant and migrate its callers. Screen code supplies
+   data, actions, and variants; the component owns styling, padding, hit targets,
+   and motion.
+4. Make one coherent correction. A spacing request does not authorize changing
+   sticky release timing, selection, row identity, scroll ownership, or import
+   lifecycle. A structural change requires a written reason and checks for every
+   affected behavior. Ask before changing an established interaction.
+5. Validate the reported failure and the affected sibling variants. For visual
+   work, compare the same content, dimensions, scroll position, appearance, and
+   saved Tune values. Build/test success establishes compilation and tested
+   behavior only. Report anything not observed as unverified.
+6. If a correction causes another regression, stop stacking fixes. Compare the
+   failed delta with the baseline, update the diagnosis, and repair or withdraw
+   that delta without reverting unrelated work. Resume with an explanation of
+   why the next change addresses the evidence.
+
+### Native components and layout ownership
+
+- Use native SwiftUI/AppKit controls, selection, keyboard, focus, rename, drag,
+  scrolling, and accessibility semantics. Preserve hybrid List ownership. A
+  custom implementation needs a concrete unmet requirement and one shared owner.
+- Start with default stack spacing, `.padding()`, and native row/content margins.
+  Custom values belong in named shared metrics with a reason, scope, and units,
+  or approved Tune overrides. Moving a magic number into an enum does not by
+  itself justify that number.
+- Own each inset once. Distinguish component interior, row columns, document
+  margins, and sticky viewport inset. Never compensate for one layer with a
+  second layer's padding, negative offsets, masks, or duplicated safe areas.
+- Keep native row separators; headers have none. Main-list rules span the
+  text/metadata region, excluding artwork and the state control. Derive bounds
+  from the same row geometry as the content.
+- Use named variants instead of screen-specific copies or growing collections
+  of booleans. Share parts when structure differs; do not force torrent rows and
+  file rows into one universal view.
+- Tune edits the shared owner's value immediately. Each control has a precise
+  label, unit, default, range, and documented effect. Preserve saved user values;
+  migrate changed meanings explicitly rather than resetting preferences.
+- Native glass controls own internal padding and the full clickable area.
+  Decorative effects pass input through. Motion remains interruptible, respects
+  Reduce Motion, and never delays the action it represents. Keep original filename case.
+
+### Ask instead of inventing
+
+Ask a concise question with two or three concrete choices when intended
+appearance/behavior is ambiguous, a reference cannot be established, requirements
+conflict, or native behavior cannot satisfy a requested custom effect. State the
+uncertainty and recommend an option. Await the answer for dependent work; continue
+only independent work. Do not infer a new product requirement from one screenshot
+or invent a draft/session to preserve.
+
+### Completion and delivery
+
+List passed and unverified acceptance checks. A design system is complete only
+when its declared callers use it and its variants have been checked. Validate
+runtime fixes before replacing the installed app where tooling permits, then
+verify the exact installed build. A restart needs a stated purpose; prefer an
+isolated fixture for repeated experiments. Documentation-only turns require
+document validation, not app builds or restarts. Commit only validated current-task
+files; preserve pre-existing unfinished source changes. Never push automatically.
