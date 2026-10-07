@@ -100,46 +100,46 @@ public struct SelectionAppearanceView: View {
         })
     }
 
+    @State private var sectionPickerPresented = false
+
     public var body: some View {
-        VStack(spacing: 16) {
-            Menu {
-                ForEach(TuningSection.allCases) { item in
-                    Button {
-                        withAnimation(.smooth(duration: 0.24)) { selectSection(item) }
-                    } label: {
-                        Label(glassText(item.title), systemImage: item.symbol)
+        GlassChromeScrollView {
+            VStack(alignment: .leading) {
+                controls
+            }
+            .id(section.rawValue)
+            .transition(.blurReplace)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal)
+        }
+        .glassFloatingChrome(top: {
+            HStack {
+                GlassPillButton { sectionPickerPresented.toggle() } label: {
+                    HStack {
+                        Label(glassText(section.title), systemImage: section.symbol)
+                        Image(systemName: "chevron.down").font(.caption)
                     }
                 }
-            } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: section.symbol)
-                    Text(glassText(section.title))
-                    Spacer(minLength: 8)
-                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                .accessibilityLabel("Tune section")
+                .popover(isPresented: $sectionPickerPresented, arrowEdge: .top) {
+                    VStack(alignment: .leading) {
+                        ForEach(TuningSection.allCases) { item in
+                            Button {
+                                sectionPickerPresented = false
+                                withAnimation(.smooth) { selectSection(item) }
+                            } label: {
+                                Label(glassText(item.title), systemImage: item.symbol)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.vertical)
+                                    .contentShape(Rectangle())
+                            }.buttonStyle(.plain)
+                        }
+                    }.padding()
                 }
+                Spacer()
             }
-            .buttonStyle(.plain)
-            .modifier(InspectorGlassPill(interactive: true))
-            .accessibilityLabel("Tune section")
-            .frame(maxWidth: .infinity, alignment: .leading)
-            Divider()
-            ScrollView {
-                ZStack(alignment: .topLeading) {
-                    controls
-                        .id(section.rawValue)
-                        .transition(.opacity.combined(with: .blurReplace))
-                }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
-            }
-            .animation(.smooth(duration: 0.24), value: section)
-            .scrollEdgeEffectHidden(true, for: .top)
-            Divider()
-            footer
-        }
-        .padding(.horizontal, 22)
-        .padding(.top, 22)
-        .padding(.bottom, 20)
+        }, bottom: { footer })
+        .animation(.smooth, value: section)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .glassTextStyle()
@@ -150,39 +150,33 @@ public struct SelectionAppearanceView: View {
     }
 
     @ViewBuilder private var footer: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let testSession {
-                footerButton(testSession.isEnabled ? "Stop testing" : "Test Torrents",
-                    symbol: testSession.isEnabled ? "stop.fill" : "play.fill") {
-                    if testSession.isEnabled { Task { await testSession.end() } }
-                    else { testSession.start() }
+        VStack(alignment: .leading) {
+            HStack {
+                if let testSession {
+                    footerButton(testSession.isEnabled ? "Stop testing" : "Test Torrents",
+                        symbol: testSession.isEnabled ? "stop.fill" : "play.fill") {
+                        if testSession.isEnabled { Task { await testSession.end() } }
+                        else { testSession.start() }
+                    }
                 }
-            }
-            HStack(spacing: 6) {
-                footerButton("Reset appearance", symbol: "arrow.counterclockwise") { AppearancePreferences.shared.resetToDefaults() }
-                Spacer(minLength: 4)
+                footerButton("Reset appearance", symbol: "arrow.counterclockwise") {
+                    AppearancePreferences.shared.resetToDefaults()
+                }
+                Spacer()
                 footerButton("Save", symbol: "square.and.arrow.down") {
                     do {
                         if try GlassAppearanceDefaults.save() { saveStatus = "Appearance defaults saved." }
                     } catch { saveStatus = error.localizedDescription }
                 }
-                .help("Save appearance values and the main window size as defaults.")
             }
             if let saveStatus { Text(saveStatus).font(.caption).foregroundStyle(.secondary) }
         }
-        .controlSize(.small)
     }
 
     private func footerButton(_ title: String, symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Label(glassText(title), systemImage: symbol)
-                .font(.caption)
-                .lineLimit(1)
-                .fixedSize(horizontal: true, vertical: false)
-        }
-        .buttonStyle(.plain)
-        .modifier(InspectorGlassPill(interactive: true))
-        .help(glassText(title))
+        GlassPillButton(iconOnly: true, action: action) { Image(systemName: symbol) }
+            .accessibilityLabel(glassText(title))
+            .help(glassText(title))
     }
 
     @ViewBuilder private var controls: some View {
