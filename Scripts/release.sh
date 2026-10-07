@@ -137,9 +137,14 @@ fi
 
 # Publish near the start of an allowed even minute, leaving upload time within it.
 while :; do
+    DELIVERY_HOUR="$(date +%H)"
     DELIVERY_MINUTE="$(date +%M)"
     DELIVERY_SECOND="$(date +%S)"
-    if (( 10#$DELIVERY_MINUTE % 2 == 0 && 10#$DELIVERY_MINUTE != 30 && 10#$DELIVERY_MINUTE != 50 && 10#$DELIVERY_SECOND <= 10 )); then
+    if (( 10#$DELIVERY_MINUTE % 2 == 0
+          && 10#$DELIVERY_MINUTE != 30
+          && 10#$DELIVERY_MINUTE != 50
+          && (10#$DELIVERY_MINUTE != 0 || 10#$DELIVERY_HOUR % 2 == 0 || 10#$DELIVERY_HOUR == 1)
+          && 10#$DELIVERY_SECOND <= 10 )); then
         break
     fi
     sleep 1
