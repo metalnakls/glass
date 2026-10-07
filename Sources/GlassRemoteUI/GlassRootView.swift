@@ -214,6 +214,7 @@ public struct GlassRootView: View {
             }
         }
         .task { GlassBackgroundService.offerIfNeeded() }
+        .task { await GlassBackgroundService.renameDownloadsWhileOpen() }
         .task(id: TorrentAutoRefreshInput(modelID: ObjectIdentifier(model), profiles: model.profiles, isActive: model.isApplicationActive)) {
             await model.runAutoRefresh()
         }

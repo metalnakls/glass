@@ -72,6 +72,11 @@ public enum GlassBackgroundService {
         }
     }
 
+    /// Foreground file renaming does not require a registered login agent.
+    public static func renameDownloadsWhileOpen() async {
+        await GlassBackgroundWorker.shared.runForeground()
+    }
+
     public static func run() async {
         guard isAvailable else { return }
         await GlassBackgroundWorker.shared.run()
@@ -143,6 +148,9 @@ private actor GlassBackgroundWorker {
     private let diagnosticDirectory: URL? = {
         #if DEBUG
         let arguments = CommandLine.arguments
+        if arguments.contains("--background-worker-self-test") {
+            return FileManager.default.temporaryDirectory.appendingPathComponent("GlassWorkerCheck-" + UUID().uuidString, isDirectory: true)
+        }
         if let index = arguments.firstIndex(of: "--background-worker-directory"), arguments.indices.contains(index + 1) {
             return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
         }
@@ -153,7 +161,52 @@ private actor GlassBackgroundWorker {
     private var downloads: URL? { diagnosticDirectory ?? scopedDownloads ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
     private let defaults = UserDefaults.standard
 
+    private var foregroundOwner = false
+
+    func runForeground() async {
+        guard !foregroundOwner else { return }
+        foregroundOwner = true
+        do { scopedDownloads = try BackgroundDownloadsAccess.resolve() }
+        catch { logger.error("Downloads access: \(error.localizedDescription, privacy: .public)") }
+        watchDownloads()
+        defer {
+            scanTask?.cancel()
+            directorySource?.cancel()
+            directorySource = nil
+            scopedDownloads?.stopAccessingSecurityScopedResource()
+            scopedDownloads = nil
+            foregroundOwner = false
+        }
+        while !Task.isCancelled {
+            await scanDownloads()
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
+        }
+    }
+
     func run() async {
+        #if DEBUG
+        if CommandLine.arguments.contains("--background-worker-self-test"), let diagnosticDirectory {
+            do {
+                try FileManager.default.createDirectory(at: diagnosticDirectory, withIntermediateDirectories: true)
+                defer { try? FileManager.default.removeItem(at: diagnosticDirectory) }
+                let name = "The.People.vs.Larry.Flynt.1996.1080p.BluRay.mkv"
+                var data = Data("d4:infod6:lengthi100e4:name\(name.utf8.count):\(name)12:piece lengthi16384e6:pieces20:".utf8)
+                data.append(Data(repeating: 48, count: 20))
+                data.append(Data("ee".utf8))
+                let original = diagnosticDirectory.appendingPathComponent("Original long name.torrent")
+                try data.write(to: original)
+                try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: -5)], ofItemAtPath: original.path)
+                await scanDownloads()
+                let names = try FileManager.default.contentsOfDirectory(atPath: diagnosticDirectory.path)
+                guard names == ["The People vs Larry Flynt.torrent"] else {
+                    print("Worker rename failed: \(names)")
+                    exit(1)
+                }
+                print("Worker rename passed: \(names[0])")
+                exit(0)
+            } catch { print("Worker check failed: \(error.localizedDescription)"); exit(1) }
+        }
+        #endif
         if diagnosticDirectory == nil {
             do { scopedDownloads = try BackgroundDownloadsAccess.resolve() }
             catch { logger.error("Could not restore Downloads access: \(error.localizedDescription, privacy: .public)") }
@@ -199,6 +252,13 @@ private actor GlassBackgroundWorker {
     }
 
     private func scanDownloads() async {
+        if !foregroundOwner && diagnosticDirectory == nil {
+            let foregroundRunning = await MainActor.run {
+                NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass")
+                    .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+            }
+            guard !foregroundRunning else { return }
+        }
         guard let downloads else { return }
         let scanLogger = logger
         guard let enumerator = FileManager.default.enumerator(at: downloads,
