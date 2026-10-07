@@ -23,6 +23,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassInspector.blurEaseOut") private var inspectorBlurEaseOut = 0.35
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeInspectorHighlight = false
     @AppearanceStorage("GlassInspector.fileSideInset") private var inspectorSideInset = 18.0
+    @AppearanceStorage("GlassInspector.permanentSearch") private var permanentInspectorSearch = true
     @AppearanceStorage("GlassAdd.showIcon") private var addIcon = true
     @AppearanceStorage("GlassAdd.titleTopPadding") private var addTitleTopPadding = 20.0
     @AppearanceStorage("GlassAdd.titleLeftPadding") private var addTitleLeftPadding = 20.0
@@ -330,6 +331,7 @@ public struct SelectionAppearanceView: View {
                 Text(glassText("Allow Glass in Login Items to finish enabling the worker.")).font(.caption)
             }
         case .inspector:
+            Toggle(glassText("Permanent full-width search"), isOn: $permanentInspectorSearch)
             Toggle(glassText("Native selection highlight"), isOn: $nativeInspectorHighlight)
             shadowSlider("File side padding", value: $inspectorSideInset, range: 8...40)
             Divider()
