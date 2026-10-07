@@ -37,7 +37,7 @@ struct NativeGlassIcon: View {
                 Image(nsImage: image).resizable().scaledToFit()
                     .frame(width: size, height: size)
                     .rotationEffect(.radians(rotation + inheritedRotation))
-            } else if let artwork = NativeIconGeometry.artwork(for: image) {
+            } else if let artwork = NativeIconGeometry.artwork(for: image, highResolution: size > 64) {
                 let source = Image(decorative: artwork.image, scale: 1).resizable().scaledToFit()
                     .frame(width: size, height: size)
                     .rotationEffect(.radians(rotation + inheritedRotation))
@@ -123,9 +123,16 @@ extension EnvironmentValues {
         return cache
     }()
 
-    static func artwork(for image: NSImage) -> Artwork? {
-        if let cached = artworks.object(forKey: image) { return cached }
-        let size = 128
+    private static let previewArtworks: NSCache<NSImage, Artwork> = {
+        let cache = NSCache<NSImage, Artwork>()
+        cache.countLimit = 8
+        return cache
+    }()
+
+    static func artwork(for image: NSImage, highResolution: Bool = false) -> Artwork? {
+        let cache = highResolution ? previewArtworks : artworks
+        if let cached = cache.object(forKey: image) { return cached }
+        let size = highResolution ? 512 : 128
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         var pixels = [UInt8](repeating: 0, count: size * size * 4)
         let original = pixels.withUnsafeMutableBytes { bytes -> CGImage? in
@@ -142,7 +149,7 @@ extension EnvironmentValues {
         guard let original else { return nil }
         let path = outline(alpha: stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }, width: size, height: size)
         let result = Artwork(image: original, path: path)
-        artworks.setObject(result, forKey: image)
+        cache.setObject(result, forKey: image)
         return result
     }
 

@@ -18,9 +18,10 @@ struct TorrentThumbnailInput: Hashable, Sendable {
     let length: UInt64
     let isComplete: Bool
     var isLocal = false
+    var pixelSize = 72
 
     var key: String {
-        let value = "\(sourceID)|\(hashString)|\(downloadDirectory)|\(filePath)|\(length)|72-v1"
+        let value = "\(sourceID)|\(hashString)|\(downloadDirectory)|\(filePath)|\(length)|\(pixelSize)-v1"
         return SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
@@ -337,7 +338,7 @@ final class TorrentThumbnailService {
               path != input.filePath else { return input }
         return TorrentThumbnailInput(sourceID: input.sourceID, hashString: input.hashString,
             downloadDirectory: input.downloadDirectory, filePath: path, length: input.length,
-            isComplete: input.isComplete, isLocal: input.isLocal)
+            isComplete: input.isComplete, isLocal: input.isLocal, pixelSize: input.pixelSize)
     }
 
     private func resolvedVideoPath(for hashString: String, sourceID: UUID) -> String? {
@@ -476,7 +477,7 @@ final class TorrentThumbnailService {
             }
             return
         }
-        let request = QLThumbnailGenerator.Request(fileAt: file.url, size: CGSize(width: 36, height: 36), scale: 2, representationTypes: .thumbnail)
+        let request = QLThumbnailGenerator.Request(fileAt: file.url, size: CGSize(width: CGFloat(work.input.pixelSize) / 2, height: CGFloat(work.input.pixelSize) / 2), scale: 2, representationTypes: .thumbnail)
         work.request = request
         work.timeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(15))
@@ -518,7 +519,7 @@ final class TorrentThumbnailService {
                 let asset = AVURLAsset(url: file.url)
                 let generator = AVAssetImageGenerator(asset: asset)
                 work.video = generator
-                generator.maximumSize = CGSize(width: 72, height: 72)
+                generator.maximumSize = CGSize(width: work.input.pixelSize, height: work.input.pixelSize)
                 generator.appliesPreferredTrackTransform = true
                 let duration = try await asset.load(.duration)
                 let seconds = duration.seconds.isFinite ? max(0, min(60, duration.seconds * 0.1)) : 0
