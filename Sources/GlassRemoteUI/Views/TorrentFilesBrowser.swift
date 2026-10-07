@@ -253,14 +253,18 @@ struct TorrentFilesBrowser: View {
 
     private func displayName(_ row: TorrentFileTreeRow, hiding hiddenExtension: String?) -> String {
         let name = row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension)
-        guard shortEpisodeNames, !row.isFolder,
-              let range = name.range(of: "S[0-9]+E([0-9]+)", options: [.regularExpression, .caseInsensitive]) else { return name }
-        let token = String(name[range]).uppercased()
-        guard let e = token.firstIndex(of: "E"), let episode = Int(token[token.index(after: e)...]) else { return name }
-        let suffix = String(name[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let separator = suffix.first, "-–—".contains(separator) else { return name }
-        let title = suffix.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
-        return title.isEmpty ? String(episode) : "\(episode). \(title)"
+        guard shortEpisodeNames, !row.isFolder else { return name }
+        let patterns = [#"(?i)\bS[0-9]+E([0-9]+)\s*[-–—]\s*(.+)"#,
+                        #"(?i)\bSeason\s+[0-9]+[ ,.-]*Episode\s+([0-9]+)[ .,:–—-]*(.+)"#]
+        for pattern in patterns {
+            guard let expression = try? NSRegularExpression(pattern: pattern),
+                  let match = expression.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
+                  let numberRange = Range(match.range(at: 1), in: name),
+                  let titleRange = Range(match.range(at: 2), in: name),
+                  let number = Int(name[numberRange]) else { continue }
+            return "\(number). \(name[titleRange])"
+        }
+        return name
     }
 
     private func progress(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> Double {
