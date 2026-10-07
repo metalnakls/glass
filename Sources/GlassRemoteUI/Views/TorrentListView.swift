@@ -693,19 +693,22 @@ private struct TorrentListLiveRow: View {
             }
             Button(glassText("Remove from Queue"), role: .destructive) { model.cancelTorrentAddition(id) }
                 .disabled(record.additionPhase == .adding || record.additionPhase == .queued)
-        } else if let record = row.torrentRecord {
-            torrentContextMenu(for: record.summary)
-            if let input = TorrentThumbnailInput.movie(record.summary, sourceID: record.sourceID, isLocal: record.sourceID == model.localSourceID) {
-                Button(glassText("Refresh Preview")) { Task { await TorrentThumbnailService.shared.refresh(input) } }
-            }
         } else {
-            if case let .group(records, _, _) = row.kind {
-                TorrentTransferInfoMenu(model: model, sourceID: row.sourceID, torrents: records.map(\.summary))
-                Divider()
-            }
-            Button(glassText("Delete Torrent")) { removeRow(deleteData: false) }
-            Button(glassText("Delete Torrent + Data"), role: .destructive) { removeRow(deleteData: true) }
+            TorrentInfoMenuRow(title: "Added", value: addedDateValue)
         }
+    }
+
+    private var addedDateValue: String {
+        let dates: [Int]
+        switch row.kind {
+        case let .torrent(record, _):
+            dates = [record.summary.addedDate].compactMap { $0 }.filter { $0 > 0 }
+        case let .group(records, _, _):
+            dates = records.compactMap { $0.summary.addedDate }.filter { $0 > 0 }
+        }
+        guard let first = dates.min(), let last = dates.max() else { return glassText("Unavailable") }
+        let firstDate = formatTimestamp(first)
+        return first == last ? firstDate : "\(firstDate) – \(formatTimestamp(last))"
     }
 
     private func removeRow(deleteData: Bool) {
@@ -751,52 +754,11 @@ private struct TorrentListLiveRow: View {
         }
     }
 
-    @ViewBuilder
-    private func torrentContextMenu(for torrent: TorrentSummary) -> some View {
-        Button(glassText("Rename…")) {
-            rename(summary, row.sourceID)
-        }
-
-        if row.sourceID == model.localSourceID {
-            Divider()
-
-            Button(glassText("Move Data…"), systemImage: "folder") {
-                Task {
-                    do {
-                        guard let directory = try await platformIntegration.chooseLocalDownloadDirectory(
-                            startingAt: torrent.downloadDir
-                        ) else { return }
-                        _ = await model.moveLocalData(torrent, to: directory, sourceID: row.sourceID)
-                    } catch {
-                        model.errorMessage = error.localizedDescription
-                    }
-                }
-            }
-
-            Button(glassText("Quick Look")) {
-                platformIntegration.previewDownloadedItem(for: torrent)
-            }
-            .disabled(!platformIntegration.canPreviewDownloadedItem(for: torrent))
-
-            Button(glassText("Show in Finder")) {
-                platformIntegration.revealDownloadedItem(for: torrent)
-            }
-            .disabled(!platformIntegration.canRevealDownloadedItem(for: torrent))
-        }
-
-        Divider()
-        TorrentTransferInfoMenu(model: model, sourceID: row.sourceID, torrents: [torrent])
-        TorrentInfoMenuRow(title: "Date added", value: formatTimestamp(torrent.addedDate))
-        Divider()
-        Button(glassText("Delete Torrent")) {
-            remove(torrent, row.sourceID, false)
-        }
-        Button(glassText("Delete Torrent + Data"), role: .destructive) {
-            remove(torrent, row.sourceID, true)
-        }
+    private var allowsInlineRename: Bool {
+        guard !isAdding else { return false }
+        if case .torrent = row.kind { return true }
+        return false
     }
-
-
 }
 
 extension TorrentSummary {
