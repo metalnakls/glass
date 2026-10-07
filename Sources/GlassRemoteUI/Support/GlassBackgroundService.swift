@@ -23,6 +23,7 @@ public enum GlassBackgroundService {
 
     public static func setEnabled(_ enabled: Bool) throws {
         guard !enabled || isAvailable else { return }
+        if enabled { try BackgroundDownloadsAccess.authorize() }
         if enabled, service.status != .enabled { try service.register() }
         else if !enabled, service.status != .notRegistered { try service.unregister() }
         UserDefaults.standard.set(enabled, forKey: "GlassBackground.enabled")
@@ -40,13 +41,19 @@ public enum GlassBackgroundService {
         }
         guard !isWorker else { return }
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        if isEnabled, UserDefaults.standard.string(forKey: "GlassBackground.registeredVersion") != version {
-            // Native launch agents must be re-registered when their executable changes.
-            // Prior consent persists, so this updates the already-enabled agent only.
+        if isEnabled || UserDefaults.standard.bool(forKey: "GlassBackground.enabled") {
+            // Obtain access before changing an approved registration, so canceling
+            // a folder grant leaves the existing agent intact.
             do {
-                try service.unregister()
+                try BackgroundDownloadsAccess.authorize()
+                if isEnabled, UserDefaults.standard.string(forKey: "GlassBackground.registeredVersion") != version {
+                    try service.unregister()
+                }
                 try setEnabled(true)
-            } catch { /* Leave the previous registration state visible in Tune. */ }
+            } catch {
+                Logger(subsystem: "tsmc.glass", category: "background")
+                    .error("Background access setup failed: \(error.localizedDescription, privacy: .public)")
+            }
         }
         guard !UserDefaults.standard.bool(forKey: "GlassBackground.offered") else { return }
         UserDefaults.standard.set(true, forKey: "GlassBackground.offered")
@@ -71,6 +78,60 @@ public enum GlassBackgroundService {
     }
 }
 
+
+/// The foreground app retains its authorized folder access for the launch agent.
+/// Bookmark storage remains inside the shared app container, without changing permissions.
+private enum BackgroundDownloadsAccess {
+    static var storage: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("GlassBackground", isDirectory: true)
+            .appendingPathComponent("Downloads.bookmark")
+    }
+
+    @MainActor static func authorize() throws {
+        if let url = try? resolve() {
+            url.stopAccessingSecurityScopedResource()
+            return
+        }
+        guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
+              let storage else { throw CocoaError(.fileNoSuchFile) }
+        // Standard-folder entitlement access does not produce a transferable scope
+        // for an independently launched agent. The native picker grants that scope.
+        let panel = NSOpenPanel()
+        panel.title = glassText("Allow Downloads access")
+        panel.message = glassText("Choose Downloads so Glass can Smart Rename torrent files while the app is closed.")
+        panel.prompt = glassText("Allow")
+        panel.directoryURL = downloads
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let chosen = panel.url else { throw CocoaError(.userCancelled) }
+        guard chosen.resolvingSymlinksInPath().standardizedFileURL == downloads.resolvingSymlinksInPath().standardizedFileURL else {
+            throw CocoaError(.fileReadNoPermission)
+        }
+        let accessing = chosen.startAccessingSecurityScopedResource()
+        defer { if accessing { chosen.stopAccessingSecurityScopedResource() } }
+        let data = try chosen.bookmarkData(options: .withSecurityScope)
+        try FileManager.default.createDirectory(at: storage.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: storage, options: .atomic)
+    }
+
+    static func resolve() throws -> URL? {
+        guard let storage, FileManager.default.fileExists(atPath: storage.path) else { return nil }
+        let data = try Data(contentsOf: storage)
+        var stale = false
+        let url = try URL(resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI], bookmarkDataIsStale: &stale)
+        guard url.startAccessingSecurityScopedResource() else { throw CocoaError(.fileReadNoPermission) }
+        do {
+            if stale { try url.bookmarkData(options: .withSecurityScope).write(to: storage, options: .atomic) }
+        } catch {
+            url.stopAccessingSecurityScopedResource()
+            throw error
+        }
+        return url
+    }
+}
+
 private actor GlassBackgroundWorker {
     static let shared = GlassBackgroundWorker()
     private var observed: [String: Double] = [:]
@@ -88,10 +149,16 @@ private actor GlassBackgroundWorker {
         #endif
         return nil
     }()
-    private var downloads: URL? { diagnosticDirectory ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
+    private var scopedDownloads: URL?
+    private var downloads: URL? { diagnosticDirectory ?? scopedDownloads ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
     private let defaults = UserDefaults.standard
 
     func run() async {
+        if diagnosticDirectory == nil {
+            do { scopedDownloads = try BackgroundDownloadsAccess.resolve() }
+            catch { logger.error("Could not restore Downloads access: \(error.localizedDescription, privacy: .public)") }
+        }
+        defer { scopedDownloads?.stopAccessingSecurityScopedResource() }
         observed = defaults.dictionary(forKey: "GlassBackground.observed") as? [String: Double] ?? [:]
         watchDownloads()
         await scanDownloads()
@@ -132,25 +199,46 @@ private actor GlassBackgroundWorker {
     }
 
     private func scanDownloads() async {
-        guard let downloads,
-              let enumerator = FileManager.default.enumerator(at: downloads,
-                includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
-                options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles]) else { return }
+        guard let downloads else { return }
+        let scanLogger = logger
+        guard let enumerator = FileManager.default.enumerator(at: downloads,
+            includingPropertiesForKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey],
+            options: [.skipsSubdirectoryDescendants, .skipsHiddenFiles], errorHandler: { _, error in
+                scanLogger.error("Downloads enumeration failed: \(error.localizedDescription, privacy: .public)")
+                return true
+            }) else {
+            logger.error("Downloads enumeration could not start")
+            return
+        }
         var present = Set<String>()
+        var candidates = 0
+        var readable = 0
+        var processed = 0
         while let url = enumerator.nextObject() as? URL {
             guard !Task.isCancelled else { return }
             guard url.pathExtension.lowercased() == "torrent" else { continue }
             present.insert(url.path)
+            candidates += 1
             guard let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey, .isRegularFileKey]),
                   values.isRegularFile == true, let count = values.fileSize, count > 0, count <= 8 * 1_024 * 1_024,
                   let modified = values.contentModificationDate, fingerprints[url.path] != modified else { continue }
             // Ignore files still being written; their next directory event schedules another pass.
             guard modified.timeIntervalSinceNow < -1 else { scheduleScan(); continue }
-            guard let handle = try? FileHandle(forReadingFrom: url) else { continue }
-            let contents = try? handle.read(upToCount: 8 * 1_024 * 1_024 + 1)
-            try? handle.close()
-            guard let data = contents, data.count <= 8 * 1_024 * 1_024,
-                  !TorrentMetainfoIdentity.hashes(in: data).isEmpty else { continue }
+            let data: Data
+            do {
+                let handle = try FileHandle(forReadingFrom: url)
+                defer { try? handle.close() }
+                data = try handle.read(upToCount: 8 * 1_024 * 1_024 + 1) ?? Data()
+            } catch {
+                logger.error("Torrent read failed: \(error.localizedDescription, privacy: .public)")
+                continue
+            }
+            readable += 1
+            guard data.count <= 8 * 1_024 * 1_024,
+                  !TorrentMetainfoIdentity.hashes(in: data).isEmpty else {
+                logger.notice("Skipping invalid torrent metainfo")
+                continue
+            }
             let preview = TorrentFilePreview(data: data, fallbackURL: url)
             let plan = TorrentNameCleaner.plan(rootName: preview.name, files: preview.files,
                 selectedFileIndices: Set(preview.files.indices))
@@ -172,10 +260,12 @@ private actor GlassBackgroundWorker {
                 try mutableTarget.setResourceValues(values)
                 fingerprints[target.path] = modified
                 present.insert(target.path)
+                processed += 1
             } catch { logger.error("Torrent rename failed: \(error.localizedDescription, privacy: .public)") }
             await Task.yield()
         }
         fingerprints = fingerprints.filter { present.contains($0.key) }
+        logger.info("Downloads scan: \(candidates) torrents, \(readable) read, \(processed) processed")
     }
 
     private func checkServers(notify: Bool) async {
