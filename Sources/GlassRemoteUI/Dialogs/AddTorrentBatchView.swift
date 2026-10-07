@@ -35,6 +35,8 @@ struct AddTorrentBatchView: View {
     @State private var fileSearchText = ""
     @State private var searchPresented = false
     @State private var namingReady = false
+    @State private var consumedDraftIDs = Set<UUID>()
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppearanceStorage("GlassAdd.showIcon") private var showsTitleIcon = true
     @AppearanceStorage("GlassAdd.titleTopPadding") private var titleTopPadding = 20.0
     @AppearanceStorage("GlassAdd.titleLeftPadding") private var titleLeftPadding = 20.0
@@ -81,6 +83,17 @@ struct AddTorrentBatchView: View {
 
     var body: some View {
         ZStack {
+            ForEach(Array(groups.filter { $0.id != selectedGroupID }.prefix(2).enumerated()), id: \.element.id) { offset, group in
+                RoundedRectangle(cornerRadius: GlassModalMetrics.cornerRadius)
+                    .fill(.background)
+                    .overlay(alignment: .topLeading) {
+                        Text(group.displayName).font(.headline).padding()
+                    }
+                    .shadow(color: .black.opacity(0.12), radius: 4)
+                    .rotationEffect(.degrees(Double(offset + 1)))
+                    .padding(.trailing, CGFloat(2 - offset) * GlassModalMetrics.cardReveal)
+                    .padding(.bottom, CGFloat(2 - offset) * GlassModalMetrics.cardReveal)
+            }
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
                 TorrentBatchGroupEditor(group: group, items: items,
                     groupName: groupNameBinding(for: group),
@@ -88,17 +101,17 @@ struct AddTorrentBatchView: View {
                         set: { smartNamesByGroupID[group.id] = $0 }),
                     isAdding: isAdding, fileSearchText: $fileSearchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .glassFloatingChrome(top: { header(for: group) }, bottom: { addDock })
+                    .background(.background, in: RoundedRectangle(cornerRadius: GlassModalMetrics.cornerRadius))
+                    .padding(.trailing, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
+                    .padding(.bottom, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
                     .id(group.id)
                     .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
                         removal: .move(edge: .top).combined(with: .opacity)))
             }
         }
-        .animation(.smooth, value: selectedGroupID)
-        .glassFloatingChrome(top: {
-            if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                header(for: group)
-            }
-        }, bottom: { addDock })
+        .clipped()
+        .animation(reduceMotion ? nil : .smooth, value: selectedGroupID)
         .overlay(alignment: .bottomLeading) {
             if let addErrorMessage {
                 Label(addErrorMessage, systemImage: "exclamationmark.triangle")
@@ -110,7 +123,13 @@ struct AddTorrentBatchView: View {
         .background(ModifierKeyObserver { optionHeld = $0 })
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
         .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismissImport() } }
-        .task { await prepareNames() }
+        .task(id: drafts.map(\.id)) {
+            let known = Set(items.map { $0.draft.id })
+            items.append(contentsOf: drafts.filter { !known.contains($0.id) }.map {
+                TorrentBatchItemState(draft: $0, defersNaming: true)
+            })
+            await prepareNames()
+        }
         .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
     }
 
@@ -207,16 +226,20 @@ struct AddTorrentBatchView: View {
     private func prepareNames() async {
         let result = await AddNamingPreparation.prepare(drafts)
         guard !Task.isCancelled else { return }
-        withAnimation(.smooth) {
-            groups = result.groups
-            selectedGroupID = groups.first?.id ?? ""
+        withAnimation(reduceMotion ? nil : .smooth) {
+            groups = result.groups.filter { group in
+                group.itemIndices.contains { !consumedDraftIDs.contains(items[$0].draft.id) }
+            }
+            if !groups.contains(where: { $0.id == selectedGroupID }) {
+                selectedGroupID = groups.first?.id ?? ""
+            }
             let oldNames = groupNamesByID
             groupNamesByID = Dictionary(uniqueKeysWithValues: groups.map { group in
                 let entered = oldNames[group.id]
                 let original = group.itemIndices.first.map { items[$0].draft.preview.name }
                 return (group.id, entered != nil && entered != original ? entered! : group.displayName)
             })
-            smartNamesByGroupID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, true) })
+            smartNamesByGroupID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, smartNamesByGroupID[$0.id] ?? true) })
             for (index, plan) in result.plans.enumerated() {
                 items[index].cachedSuggestion = plan
                 if items[index].name == items[index].draft.preview.name {
@@ -259,7 +282,7 @@ struct AddTorrentBatchView: View {
 
     private var canAdd: Bool {
         !isAdding && namingReady
-            && (!groups.contains(where: needsSeriesDirectory) || resolvedBaseDownloadDirectory != nil)
+            && (groups.first(where: { $0.id == selectedGroupID }).map { !needsSeriesDirectory($0) } ?? true || resolvedBaseDownloadDirectory != nil)
             && (groups.first(where: { $0.id == selectedGroupID })?.itemIndices.allSatisfy { items[$0].canAdd } ?? false)
     }
 
@@ -299,12 +322,14 @@ struct AddTorrentBatchView: View {
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
+        consumedDraftIDs.formUnion(jobs.map { $0.0.draft.id })
         let remaining = groups.filter { $0.id != selectedGroupID }
         if remaining.isEmpty { dismissImport() }
         else {
-            withAnimation(.smooth) { groups = remaining; selectedGroupID = remaining[0].id }
+            withAnimation(reduceMotion ? nil : .smooth) { groups = remaining; selectedGroupID = remaining[0].id }
         }
 
+        isAdding = false
         var failures: [String] = []
         var addedHash: String?
         for (item, name, directory, plan) in jobs {

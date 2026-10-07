@@ -29,6 +29,7 @@ public struct GlassRootView: View {
     @State private var torrentRevealToken = UUID()
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
+    @State private var torrentImports = TorrentImportQueue()
     @State private var pendingProfileDeletion: RemoteProfile?
     @State private var pendingRenames: [PendingRemovalKey: PendingTorrentRename] = [:]
     @State private var pendingRemovals: [PendingTorrentRemoval] = []
@@ -144,7 +145,7 @@ public struct GlassRootView: View {
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(item: $activeSheet) { sheet in
+        .sheet(item: $activeSheet, onDismiss: { torrentImports.cancel() }) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
@@ -159,6 +160,7 @@ public struct GlassRootView: View {
             }
             .toolbarVisibility(sheet.isTorrentImport ? .hidden : .visible, for: .windowToolbar)
             .presentationSizing(.form)
+            .presentationBackground(sheet.isTorrentImport ? AnyShapeStyle(Color.clear) : AnyShapeStyle(.background))
         }
         .alert(glassText(activeAlertTitle), isPresented: activeAlertBinding, presenting: activeAlert) { alert in
             switch alert {
@@ -368,18 +370,14 @@ public struct GlassRootView: View {
         }
 
         guard !torrentFileURLs.isEmpty else { return }
-        let importID = UUID()
-        activeSheet = .loadingTorrentFiles(importID)
-        Task {
-            var drafts: [TorrentFileAddDraft] = []
-            for url in torrentFileURLs {
-                if let draft = await prepareTorrentFile(at: url) {
-                    drafts.append(draft)
-                }
-            }
-            guard case let .loadingTorrentFiles(currentID) = activeSheet, currentID == importID else { return }
+        if activeSheet?.isTorrentImport != true {
+            torrentImports.cancel()
+            activeSheet = .loadingTorrentFiles(UUID())
+        }
+        torrentImports.enqueue(torrentFileURLs, load: prepareTorrentFile) { drafts, finished in
+            guard activeSheet?.isTorrentImport == true else { return }
             if !drafts.isEmpty { activeSheet = .addTorrentFiles(drafts) }
-            else { activeSheet = nil }
+            else if finished { activeSheet = nil }
         }
     }
 
@@ -814,6 +812,7 @@ private struct DelayedTorrentLoadingView: View {
     var body: some View {
         Color.clear.overlay { if showSpinner { ProgressView().controlSize(.small) } }
             .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
+            .background(.background, in: RoundedRectangle(cornerRadius: GlassModalMetrics.cornerRadius))
             .task {
                 do { try await Task.sleep(for: .seconds(2)) } catch { return }
                 showSpinner = true
