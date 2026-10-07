@@ -23,16 +23,21 @@ struct GlassApp: App {
             let delegate = GlassUpdaterDelegate()
             // SPUStandardUpdaterController keeps its updater delegate weakly referenced.
             updaterDelegate = delegate
-            updaterController = SPUStandardUpdaterController(
+            let controller = SPUStandardUpdaterController(
                 startingUpdater: true,
                 updaterDelegate: delegate,
                 userDriverDelegate: nil
             )
+            updaterController = controller
+            GlassUpdateAvailability.shared.setCheckForUpdates {
+                controller.updater.checkForUpdates()
+            }
         } else {
             updaterDelegate = nil
             // Local builds have no SPARKLE_PUBLIC_ED_KEY injected, so the updater
             // stays off rather than failing to verify anything it downloads.
             updaterController = nil
+            GlassUpdateAvailability.shared.setCheckForUpdates(nil)
         }
 
         platformIntegration = GlassMacPlatformIntegration()
@@ -93,6 +98,14 @@ struct GlassApp: App {
 private final class GlassUpdaterDelegate: NSObject, SPUUpdaterDelegate {
     func allowedSystemProfileKeys(for updater: SPUUpdater) -> [String]? {
         ["appName", "appVersion", "osVersion"]
+    }
+
+    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
+        GlassUpdateAvailability.shared.setAvailable(true)
+    }
+
+    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: Error) {
+        GlassUpdateAvailability.shared.setAvailable(false)
     }
 }
 

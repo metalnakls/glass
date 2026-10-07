@@ -167,6 +167,16 @@ struct TorrentListView: View {
                     switch entry {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
+                            .overlay(alignment: .trailing) {
+                                if (headerPositions[section.id] ?? 0) == 0, GlassUpdateAvailability.shared.isAvailable {
+                                    Button { GlassUpdateAvailability.shared.checkForUpdates() } label: {
+                                        Label(glassText("Update"), systemImage: "arrow.down.circle")
+                                            .padding(.horizontal, 16).frame(height: 34)
+                                    }
+                                    .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
+                                    .padding(.trailing, rightPadding + 16)
+                                }
+                            }
                             .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? TorrentInspectorLayout.listEdgePadding / 2 : sectionSpacing)
                             .padding(.bottom, headerBottomPadding)
                             .selectionDisabled()
