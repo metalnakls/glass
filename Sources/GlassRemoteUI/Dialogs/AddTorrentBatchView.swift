@@ -38,8 +38,6 @@ struct AddTorrentBatchView: View {
     @State private var consumedDraftIDs = Set<UUID>()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppearanceStorage("GlassAdd.showIcon") private var showsTitleIcon = true
-    @AppearanceStorage("GlassAdd.titleTopPadding") private var titleTopPadding = 20.0
-    @AppearanceStorage("GlassAdd.titleLeftPadding") private var titleLeftPadding = 20.0
     @State private var disableSmartNamesForAdd = false
     @State private var isAdding = false
     @State private var addErrorMessage: String?
@@ -49,6 +47,8 @@ struct AddTorrentBatchView: View {
         model: RemoteAppModel,
         platformIntegration: any GlassPlatformIntegrating,
         drafts: [TorrentFileAddDraft],
+        initialSourceID: UUID? = nil,
+        initialDirectory: String? = nil,
         submit: @escaping @MainActor (
             TorrentFileAddDraft,
             UUID,
@@ -78,7 +78,8 @@ struct AddTorrentBatchView: View {
         _smartNamesByGroupID = State(initialValue: Dictionary(
             uniqueKeysWithValues: groups.map { ($0.id, true) }
         ))
-        _sourceID = State(initialValue: model.selectedSourceID)
+        _sourceID = State(initialValue: initialSourceID ?? model.selectedSourceID)
+        _downloadDirectory = State(initialValue: initialDirectory)
     }
 
     var body: some View {
@@ -95,14 +96,13 @@ struct AddTorrentBatchView: View {
                     .padding(.bottom, CGFloat(2 - offset) * GlassModalMetrics.cardReveal)
             }
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                TorrentBatchGroupEditor(group: group, items: items,
-                    groupName: groupNameBinding(for: group),
-                    smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
-                        set: { smartNamesByGroupID[group.id] = $0 }),
-                    isAdding: isAdding, fileSearchText: $fileSearchText)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .glassFloatingChrome(top: { header(for: group) }, bottom: { addDock })
-                    .background(.background, in: RoundedRectangle(cornerRadius: GlassModalMetrics.cornerRadius))
+                GlassAddCard {
+                    TorrentBatchGroupEditor(group: group, items: items,
+                        groupName: groupNameBinding(for: group),
+                        smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
+                            set: { smartNamesByGroupID[group.id] = $0 }),
+                        isAdding: isAdding, fileSearchText: $fileSearchText)
+                } header: { header(for: group) } dock: { addDock }
                     .padding(.trailing, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
                     .padding(.bottom, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
                     .id(group.id)
@@ -162,7 +162,7 @@ struct AddTorrentBatchView: View {
             sourceID: $sourceID, directory: $downloadDirectory,
             defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
             isDisabled: isAdding)
-        return ZStack(alignment: .topTrailing) {
+        return GlassAddHeader {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
                     HStack {
@@ -179,12 +179,7 @@ struct AddTorrentBatchView: View {
                 .scrollIndicators(.hidden)
             }
             .frame(height: InspectorGlassPill.height, alignment: .leading)
-            locationPicker
-        }
-        .frame(height: 58, alignment: .top)
-        .padding(.leading, max(0, titleLeftPadding - 20))
-        .padding(.top, max(0, titleTopPadding - 20))
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        } location: { locationPicker }
     }
 
     private func titleWidth(for group: TorrentBatchGroup, available: CGFloat, showsIcon: Bool) -> CGFloat {
@@ -317,7 +312,7 @@ struct AddTorrentBatchView: View {
                 downloadDirectory: directory,
                 namingPlan: plan ?? (name == item.draft.preview.name ? nil : TorrentAddNamingPlan(rootName: name, pathRenames: [])),
                 data: item.draft.data, fileSelection: item.fileSelection,
-                sourceURL: item.draft.sourceURL, trashSourceOnSuccess: true,
+                sourceURL: item.draft.sourceURL, trashSourceOnSuccess: item.draft.sourceURL != nil,
                 renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: startsPaused)
         }
         model.selectedProfileID = destinationSource
@@ -418,17 +413,6 @@ struct AddTorrentBatchView: View {
 struct TorrentFileAddSubmissionResult: Sendable, Hashable {
     let succeeded: Bool
     let torrent: TorrentAddResult?
-}
-
-struct TorrentSeasonStoragePlan {
-    let downloadDirectory: String
-    let namingPlan: TorrentAddNamingPlan
-
-    static func baseDirectory(base: String, title: String) -> String {
-        let baseURL = URL(fileURLWithPath: base).standardizedFileURL
-        if baseURL.lastPathComponent == title { return baseURL.deletingLastPathComponent().path }
-        return baseURL.path
-    }
 }
 
 private struct TorrentBatchGroupEditor: View {

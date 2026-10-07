@@ -325,6 +325,7 @@ struct TorrentRowView: View, Equatable {
     private var additionStatus: String? {
         switch additionPhase {
         case .queued: "Queued"
+        case .resolvingMetadata: "Fetching metadata…"
         case .adding: "Adding…"
         case .failed: additionAccepted ? "Finish setup" : "Add failed"
         case .confirming: "Confirming…"

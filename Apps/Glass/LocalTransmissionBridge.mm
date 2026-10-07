@@ -91,13 +91,15 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     return self;
 }
 
-- (void)dealloc
+- (void)close
 {
     if (_session != nullptr) {
         tr_sessionClose(_session);
         _session = nullptr;
     }
 }
+
+- (void)dealloc { [self close]; }
 
 - (NSDictionary *)snapshotWithError:(NSError **)error
 {
@@ -210,6 +212,44 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     dictionary[@"trackerStats"] = trackers;
 
     return dictionary;
+}
+
+// Preview sessions are separate from the user's engine. Zero piece-transfer
+// limits are installed before starting; BEP 9 metadata exchanges still run.
+- (BOOL)addMetadataMagnet:(NSString *)magnet error:(NSError **)error
+{
+    if (![self ensureSession:error]) { return NO; }
+    tr_sessionSetPeerPortRandom(self.session);
+    tr_ctor *ctor = tr_ctorNew(self.session);
+    tr_ctorSetPaused(ctor, TR_FORCE, true);
+    if (!tr_ctorSetMetainfoFromMagnetLink(ctor, magnet.UTF8String)) {
+        tr_ctorFree(ctor);
+        if (error != nullptr) { *error = GlassError(2, @"The magnet link could not be read."); }
+        return NO;
+    }
+    tr_torrent *torrent = tr_torrentNew(ctor, nullptr);
+    tr_ctorFree(ctor);
+    if (torrent == nullptr) {
+        if (error != nullptr) { *error = GlassError(3, @"The magnet preview could not be started."); }
+        return NO;
+    }
+    tr_torrentSetSpeedLimit_KBps(torrent, tr_direction::Down, 0);
+    tr_torrentUseSpeedLimit(torrent, tr_direction::Down, true);
+    tr_torrentUseSessionLimits(torrent, false);
+    tr_torrentStart(torrent);
+    return YES;
+}
+
+- (nullable NSData *)resolvedMetainfo
+{
+    if (self.session == nullptr) { return nil; }
+    tr_torrent *torrent = nullptr;
+    if (tr_sessionGetAllTorrents(self.session, &torrent, 1) == 0) { return nil; }
+    tr_stat const stat = tr_torrentStat(torrent);
+    if (stat.metadata_percent_complete < 1) { return nil; }
+    NSString *path = StringFromView(tr_torrentFilename(torrent));
+    // The engine's metainfo write can trail the metadata-complete event.
+    return [NSData dataWithContentsOfFile:path];
 }
 
 - (BOOL)addMagnet:(NSString *)magnet downloadDirectory:(nullable NSString *)downloadDirectory error:(NSError **)error

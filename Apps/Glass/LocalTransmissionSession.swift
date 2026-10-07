@@ -74,6 +74,24 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         return Self.makeDetails(from: dictionary)
     }
 
+    func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("Glass-Magnet-" + UUID().uuidString, isDirectory: true)
+        let preview = try Self.makeBridge(configDirectory: directory.appendingPathComponent("config"),
+            downloadDirectory: directory.appendingPathComponent("payload"))
+        defer {
+            // Session close can block; this actor keeps it off the main actor.
+            preview.close()
+            try? FileManager.default.removeItem(at: directory)
+        }
+        try preview.addMetadataMagnet(magnet)
+        while true {
+            try Task.checkCancellation()
+            if let data = preview.resolvedMetainfo(), !data.isEmpty { return data }
+            try await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
         let existingTorrentHashes = Set(try await fetchSnapshot().torrents.map(\.hashString))
         try validateDownloadDirectory(downloadDirectory)

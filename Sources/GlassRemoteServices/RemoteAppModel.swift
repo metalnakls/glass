@@ -121,6 +121,12 @@ public final class RemoteAppModel {
     private var pendingAdditions: [PendingAddition] = []
     private var pendingAdditionRevision = 0
     @ObservationIgnored private var additionTasks: [UUID: Task<Bool, Never>] = [:]
+    private struct MagnetResolution {
+        let id: UUID
+        let task: Task<Data, Error>
+    }
+    @ObservationIgnored private var magnetResolutions: [String: MagnetResolution] = [:]
+    @ObservationIgnored private var magnetMetainfo: [String: Data] = [:]
     @ObservationIgnored private var additionTail: Task<Bool, Never>?
     @ObservationIgnored private var additionResults: [UUID: TorrentAddResult] = [:]
     @ObservationIgnored private var addQueueLoadError: String?
@@ -632,22 +638,102 @@ public final class RemoteAppModel {
         }
     }
 
+    /// Preview and early Add share one model-owned metadata request.
+    public func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
+        let key = magnetKey(magnet)
+        guard !TorrentMetainfoIdentity.hashes(inMagnet: magnet).isEmpty else {
+            throw AdditionError.message("The magnet link has no valid torrent identity.")
+        }
+        if let data = magnetMetainfo[key] { return data }
+        if let resolution = magnetResolutions[key] { return try await resolution.task.value }
+        let session = localSessionFactory()
+        let id = UUID()
+        let task = Task {
+            let data = try await session.resolveMagnetMetainfo(magnet)
+            try await MagnetAddPreparation.validate(data: data, magnet: magnet)
+            return data
+        }
+        magnetResolutions[key] = MagnetResolution(id: id, task: task)
+        do {
+            let data = try await task.value
+            if magnetResolutions[key]?.id == id {
+                magnetResolutions[key] = nil
+                if magnetMetainfo.count >= 16 { magnetMetainfo.removeAll() }
+                magnetMetainfo[key] = data
+            }
+            return data
+        } catch {
+            if magnetResolutions[key]?.id == id { magnetResolutions[key] = nil }
+            throw error
+        }
+    }
+
+    public func cancelMagnetPreview(_ magnet: String) {
+        let key = magnetKey(magnet)
+        // A queued Add owns its fetch after the sheet closes.
+        guard !pendingAdditions.contains(where: { $0.entry.magnet.map(magnetKey) == key }) else { return }
+        magnetResolutions.removeValue(forKey: key)?.task.cancel()
+        magnetMetainfo[key] = nil
+    }
+
+    private func magnetKey(_ magnet: String) -> String {
+        TorrentMetainfoIdentity.hashes(inMagnet: magnet).sorted().joined(separator: ":")
+    }
+
+    /// Save the destination before dismissing; metadata and naming continue in the model.
     @discardableResult
-    public func addMagnet(_ magnet: String, downloadDirectory: String?, sourceID requestedSourceID: UUID? = nil) async -> Bool {
-        let sourceID = requestedSourceID ?? selectedSourceID
+    public func enqueueMagnet(_ magnet: String, downloadDirectory: String?, sourceID: UUID, startPaused: Bool = false) -> UUID? {
+        guard !TorrentMetainfoIdentity.hashes(inMagnet: magnet).isEmpty else {
+            errorMessage = "The magnet link has no valid torrent identity."
+            return nil
+        }
         let name = URLComponents(string: magnet)?.queryItems?.first { $0.name == "dn" }?.value ?? "Magnet download"
         let id = UUID()
-        var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: 0, fileCount: 1,
+        var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: 0, fileCount: 0,
             magnet: magnet, downloadDirectory: downloadDirectory, namingPlan: nil)
-        let expectedHashes = entry.expectedHashes
+        entry.startPaused = startPaused
+        entry.phase = .resolvingMetadata
         entry.existedBeforeSubmission = sourceState(for: sourceID).records.contains {
-            expectedHashes.contains($0.hashString.lowercased())
+            entry.expectedHashes.contains($0.hashString.lowercased())
         }
         appendAddition(entry)
+        do { try persistAddQueue() }
+        catch { failAddition(id, error: error); return nil }
+        Task { _ = await retryTorrentAddition(id) }
+        return id
+    }
+
+    public func addMagnet(_ magnet: String, downloadDirectory: String?, sourceID requestedSourceID: UUID? = nil) async -> Bool {
+        guard let id = enqueueMagnet(magnet, downloadDirectory: downloadDirectory, sourceID: requestedSourceID ?? selectedSourceID) else { return false }
         let succeeded = await retryTorrentAddition(id)
         if !succeeded { errorMessage = pendingAdditions.first { $0.id == id }?.entry.error }
         additionResults[id] = nil
         return succeeded
+    }
+
+    private func resolveQueuedMagnet(_ id: UUID) async throws {
+        guard let pending = pendingAdditions.first(where: { $0.id == id }),
+              pending.entry.data == nil, let magnet = pending.entry.magnet else { return }
+        updateAddition(id) { $0.phase = .resolvingMetadata }
+        try persistAddQueue()
+        let data = try await resolveMagnetMetainfo(magnet)
+        let preparation = try await MagnetAddPreparation.prepare(data: data, directory: pending.entry.downloadDirectory)
+        guard let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
+        var entry = pendingAdditions[index].entry
+        entry.data = data; entry.namingPlan = preparation.plan
+        entry.name = preparation.plan?.suggestedName ?? preparation.preview.name
+        entry.size = preparation.preview.size; entry.fileCount = preparation.preview.files.count
+        entry.downloadDirectory = preparation.directory
+        let record = pendingAdditions[index].record
+        let summary = TorrentSummary(id: -1, hashString: record.hashString,
+            name: preparation.plan?.rootName ?? entry.name, status: 0, percentDone: 0,
+            metadataPercentComplete: 1, rateDownload: 0, rateUpload: 0,
+            sizeWhenDone: entry.size, leftUntilDone: max(1, entry.size), eta: -1, uploadRatio: 0,
+            peersConnected: nil, downloadDir: entry.downloadDirectory, fileCount: entry.fileCount)
+        _ = record.apply(summary, displayName: entry.namingPlan?.displayName, season: entry.namingPlan?.season)
+        pendingAdditions[index] = PendingAddition(entry: entry, record: record, expectedHashes: entry.expectedHashes)
+        pendingAdditionRevision &+= 1
+        try persistAddQueue()
     }
 
     @discardableResult
@@ -690,15 +776,24 @@ public final class RemoteAppModel {
         updateAddition(id) { $0.phase = .queued; $0.error = nil }
         do { try persistAddQueue() }
         catch { failAddition(id, error: error, reportError: false); return false }
-        let previous = additionTail
         let task = Task { [self] in
-            _ = await previous?.value
-            let result = await performQueuedAddition(id)
-            additionTasks[id] = nil
-            return result
+            defer { additionTasks[id] = nil }
+            do {
+                // An unresolved magnet must not block unrelated file submissions.
+                try await resolveQueuedMagnet(id)
+            } catch {
+                failAddition(id, error: error, reportError: false)
+                return false
+            }
+            let previous = additionTail
+            let submission = Task { [self] in
+                _ = await previous?.value
+                return await performQueuedAddition(id)
+            }
+            additionTail = submission
+            return await submission.value
         }
         additionTasks[id] = task
-        additionTail = task
         return await task.value
     }
 

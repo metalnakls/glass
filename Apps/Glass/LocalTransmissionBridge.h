@@ -12,6 +12,10 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSString *)defaultDownloadDirectoryWithError:(NSError **)error;
 - (nullable NSDictionary *)torrentDetailsForHash:(NSString *)hashString error:(NSError **)error;
 
+- (BOOL)addMetadataMagnet:(NSString *)magnet error:(NSError **)error;
+- (nullable NSData *)resolvedMetainfo;
+- (void)close;
+
 - (BOOL)addMagnet:(NSString *)magnet downloadDirectory:(nullable NSString *)downloadDirectory error:(NSError **)error;
 - (BOOL)addTorrentData:(NSData *)data downloadDirectory:(nullable NSString *)downloadDirectory error:(NSError **)error;
 - (BOOL)addTorrentData:(NSData *)data downloadDirectory:(nullable NSString *)downloadDirectory startPaused:(BOOL)startPaused error:(NSError **)error;

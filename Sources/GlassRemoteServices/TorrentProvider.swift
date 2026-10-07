@@ -210,6 +210,8 @@ public extension TorrentProvider {
 }
 
 public protocol LocalTransmissionServicing: Sendable {
+    /// Fetches metainfo in an isolated session without accepting a download.
+    func resolveMagnetMetainfo(_ magnet: String) async throws -> Data
     func fetchSnapshot() async throws -> TorrentProviderSnapshot
     func fetchDefaultDownloadDirectory() async throws -> String?
     func fetchSessionSettings() async throws -> TransmissionSessionSettings
@@ -241,6 +243,10 @@ public protocol LocalTransmissionServicing: Sendable {
 }
 
 public extension LocalTransmissionServicing {
+    func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
+        throw LocalTransmissionSessionError.unavailable("Magnet metadata resolution is unavailable in this build.")
+    }
+
     func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
         let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
         if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }

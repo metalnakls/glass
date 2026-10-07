@@ -500,7 +500,7 @@ struct TorrentFileAddDraft: Identifiable, Sendable {
     let id = UUID()
     let data: Data
     let preview: TorrentFilePreview
-    let sourceURL: URL
+    let sourceURL: URL?
 
     @concurrent
     static func load(from url: URL) async throws -> Self {

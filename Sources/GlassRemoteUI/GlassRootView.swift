@@ -1,3 +1,4 @@
+import AppKit
 import CoreTransferable
 import GlassRemoteCore
 import GlassRemoteServices
@@ -128,6 +129,16 @@ public struct GlassRootView: View {
             }
             return false
         } isTargeted: { isTorrentDropTargeted = $0 && !TorrentInternalDragState.active }
+        .onPasteCommand(of: [.url, .plainText]) { providers in
+            Task {
+                for provider in providers {
+                    if let magnet = await MagnetPaste.load(from: provider) {
+                        activeSheet = .addMagnet(magnet)
+                        break
+                    }
+                }
+            }
+        }
         .onDisappear { isTorrentDropTargeted = false }
         .overlay {
             ZStack {
@@ -156,7 +167,8 @@ public struct GlassRootView: View {
                 case let .editProfile(profile):
                     ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: profile)
                 case let .addMagnet(magnet):
-                    AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
+                    AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet,
+                        submit: submitTorrentFile, didFinishAdding: showAddedTorrent)
                 case .loadingTorrentFiles, .addTorrentFiles:
                     torrentImportContent
                 }
@@ -281,7 +293,9 @@ public struct GlassRootView: View {
     private var commandActions: GlassCommandActions {
         GlassCommandActions(
             addServer: { activeSheet = .newProfile },
-            addMagnet: { activeSheet = .addMagnet("") },
+            addMagnet: {
+                activeSheet = .addMagnet(NSPasteboard.general.string(forType: .string).flatMap(normalizedMagnetLink(from:)) ?? "")
+            },
             addTorrentFile: { isFileImporterPresented = true },
             openMagnet: { activeSheet = .addMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
@@ -404,10 +418,10 @@ public struct GlassRootView: View {
         fileSelection: TorrentAddFileSelection,
         namingPlan: TorrentAddNamingPlan?
     ) async -> TorrentFileAddSubmissionResult {
-        let didAccess = draft.sourceURL.startAccessingSecurityScopedResource()
+        let didAccess = draft.sourceURL?.startAccessingSecurityScopedResource() == true
         defer {
             if didAccess {
-                draft.sourceURL.stopAccessingSecurityScopedResource()
+                draft.sourceURL?.stopAccessingSecurityScopedResource()
             }
         }
         var addedTorrent: TorrentAddResult?
@@ -419,7 +433,7 @@ public struct GlassRootView: View {
             namingPlan: namingPlan,
             sourceID: sourceID,
             sourceURL: draft.sourceURL,
-            trashSourceOnSuccess: true,
+            trashSourceOnSuccess: draft.sourceURL != nil,
             pendingAdditionID: draft.id,
             onSuccess: { addedTorrent = $0 }
         )
@@ -716,7 +730,7 @@ private enum ActiveSheet: Identifiable {
 
     var isTorrentImport: Bool {
         switch self {
-        case .loadingTorrentFiles, .addTorrentFiles: true
+        case .addMagnet, .loadingTorrentFiles, .addTorrentFiles: true
         default: false
         }
     }

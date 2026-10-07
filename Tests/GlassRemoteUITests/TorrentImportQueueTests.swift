@@ -14,7 +14,7 @@ struct TorrentImportQueueTests {
         let first = URL(fileURLWithPath: "/tmp/first.torrent")
         let second = URL(fileURLWithPath: "/tmp/second.torrent")
         let update: @MainActor ([TorrentFileAddDraft], Bool) -> Void = { drafts, _ in
-            delivered = drafts.map { $0.sourceURL.lastPathComponent }
+            delivered = drafts.compactMap { $0.sourceURL?.lastPathComponent }
         }
         queue.enqueue([first], load: loader.load, update: update)
         await loader.waitForRequest()

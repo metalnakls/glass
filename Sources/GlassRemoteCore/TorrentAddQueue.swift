@@ -2,7 +2,7 @@ import Foundation
 import CryptoKit
 
 public enum TorrentAdditionPhase: String, Codable, Sendable {
-    case queued, adding, failed, confirming
+    case queued, resolvingMetadata, adding, failed, confirming
 }
 
 /// The original submission survives failed replies, interrupted batches, and relaunches.

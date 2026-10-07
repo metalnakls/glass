@@ -7,6 +7,80 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("magnet previews share metadata without submitting a download", .timeLimit(.minutes(1)))
+    func magnetPreviewDoesNotAdd() async throws {
+        let local = StubLocalTransmissionSession(), client = StubRPCClient()
+        let (data, magnet) = magnetFixture()
+        await local.setMetadata(data, held: true)
+        let model = makeModel(profiles: [makeProfile()], factory: StubRPCClientFactory { _ in client }, localSession: local)
+        let first = Task { try await model.resolveMagnetMetainfo(magnet) }
+        await local.waitForMetadataRequest()
+        let second = Task { try await model.resolveMagnetMetainfo(magnet) }
+        await Task.yield()
+        #expect(await local.metadataRequestCount == 1)
+        #expect(await client.addedFiles.isEmpty)
+        #expect(await local.addedFiles.isEmpty)
+        await local.releaseMetadata()
+        #expect(try await first.value == data)
+        #expect(try await second.value == data)
+    }
+
+    @Test("early magnet Add persists its destination and resolves without blocking file additions", .timeLimit(.minutes(1)))
+    func earlyMagnetAddContinuesAfterDismissal() async throws {
+        let profile = makeProfile(), local = StubLocalTransmissionSession(), client = StubRPCClient()
+        let (data, magnet) = magnetFixture()
+        await local.setMetadata(data, held: true)
+        let store = MemoryProfileStore(profiles: [profile])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory { _ in client }.make(config:), localSessionFactory: { local })
+        let preview = Task { try await model.resolveMagnetMetainfo(magnet) }
+        await local.waitForMetadataRequest()
+        let id = try #require(model.enqueueMagnet(magnet, downloadDirectory: "/chosen", sourceID: profile.id, startPaused: true))
+        #expect(try store.loadTorrentAddQueue().first?.downloadDirectory == "/chosen")
+        #expect(try store.loadTorrentAddQueue().first?.magnet == magnet)
+        // This is the sheet-dismissal cleanup. Ownership has moved to the queue.
+        model.cancelMagnetPreview(magnet)
+        #expect(await model.addTorrentFile(Data([1]), downloadDirectory: "/other", sourceID: profile.id))
+        #expect(await client.addedFiles.count == 1)
+        await local.releaseMetadata()
+        _ = try await preview.value
+        #expect(await model.retryTorrentAddition(id))
+        #expect(await local.metadataRequestCount == 1)
+        #expect(await client.addedFiles.last?.data == data)
+        #expect(await client.addedFiles.last?.directory == "/chosen")
+        #expect(await client.renamedPaths.contains { $0.name == "Example Movie.mkv" })
+    }
+
+    @Test("canceling a magnet preview cancels the fetch and permits a fresh request", .timeLimit(.minutes(1)))
+    func cancelMagnetPreview() async throws {
+        let local = StubLocalTransmissionSession()
+        let (data, magnet) = magnetFixture()
+        await local.setMetadata(data, held: true)
+        let model = makeModel(profiles: [], factory: StubRPCClientFactory { _ in StubRPCClient() }, localSession: local)
+        let first = Task { try await model.resolveMagnetMetainfo(magnet) }
+        await local.waitForMetadataRequest()
+        model.cancelMagnetPreview(magnet)
+        do { _ = try await first.value; Issue.record("Canceled preview returned metadata") }
+        catch is CancellationError { }
+        await local.setMetadata(data, held: false)
+        #expect(try await model.resolveMagnetMetainfo(magnet) == data)
+        #expect(await local.metadataRequestCount == 2)
+        #expect(await local.addedFiles.isEmpty)
+    }
+
+    @Test("incorrect magnet metadata is rejected before any submission")
+    func rejectIncorrectMagnetMetadata() async throws {
+        let local = StubLocalTransmissionSession(), client = StubRPCClient()
+        let (data, _) = magnetFixture()
+        await local.setMetadata(data, held: false)
+        let model = makeModel(profiles: [makeProfile()], factory: StubRPCClientFactory { _ in client }, localSession: local)
+        let succeeded = await model.addMagnet("magnet:?xt=urn:btih:" + String(repeating: "0", count: 40),
+            downloadDirectory: "/chosen", sourceID: makeProfile().id)
+        #expect(!succeeded)
+        #expect(model.allTorrentRecords.first?.additionPhase == .failed)
+        #expect(await client.addedFiles.isEmpty)
+    }
+
     @Test("inactive auto refresh finishes without opening local or remote connections")
     func inactiveAutoRefreshStops() async {
         let factory = StubRPCClientFactory()
@@ -985,6 +1059,13 @@ struct RemoteAppModelTests {
     }
 }
 
+private func magnetFixture() -> (Data, String) {
+    let name = "Example.Movie.2020.1080p.mkv"
+    let data = Data("d4:infod6:lengthi100e4:name\(name.utf8.count):\(name)ee".utf8)
+    let hash = TorrentMetainfoIdentity.hashes(in: data).filter { $0.count == 40 }.sorted().first!
+    return (data, "magnet:?xt=urn:btih:" + hash + "&dn=Example.Movie.2020.1080p.mkv")
+}
+
 @MainActor
 private func makeModel(
     profile: RemoteProfile,
@@ -1378,6 +1459,36 @@ private actor StubRPCClient: TransmissionRPCServicing {
 }
 
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
+    private var metadata = Data()
+    private var holdsMetadata = false
+    private var metadataContinuation: CheckedContinuation<Void, Error>?
+    private var metadataWaiter: CheckedContinuation<Void, Never>?
+    private(set) var metadataRequestCount = 0
+    func setMetadata(_ data: Data, held: Bool) { metadata = data; holdsMetadata = held }
+    func waitForMetadataRequest() async {
+        if metadataRequestCount > 0 { return }
+        await withCheckedContinuation { metadataWaiter = $0 }
+    }
+    func releaseMetadata() {
+        holdsMetadata = false
+        metadataContinuation?.resume(); metadataContinuation = nil
+    }
+    private func cancelMetadata() {
+        metadataContinuation?.resume(throwing: CancellationError()); metadataContinuation = nil
+    }
+    func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
+        try Task.checkCancellation()
+        metadataRequestCount += 1
+        metadataWaiter?.resume(); metadataWaiter = nil
+        if holdsMetadata {
+            try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { metadataContinuation = $0 }
+            } onCancel: { Task { await self.cancelMetadata() } }
+        }
+        try Task.checkCancellation()
+        return metadata
+    }
+
     private(set) var fetchSnapshotCount = 0
     private(set) var addedFiles: [(data: Data, directory: String?, selection: TorrentAddFileSelection?)] = []
     private(set) var renamedPaths: [TorrentPathRename] = []
