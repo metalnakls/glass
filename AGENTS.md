@@ -50,6 +50,7 @@ Releases are unsigned: no Developer ID certificate, no Apple notarization, no st
 
 ## Shared interface conventions
 
+- Use system spacing: `.padding()` without a length, default stack spacing, and `nil` for native row/content margins. Use `GlassPillButton` for native glass buttons and `GlassSearchPill` for every search surface. Keep deliberate optical corrections or Tune overrides in shared metrics and document their purpose.
 - Inspector and Add use the same file browser, glass pill metrics, search controls and floating dock style. Edit their shared component when behavior or appearance should stay synchronized; do not copy a second implementation.
 - Present app-owned dialogs through shared modal chrome and dimensions. Loading and loaded content retain the same presentation geometry.
 - Use native selection, keyboard navigation, inline rename and drag behavior. Keep filenames and folder names in their original case.
