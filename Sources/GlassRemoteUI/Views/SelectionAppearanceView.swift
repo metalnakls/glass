@@ -123,16 +123,14 @@ public struct SelectionAppearanceView: View {
                         Image(systemName: "chevron.down").font(.caption)
                     }
                 } choices: {
-                    VStack(alignment: .leading) {
+                    VStack(alignment: .leading, spacing: 0) {
                         ForEach(TuningSection.allCases) { item in
-                            Button {
+                            GlassPickerChoice {
                                 sectionPickerPresented = false
                                 withAnimation(reduceMotion ? nil : .smooth) { selectSection(item) }
                             } label: {
                                 Label(glassText(item.title), systemImage: item.symbol)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .contentShape(Rectangle())
-                            }.buttonStyle(.plain)
+                            }
                         }
                     }.fixedSize(horizontal: true, vertical: false)
                 }
