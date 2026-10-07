@@ -144,7 +144,8 @@ struct TorrentInspectorView: View {
     }
 
     private func applyFileEdits(selectionWanted: Bool? = nil) async {
-        guard let snapshot, snapshot.selectionKey == selectionKey else { return }
+        guard !editSession.isApplying, let snapshot, snapshot.selectionKey == selectionKey else { return }
+        let appliedSelection = editSession.selections
         let changes: [String: [Int: Bool]]
         if let selectionWanted {
             changes = editSession.selections.mapValues { indices in
@@ -161,10 +162,17 @@ struct TorrentInspectorView: View {
                 guard !indices.isEmpty else { continue }
                 await model.setFileWanted(detail.summaryFallback, fileIndices: indices, wanted: value, sourceID: snapshot.sourceID)
                 guard model.errorMessage == nil else { return }
-                for index in indices { editSession.wanted[detail.hashString]?[index] = nil }
+                guard snapshot.selectionKey == selectionKey else { return }
+                for index in indices where editSession.wanted[detail.hashString]?[index] == value {
+                    editSession.wanted[detail.hashString]?[index] = nil
+                }
             }
         }
-        if selectionWanted != nil { editSession.selections = [:] }
+        if selectionWanted != nil, snapshot.selectionKey == selectionKey {
+            for (hash, indices) in appliedSelection {
+                editSession.selections[hash]?.subtract(indices)
+            }
+        }
     }
 
     private func confirmFileEdits(_ details: TorrentDetails) {
