@@ -87,6 +87,7 @@ struct TorrentRowView: View, Equatable {
             transferButton
                 .padding(.leading, stateGap)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {

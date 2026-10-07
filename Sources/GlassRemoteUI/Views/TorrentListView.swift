@@ -119,7 +119,8 @@ struct TorrentListView: View {
         densityLevel == 0 ? .compact : (enableCompactView && columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
     }
     private var listRowHeight: CGFloat {
-        max(0, (densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
+        let configuredHeight = max(0, (densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
+        return max(density.showsIcon ? 48 : 28, configuredHeight)
     }
 
     var body: some View {
@@ -205,6 +206,8 @@ struct TorrentListView: View {
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listRowSeparator(.hidden)
                             .listItemTint(.monochrome)
+                            .focusEffectDisabled()
+                            .contentShape(.contextMenuPreview, RoundedRectangle(cornerRadius: 12))
                             .tag(row.id)
                             .accessibilityElement(children: .contain)
                             .moveDisabled(rowIsAdding(row))
@@ -657,7 +660,7 @@ private struct TorrentListLiveRow: View {
         .allowsHitTesting(!isAdding || row.torrentRecord?.additionPhase == .failed)
         // Native List can reuse the tuned height without measuring this whole
         // swipe/glass/icon hierarchy for each row entering the viewport.
-        .frame(height: grid ? 164 : max(density.showsIcon ? 48 : 28, rowHeight))
+        .frame(height: grid ? 164 : rowHeight, alignment: .center)
         .background {
             if isReordering || (isSelected && isSwiping) {
                 RoundedRectangle(cornerRadius: 12)
@@ -670,7 +673,7 @@ private struct TorrentListLiveRow: View {
             if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected)
                 .padding(.leading, -14 - artworkOverflow)
                 .padding(.trailing, -14)
-                .padding(.vertical, 3) }
+                .padding(.vertical, TorrentCardGeometry.verticalInset) }
         }
         .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 12))
         .opacity(isReordering ? 0.45 : 1)

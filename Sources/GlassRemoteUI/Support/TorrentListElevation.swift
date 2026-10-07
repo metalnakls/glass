@@ -62,6 +62,8 @@ struct TorrentShadowSettings: Equatable {
 }
 
 struct TorrentCardGeometry: Equatable {
+    static let verticalInset: CGFloat = 3
+
     var leading: CGFloat
     var trailing: CGFloat
 }
@@ -176,6 +178,7 @@ final class TorrentListElevationController: NSObject {
         table.gridStyleMask = []
         table.selectionHighlightStyle = .none
         table.focusRingType = .none
+        table.intercellSpacing = NSSize(width: table.intercellSpacing.width, height: 0)
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(rowGeometryChanged), name: NSView.frameDidChangeNotification, object: table)
         table.addSubview(surface, positioned: .above, relativeTo: nil)
@@ -274,7 +277,7 @@ final class TorrentListElevationController: NSObject {
         // SwiftUI host. Native row bounds also keep expansion and resizing in sync.
         let nativeRow = table.rect(ofRow: rowIndex)
         guard !nativeRow.isEmpty else { return }
-        var surfaceRect = nativeRow.insetBy(dx: 0, dy: 3)
+        var surfaceRect = nativeRow.insetBy(dx: 0, dy: TorrentCardGeometry.verticalInset)
         if let geometry = cardGeometry {
             surfaceRect.origin.x = geometry.leading
             surfaceRect.size.width = max(0, table.bounds.width - geometry.leading - geometry.trailing)
