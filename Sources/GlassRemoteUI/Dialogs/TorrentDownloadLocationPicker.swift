@@ -45,6 +45,7 @@ struct TorrentDownloadLocationPicker: View {
                         .glassEffectTransition(.matchedGeometry)
                     }
                     .buttonStyle(.plain).disabled(isDisabled || isChoosingFolder)
+                    .transition(.blurReplace)
                 } else {
                     Color.clear.frame(width: collapsedWidth, height: InspectorGlassPill.height)
                 }
@@ -54,7 +55,7 @@ struct TorrentDownloadLocationPicker: View {
                             .opacity(isPresented ? 0 : 1)
                     }
                 }
-                if isPresented { locationChoices }
+                if isPresented { locationChoices.transition(.blurReplace) }
             }.frame(width: collapsedWidth, height: 58, alignment: .topTrailing)
         }
         .animation(.smooth, value: isPresented)
