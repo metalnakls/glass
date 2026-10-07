@@ -126,7 +126,7 @@ struct TorrentFilesBrowser: View {
                             if isCompact {
                                 HStack(alignment: .center, spacing: layout.metadataGap) {
                                     Text("100%").hidden().overlay(alignment: .trailing) {
-                                      if !completed {
+                                      if !completed && row.indices.allSatisfy({ byIndex[$0].map(wanted) ?? false }) {
                                         Text(formatPercent(progress(row, byIndex: byIndex)))
                                             .foregroundStyle(.secondary)
                                       }
