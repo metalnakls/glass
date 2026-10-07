@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import OSLog
 import GlassRemoteCore
 import ServiceManagement
 import UserNotifications
@@ -76,7 +77,18 @@ private actor GlassBackgroundWorker {
     private var fingerprints: [String: Date] = [:]
     private var directorySource: DispatchSourceFileSystemObject?
     private var scanTask: Task<Void, Never>?
-    private let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+    private let logger = Logger(subsystem: "tsmc.glass", category: "background")
+    // Debug-only isolation permits exercising the real watcher without renaming user files or polling servers.
+    private let diagnosticDirectory: URL? = {
+        #if DEBUG
+        let arguments = CommandLine.arguments
+        if let index = arguments.firstIndex(of: "--background-worker-directory"), arguments.indices.contains(index + 1) {
+            return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
+        }
+        #endif
+        return nil
+    }()
+    private var downloads: URL? { diagnosticDirectory ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
     private let defaults = UserDefaults.standard
 
     func run() async {
@@ -89,7 +101,7 @@ private actor GlassBackgroundWorker {
                 NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass")
                     .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
             }
-            if !foregroundRunning || observed.isEmpty { await checkServers(notify: !foregroundRunning) }
+            if diagnosticDirectory == nil, !foregroundRunning || observed.isEmpty { await checkServers(notify: !foregroundRunning) }
             try? await Task.sleep(for: .seconds(30))
         }
     }
@@ -97,7 +109,10 @@ private actor GlassBackgroundWorker {
     private func watchDownloads() {
         guard let downloads else { return }
         let descriptor = open(downloads.path, O_EVTONLY)
-        guard descriptor >= 0 else { return }
+        guard descriptor >= 0 else {
+            logger.error("Downloads watcher could not open directory: errno \(errno)")
+            return
+        }
         let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor,
             eventMask: [.write, .rename, .delete], queue: .global(qos: .utility))
         source.setEventHandler { @Sendable [weak self] in
@@ -160,7 +175,7 @@ private actor GlassBackgroundWorker {
                     let icon = NSWorkspace.shared.icon(forFile: Bundle.main.bundlePath)
                     NSWorkspace.shared.setIcon(icon, forFile: target.path, options: [])
                 }
-            } catch { /* Access may be revoked or the downloader may replace the file. */ }
+            } catch { logger.error("Torrent rename failed: \(error.localizedDescription, privacy: .public)") }
             await Task.yield()
         }
         fingerprints = fingerprints.filter { present.contains($0.key) }
