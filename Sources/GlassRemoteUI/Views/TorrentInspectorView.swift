@@ -363,7 +363,7 @@ private struct TorrentInspectorContent: View {
                         }
                     }
                     .frame(maxWidth: searchPresented ? .infinity : nil)
-                    .modifier(InspectorGlassPill(interactive: true))
+                    .modifier(InspectorGlassPill(interactive: true, iconOnly: !searchPresented))
                 }
             }
             .controlSize(.large)
@@ -414,10 +414,17 @@ private struct TorrentInspectorContent: View {
             onSelectAll: { if commandsEnabled { selectAllFiles() } },
             onSetPriorities: { indices, priority in
                 await model.setFilePriority(details.summaryFallback, fileIndices: indices, priority: priority, sourceID: sourceID)
-            }
+            },
+            sizeColumnText: widestFileSize
         )
         .id(details.hashString)
         .padding(.horizontal, fileLayout.contentInset)
+    }
+
+    private var widestFileSize: String {
+        selectedDetails.flatMap { fileEntries(for: $0) }.map { formatBytes($0.size) }.max {
+            $0.count < $1.count
+        } ?? "0 KB"
     }
 
     private func performFileAction(_ row: TorrentFileTreeRow, details: TorrentDetails, action: TorrentFileActions.Action) {

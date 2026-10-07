@@ -26,6 +26,7 @@ struct TorrentFilesBrowser: View {
     var showsActionBar = true
     var onSelectAll: (() -> Void)?
     var onSetPriorities: (([Int], Int) async -> Bool)?
+    var sizeColumnText: String?
     @State private var pendingPriorities: [Int: PendingPriority] = [:]
     private struct PendingPriority {
         let value: Int
@@ -51,6 +52,10 @@ struct TorrentFilesBrowser: View {
         let rows = treeCache.rows(entries: entries, byIndex: byIndex, collapsed: collapsed, query: searchText)
         let nextRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), rows.dropFirst().map(\.id)))
         let hiddenExtension = showsExtensions ? nil : treeCache.hiddenExtension
+        let widestSize = sizeColumnText ?? entries.map { formatBytes($0.size) }.max {
+            $0.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
+                < $1.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
+        } ?? "0 KB"
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
@@ -111,11 +116,15 @@ struct TorrentFilesBrowser: View {
                         Group {
                             if isCompact {
                                 HStack(alignment: .center, spacing: layout.metadataGap) {
-                                    if !completed {
+                                    Text("100%").hidden().overlay(alignment: .trailing) {
+                                      if !completed {
                                         Text(formatPercent(progress(row, byIndex: byIndex)))
                                             .foregroundStyle(.secondary)
+                                      }
                                     }
-                                    Text(formatBytes(row.size)).textCase(nil)
+                                    Text(widestSize).textCase(nil).hidden().overlay(alignment: .trailing) {
+                                        Text(formatBytes(row.size)).textCase(nil)
+                                    }
                                 }
                             } else {
                                 VStack(alignment: .trailing, spacing: 2) {
