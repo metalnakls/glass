@@ -17,6 +17,17 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassInspector.blurRadius") private var inspectorBlurRadius = 6.0
     @AppearanceStorage("GlassInspector.blurEaseIn") private var inspectorBlurEaseIn = 0.25
     @AppearanceStorage("GlassInspector.blurEaseOut") private var inspectorBlurEaseOut = 0.35
+    @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeInspectorHighlight = false
+    @AppearanceStorage("GlassInspector.fileSideInset") private var inspectorSideInset = 18.0
+    @AppearanceStorage("GlassAdd.showIcon") private var addIcon = true
+    @AppearanceStorage("GlassAdd.locationColumns") private var locationColumns = 3
+    @AppearanceStorage("GlassAdd.recentLocations") private var recentLocations = 4
+    @AppearanceStorage("GlassHaptics.enabled") private var hapticsEnabled = true
+    @AppearanceStorage("GlassHaptics.playPause") private var stateHaptics = true
+    @AppearanceStorage("GlassHaptics.swipe") private var swipeHaptics = true
+    @AppearanceStorage("GlassHaptics.drag") private var dragHaptics = true
+    @AppearanceStorage("GlassHaptics.selection") private var selectionHaptics = true
+    @State private var backgroundEnabled = GlassBackgroundService.isEnabled
     @State private var saveStatus: String?
     @SceneStorage("GlassTune.section") private var sectionName = TuningSection.icons.rawValue
     private var section: TuningSection { TuningSection(rawValue: sectionName) ?? .icons }
@@ -236,7 +247,32 @@ public struct SelectionAppearanceView: View {
                 shadowSlider("Glow strength", value: $progressGlowStrength, range: 0...2)
                 shadowSlider("Line width", value: $progressLineWidth, range: 0.5...5)
             }
+        case .add:
+            Toggle(glassText("Torrent icon"), isOn: $addIcon)
+            Stepper(glassText("Location icons per row: \(locationColumns)"), value: $locationColumns, in: 1...6)
+            Stepper(glassText("Recent folders: \(recentLocations)"), value: $recentLocations, in: 0...12)
+        case .haptics:
+            Toggle(glassText("Haptics"), isOn: $hapticsEnabled)
+            Group {
+                Toggle(glassText("Play and pause"), isOn: $stateHaptics)
+                Toggle(glassText("Swiping"), isOn: $swipeHaptics)
+                Toggle(glassText("Dragging"), isOn: $dragHaptics)
+                Toggle(glassText("Selection"), isOn: $selectionHaptics)
+            }.disabled(!hapticsEnabled)
+        case .background:
+            Toggle(glassText("Background worker"), isOn: Binding(get: { backgroundEnabled }, set: { enabled in
+                do { try GlassBackgroundService.setEnabled(enabled); backgroundEnabled = enabled }
+                catch { saveStatus = error.localizedDescription }
+            }))
+            Text(glassText("Smart Rename torrent files in Downloads and check saved servers for completed downloads while Glass is closed."))
+                .font(.caption).foregroundStyle(.secondary)
+            if GlassBackgroundService.requiresApproval {
+                Text(glassText("Allow Glass in Login Items to finish enabling the worker.")).font(.caption)
+            }
         case .inspector:
+            Toggle(glassText("Native selection highlight"), isOn: $nativeInspectorHighlight)
+            shadowSlider("File side padding", value: $inspectorSideInset, range: 8...40)
+            Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(glassText("Inspector blur enabled"), isOn: $inspectorBlurEnabled)
                 shadowSlider("Blur radius", value: $inspectorBlurRadius, range: 0...24)
@@ -301,7 +337,7 @@ public struct SelectionAppearanceView: View {
 }
 
 private enum TuningSection: String, CaseIterable, Identifiable {
-    case icons, selection, layout, headers, progress, inspector, motion, sorting
+    case icons, selection, layout, headers, progress, inspector, motion, sorting, add, haptics, background
     var id: Self { self }
     var title: String { rawValue.capitalized }
     var symbol: String {
@@ -314,6 +350,9 @@ private enum TuningSection: String, CaseIterable, Identifiable {
         case .inspector: "sidebar.right"
         case .motion: "waveform.path"
         case .sorting: "arrow.up.arrow.down"
+        case .add: "plus"
+        case .haptics: "hand.tap"
+        case .background: "gearshape.2"
         }
     }
 }

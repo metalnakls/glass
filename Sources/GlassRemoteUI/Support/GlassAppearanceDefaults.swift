@@ -19,7 +19,18 @@ public enum GlassAppearanceDefaults {
         "GlassInspector.blurEnabled": false,
         "GlassInspector.blurRadius": 6.0,
         "GlassInspector.blurEaseIn": 0.25,
-        "GlassInspector.blurEaseOut": 0.35
+        "GlassInspector.blurEaseOut": 0.35,
+        "GlassInspector.nativeSelectionHighlight": false,
+        "GlassInspector.fileSideInset": 18.0,
+        "GlassAdd.showIcon": true,
+        "GlassAdd.locationColumns": 3,
+        "GlassAdd.recentLocations": 4,
+        "GlassList.roundedSizes": true,
+        "GlassHaptics.enabled": true,
+        "GlassHaptics.playPause": true,
+        "GlassHaptics.swipe": true,
+        "GlassHaptics.drag": true,
+        "GlassHaptics.selection": true
     ]
 
     public static func register(in defaults: UserDefaults = .standard, domainName: String = Bundle.main.bundleIdentifier ?? ProcessInfo.processInfo.processName) {
