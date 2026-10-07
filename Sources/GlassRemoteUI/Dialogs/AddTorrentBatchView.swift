@@ -109,6 +109,18 @@ struct AddTorrentBatchView: View {
         }
         .padding(20)
         .padding(.bottom, 62)
+        .background {
+            if groups.count > 1 {
+                ForEach(1...min(3, groups.count - 1), id: \.self) { depth in
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(.thinMaterial)
+                        .rotationEffect(.degrees(Double(depth) * 1.5))
+                        .offset(y: CGFloat(depth) * 7)
+                        .padding(.horizontal, CGFloat(depth) * 6)
+                }
+            }
+        }
+        .animation(.smooth, value: selectedGroupID)
         .overlay(alignment: .bottom) {
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
@@ -215,7 +227,8 @@ struct AddTorrentBatchView: View {
 
         // Snapshot the submission before dismissing: modifier keys and modal state
         // cannot change the batch while the server processes its members.
-        let jobs = groups.flatMap { group in
+        let activeGroups = groups.filter { $0.id == selectedGroupID }
+        let jobs = activeGroups.flatMap { group in
             group.itemIndices.enumerated().compactMap { offset, index -> (TorrentBatchItemState, String, String?, TorrentAddNamingPlan?)? in
                 let item = items[index]
                 guard !item.wasAdded else { return nil }
@@ -236,7 +249,11 @@ struct AddTorrentBatchView: View {
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
-        dismiss()
+        let remaining = groups.filter { $0.id != selectedGroupID }
+        if remaining.isEmpty { dismiss() }
+        else {
+            withAnimation(.smooth) { groups = remaining; selectedGroupID = remaining[0].id }
+        }
 
         var failures: [String] = []
         var addedHash: String?
