@@ -78,6 +78,7 @@ struct TorrentDownloadLocationView: View {
                                 TransientStatusText(text: location.sourceName, message: feedback)
                             }
                             .font(.headline)
+                            .fixedSize(horizontal: true, vertical: false)
                             .lineLimit(1).truncationMode(.middle)
                     }
                     .frame(maxWidth: glassPills ? nil : .infinity, alignment: .leading)
