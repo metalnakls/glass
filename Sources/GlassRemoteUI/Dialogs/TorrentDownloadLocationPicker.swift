@@ -1,3 +1,4 @@
+import AppKit
 import GlassRemoteCore
 import GlassRemoteServices
 import SwiftUI
@@ -16,6 +17,7 @@ struct TorrentDownloadLocationPicker: View {
     @State private var previousProfileIDs = Set<UUID>()
     @State private var isChoosingFolder = false
 
+    @Namespace private var locationGlass
     @State private var isPresented = false
     @State private var optionHeld = false
     @AppStorage("GlassAdd.locationIconOrder") private var iconOrder = ""
@@ -24,25 +26,72 @@ struct TorrentDownloadLocationPicker: View {
     @AppearanceStorage("GlassAdd.recentLocations") private var recentCount = 4
 
     var body: some View {
-        Button { withAnimation(.smooth) { isPresented.toggle() } } label: {
-            HStack(spacing: 8) {
-                NativeLocationIcon(path: nativeLocationPath,
-                    sourceID: sourceID == model.localSourceID ? nil : sourceID,
-                    serverName: model.sourceName(for: sourceID), size: 24)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(locationName).textCase(nil).fontWeight(.semibold).lineLimit(1).truncationMode(.middle)
+        GlassEffectContainer(spacing: 12) {
+            ZStack(alignment: .topTrailing) {
+                VStack(alignment: .trailing, spacing: 8) {
+                if !isPresented {
+                    Button { withAnimation(.smooth) { isPresented = true } } label: {
+                        HStack(spacing: 8) {
+                            NativeLocationIcon(path: nativeLocationPath,
+                                sourceID: sourceID == model.localSourceID ? nil : sourceID,
+                                serverName: model.sourceName(for: sourceID), size: 24)
+                            Text(locationName).textCase(nil).fontWeight(.semibold)
+                                .lineLimit(1).truncationMode(.middle)
+                            Image(systemName: "chevron.down").font(.caption)
+                        }
+                        .modifier(InspectorGlassPill(interactive: true))
+                        .glassEffectID("location", in: locationGlass)
+                        .glassEffectTransition(.matchedGeometry)
+                    }
+                    .buttonStyle(.plain).disabled(isDisabled || isChoosingFolder)
+                } else {
+                    Color.clear.frame(width: collapsedWidth, height: InspectorGlassPill.height)
+                }
                     if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
-                        Text("\(formatBytes(bytes)) \(glassText("free"))").font(.caption2)
+                        Text("\(formatBytes(bytes)) \(glassText("free"))")
+                            .font(.caption2).padding(.horizontal, 18)
+                            .opacity(isPresented ? 0 : 1)
                     }
                 }
-                Image(systemName: "chevron.down").font(.caption)
-            }
-            .modifier(InspectorGlassPill(interactive: true))
+                if isPresented { locationChoices }
+            }.frame(width: collapsedWidth, height: 58, alignment: .topTrailing)
         }
-        .buttonStyle(.plain).disabled(isDisabled || isChoosingFolder)
+        .animation(.smooth, value: isPresented)
         .animation(.smooth, value: locationName)
-        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+        .onExitCommand { withAnimation(.smooth) { isPresented = false } }
+        .sheet(isPresented: $isEditingServer, onDismiss: {
+            if let added = model.profiles.first(where: { !previousProfileIDs.contains($0.id) }) {
+                select(added.id, directory: nil)
+            }
+        }) {
+            NavigationStack { ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil) }
+                .toolbarVisibility(.visible, for: .windowToolbar)
+        }
+        .task(id: sourceID) {
+            let requestedSourceID = sourceID
+            defaultDirectory = nil
+            let path = await model.defaultDownloadDirectory(for: requestedSourceID)
+            guard !Task.isCancelled, requestedSourceID == sourceID else { return }
+            defaultDirectory = path
+        }
+    }
+
+    private var collapsedWidth: CGFloat {
+        let nameWidth = (locationName as NSString).size(withAttributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        ]).width
+        return min(260, max(100, nameWidth + 86))
+    }
+    private var menuWidth: CGFloat { CGFloat(max(1, min(6, iconColumns))) * 82 + 36 }
+    private var locationChoices: some View {
             VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text(glassText("Choose location")).font(.headline)
+                    Spacer()
+                    Button { withAnimation(.smooth) { isPresented = false } } label: {
+                        Image(systemName: "xmark")
+                    }.buttonStyle(.plain).accessibilityLabel(glassText("Close"))
+                }
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: max(1, min(6, iconColumns))), spacing: 14) {
                     ForEach(quickLocations) { location in
                         ZStack(alignment: .topTrailing) {
@@ -54,8 +103,9 @@ struct TorrentDownloadLocationPicker: View {
                                     NativeLocationIcon(path: location.path,
                                         sourceID: location.path == nil ? location.sourceID : nil,
                                         serverName: location.name, size: 38)
+                                        .frame(width: 48, height: 44)
                                     Text(location.name).textCase(nil).font(.caption).lineLimit(1)
-                                }.frame(maxWidth: .infinity).padding(6)
+                                }.frame(maxWidth: .infinity).frame(height: 66).padding(6)
                             }.buttonStyle(.plain)
                             .draggable(location.key)
                             .dropDestination(for: String.self) { keys, _ in
@@ -100,24 +150,11 @@ struct TorrentDownloadLocationPicker: View {
                     previousProfileIDs = Set(model.profiles.map(\.id)); isPresented = false; isEditingServer = true
                 }.buttonStyle(.plain)
             }
-            .padding(18).frame(width: CGFloat(max(1, min(6, iconColumns))) * 82 + 36)
+            .padding(18).frame(width: menuWidth)
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 22))
+            .glassEffectID("location", in: locationGlass)
+            .glassEffectTransition(.matchedGeometry)
             .background(ModifierKeyObserver { optionHeld = $0 })
-        }
-        .sheet(isPresented: $isEditingServer, onDismiss: {
-            if let added = model.profiles.first(where: { !previousProfileIDs.contains($0.id) }) {
-                select(added.id, directory: nil)
-            }
-        }) {
-            NavigationStack { ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil) }
-                .toolbarVisibility(.visible, for: .windowToolbar)
-        }
-        .task(id: sourceID) {
-            let requestedSourceID = sourceID
-            defaultDirectory = nil
-            let path = await model.defaultDownloadDirectory(for: requestedSourceID)
-            guard !Task.isCancelled, requestedSourceID == sourceID else { return }
-            defaultDirectory = path
-        }
     }
 
     private struct QuickLocation: Identifiable {
