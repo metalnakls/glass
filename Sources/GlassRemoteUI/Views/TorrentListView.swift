@@ -26,6 +26,7 @@ struct TorrentListView: View {
     let removeSelected: (Bool) -> Void
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
+    @Environment(\.glassSampleArtwork) private var sampleArtwork
     @AppearanceStorage("GlassList.lowercaseTitles") private var lowercaseTitles = false
     @AppearanceStorage("GlassList.paddingIsPermanent") private var paddingIsPermanent = false
     @AppearanceStorage("GlassList.leftPadding") private var leftPadding = UserDefaults.standard.object(forKey: "GlassList.sidePadding") as? Double ?? 18
@@ -299,11 +300,14 @@ struct TorrentListView: View {
         .focusedSceneValue(\.glassMainListSearchPresented, $searchPresented)
         .focusedValue(\.glassSearchDestination, .mainList)
         .overlay(alignment: .bottomTrailing) {
-            if searchPresented {
+            if searchPresented && !sampleArtwork {
                 GlassSearchPill(text: $searchText, isPresented: $searchPresented,
                     expandedWidth: 260, prompt: "Search Torrents", inspectorFocus: false)
                     .padding(18).transition(.blurReplace.combined(with: .move(edge: .bottom)))
             }
+        }
+        .onChange(of: sampleArtwork) { _, isSample in
+            if isSample { searchPresented = false; searchText = "" }
         }
         .animation(.smooth(duration: 0.25), value: searchPresented)
         .onKeyPress(.escape) { guard searchPresented else { return .ignored }; searchPresented = false; searchText = ""; return .handled }
