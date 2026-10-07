@@ -428,6 +428,8 @@ struct TorrentListView: View {
 
     private func toggleAutoGroup(_ row: TorrentListRowPresentation) {
         guard let memberIDs = row.groupMemberIDs else { return }
+        // Selection and expansion begin in the same event; neither waits for the other's animation.
+        selection = row.id
         if row.groupIsExpanded == true, let selection, memberIDs.contains(selection) {
             self.selection = row.id
         }

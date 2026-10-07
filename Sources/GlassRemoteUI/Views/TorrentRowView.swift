@@ -42,7 +42,7 @@ struct TorrentRowView: View, Equatable {
         Group {
             if grid {
                 VStack(spacing: 10) {
-                    leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true, grid: true)).scaleEffect(1.7).frame(height: 76)
+                    leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil, grid: true)).scaleEffect(1.7).frame(height: 76)
                     Text(displayName(torrent.name)).textCase(nil).font(.body).lineLimit(2).multilineTextAlignment(.center)
                     HStack { sizeLabel; Spacer(); transferButton }
                 }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
@@ -69,7 +69,7 @@ struct TorrentRowView: View, Equatable {
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                interactiveLeadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded != true))
+                interactiveLeadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil))
                     .background {
                         if let folderMotion, groupIsExpanded != nil || folderID != nil {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
@@ -133,6 +133,7 @@ struct TorrentRowView: View, Equatable {
                     if !groupIsExpanded {
                         GroupFolderFanIcon(count: groupCount, controller: folderMotion, ids: folderIDs)
                             .frame(width: 36, height: 42)
+                            .modifier(TorrentIconPersonality(role: .fan, position: iconPosition, grid: grid))
                             .transition(.identity)
                     }
                     // Retain the arrow while its opacity animates; removing the
@@ -142,7 +143,7 @@ struct TorrentRowView: View, Equatable {
                         .frame(width: 36, height: 48)
                         .offset(x: !grid ? TorrentIconPose.forRole(.fan, position: iconPosition).x : 0)
                         .opacity(groupIsExpanded ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeOut(duration: 0.18), value: groupIsExpanded)
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: groupIsExpanded)
                         .accessibilityHidden(!groupIsExpanded)
                 }
                 .frame(width: 36, height: 48)

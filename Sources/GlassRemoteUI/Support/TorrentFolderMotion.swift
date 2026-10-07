@@ -154,10 +154,11 @@ final class TorrentFolderMotion {
         completion = Task { @MainActor [weak self] in
             // Let SwiftUI commit the row snapshot first. Flights use final model
             // row rectangles, never the rows' moving presentation positions.
-            for _ in 0..<6 {
-                try? await Task.sleep(for: .milliseconds(8))
+            await Task.yield()
+            for attempt in 0..<6 {
                 guard let self, self.generation == token, !Task.isCancelled else { return }
                 if self.table?.numberOfRows == expectedRows { break }
+                if attempt < 5 { try? await Task.sleep(for: .milliseconds(8)) }
             }
             guard let self, self.generation == token, !Task.isCancelled,
                   let table = self.table, table.numberOfRows == expectedRows else {
