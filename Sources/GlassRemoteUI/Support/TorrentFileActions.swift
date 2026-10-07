@@ -71,8 +71,10 @@ import GlassRemoteCore
         previewScope?.stopAccessingSecurityScopedResource()
         previewScope = nil
         previewURL = nil
-        if QLPreviewPanel.sharedPreviewPanelExists() { QLPreviewPanel.shared()?.orderOut(nil) }
-        NotificationCenter.default.post(name: .glassPreviewUnavailable, object: nil)
+        guard let panel = QLPreviewPanel.shared() else { return }
+        panel.dataSource = self
+        panel.reloadData()
+        panel.makeKeyAndOrderFront(nil)
     }
 
     static func groupDirectory(_ torrents: [TorrentSummary]) -> String? {
@@ -99,8 +101,4 @@ import GlassRemoteCore
     func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int { previewURL == nil ? 0 : 1 }
     func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! { previewURL as NSURL? }
     isolated deinit { previewScope?.stopAccessingSecurityScopedResource() }
-}
-
-extension Notification.Name {
-    static let glassPreviewUnavailable = Self("Glass.previewUnavailable")
 }

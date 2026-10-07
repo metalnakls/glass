@@ -145,9 +145,6 @@ public struct GlassRootView: View {
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
-        .onReceive(NotificationCenter.default.publisher(for: .glassPreviewUnavailable)) { _ in
-            activeSheet = .unavailablePreview
-        }
         .sheet(item: $activeSheet, onDismiss: { torrentImports.cancel() }) { sheet in
             NavigationStack {
                 switch sheet {
@@ -159,8 +156,6 @@ public struct GlassRootView: View {
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet)
                 case .loadingTorrentFiles, .addTorrentFiles:
                     torrentImportContent
-                case .unavailablePreview:
-                    GlassUnavailablePreview()
                 }
             }
             .toolbarVisibility(sheet.isTorrentImport ? .hidden : .visible, for: .windowToolbar)
@@ -714,7 +709,6 @@ private enum ActiveSheet: Identifiable {
     case addMagnet(String)
     case loadingTorrentFiles(UUID)
     case addTorrentFiles([TorrentFileAddDraft])
-    case unavailablePreview
 
     var isTorrentImport: Bool {
         switch self {
@@ -725,8 +719,6 @@ private enum ActiveSheet: Identifiable {
 
     var id: String {
         switch self {
-        case .unavailablePreview:
-            return "unavailable-preview"
         case .newProfile:
             return "new-profile"
         case let .editProfile(profile):
