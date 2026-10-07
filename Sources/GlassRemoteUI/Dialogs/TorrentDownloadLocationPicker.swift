@@ -37,6 +37,7 @@ struct TorrentDownloadLocationPicker: View {
                                 serverName: model.sourceName(for: sourceID), size: 24)
                             Text(locationName).textCase(nil).fontWeight(.semibold)
                                 .lineLimit(1).truncationMode(.middle)
+                                .fixedSize(horizontal: true, vertical: false)
                             Image(systemName: "chevron.down").font(.caption)
                         }
                         .modifier(InspectorGlassPill(interactive: true))
@@ -76,7 +77,7 @@ struct TorrentDownloadLocationPicker: View {
         }
     }
 
-    private var collapsedWidth: CGFloat {
+    var collapsedWidth: CGFloat {
         let nameWidth = (locationName as NSString).size(withAttributes: [
             .font: NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
         ]).width

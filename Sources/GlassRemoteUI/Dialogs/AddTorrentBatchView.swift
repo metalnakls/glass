@@ -21,6 +21,7 @@ struct AddTorrentBatchView: View {
 
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.glassPanelDismiss) private var panelDismiss
 
     @State private var items: [TorrentBatchItemState]
     @State private var groups: [TorrentBatchGroup]
@@ -82,31 +83,35 @@ struct AddTorrentBatchView: View {
     var body: some View {
         VStack(spacing: 18) {
             if let group = groups.first(where: { $0.id == selectedGroupID }) {
-                GeometryReader { geometry in
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 14) {
-                            if showsTitleIcon {
-                                addTitleIcon(group).accessibilityHidden(true)
-                            }
-                            TextField(glassText("Torrent name"), text: titleBinding(for: group))
-                                .font(.title.weight(.bold)).textFieldStyle(.plain)
-                                .frame(width: titleWidth(for: group, available: geometry.size.width))
-                                .disabled(isAdding || optionHeld)
-                        }.frame(minHeight: 44)
+                let showsIcon = showsTitleIcon && hasMultipleFiles(in: group)
+                let locationPicker = TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
+                    sourceID: $sourceID, directory: $downloadDirectory,
+                    defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
+                    isDisabled: isAdding)
+                ZStack(alignment: .topTrailing) {
+                    GeometryReader { geometry in
+                        let titleAreaWidth = max(0, geometry.size.width - locationPicker.collapsedWidth - 14)
+                        ScrollView(.horizontal) {
+                            HStack(spacing: 14) {
+                                if showsIcon {
+                                    addTitleIcon(group).accessibilityHidden(true)
+                                }
+                                TextField(glassText("Torrent name"), text: titleBinding(for: group))
+                                    .font(.title.weight(.bold)).textFieldStyle(.plain)
+                                    .frame(width: titleWidth(for: group, available: titleAreaWidth, showsIcon: showsIcon))
+                                    .disabled(isAdding || optionHeld)
+                            }.frame(minHeight: 44)
+                        }
+                        .frame(width: titleAreaWidth, height: 44, alignment: .leading)
+                        .scrollIndicators(.hidden)
                     }
-                    .scrollIndicators(.hidden)
+                    .frame(height: 44, alignment: .leading)
+                    locationPicker
                 }
-                .frame(height: 44)
+                .frame(height: 58, alignment: .top)
                 .padding(.leading, titleLeftPadding)
                 .padding(.trailing, 20)
                 .padding(.top, titleTopPadding)
-                .overlay(alignment: .topTrailing) {
-                    TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
-                        sourceID: $sourceID, directory: $downloadDirectory,
-                        defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
-                        isDisabled: isAdding)
-                        .padding(.top, 20).padding(.trailing, 20)
-                }
                 .zIndex(10)
                 TorrentBatchGroupEditor(group: group, items: items,
                     groupName: groupNameBinding(for: group),
@@ -123,7 +128,6 @@ struct AddTorrentBatchView: View {
                     .foregroundStyle(.red).textSelection(.enabled)
             }
         }
-        .padding(.bottom, 82)
         .background {
             if groups.count > 1 {
                 ForEach(1...min(3, groups.count - 1), id: \.self) { depth in
@@ -139,7 +143,7 @@ struct AddTorrentBatchView: View {
         .overlay(alignment: .bottom) {
             GlassEffectContainer(spacing: 10) {
                 HStack(spacing: 10) {
-                    Button { dismiss() } label: {
+                    Button { dismissPanel() } label: {
                         Image(systemName: "xmark")
                             .modifier(InspectorGlassPill(interactive: true, iconOnly: true))
                     }.buttonStyle(.plain).disabled(isAdding)
@@ -164,17 +168,26 @@ struct AddTorrentBatchView: View {
         }
         .background(ModifierKeyObserver { optionHeld = $0 })
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
-        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismiss() } }
+        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismissPanel() } }
         .task { await prepareNames() }
         .frame(width: 640, height: 580)
     }
 
-    private func titleWidth(for group: TorrentBatchGroup, available: CGFloat) -> CGFloat {
+    private func titleWidth(for group: TorrentBatchGroup, available: CGFloat, showsIcon: Bool) -> CGFloat {
         let title = titleBinding(for: group).wrappedValue
         let measured = (title as NSString).size(withAttributes: [
             .font: NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .title1).pointSize, weight: .bold)
         ]).width + 24
-        return max(max(0, available - (showsTitleIcon ? 60 : 0)), measured)
+        return max(max(0, available - (showsIcon ? 60 : 0)), measured)
+    }
+
+    private func hasMultipleFiles(in group: TorrentBatchGroup) -> Bool {
+        group.itemIndices.reduce(0) { $0 + items[$1].draft.preview.files.count } > 1
+    }
+
+    private func dismissPanel() {
+        if panelDismiss.isAvailable { panelDismiss() }
+        else { dismiss() }
     }
 
     private func addTitleIcon(_ group: TorrentBatchGroup) -> some View {
@@ -293,7 +306,7 @@ struct AddTorrentBatchView: View {
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
         let remaining = groups.filter { $0.id != selectedGroupID }
-        if remaining.isEmpty { dismiss() }
+        if remaining.isEmpty { dismissPanel() }
         else {
             withAnimation(.smooth) { groups = remaining; selectedGroupID = remaining[0].id }
         }
@@ -424,12 +437,14 @@ private struct TorrentBatchGroupEditor: View {
                             onSetWanted: { item.setFileWanted($0, $1) },
                             onSetPriority: { item.filePriorities[$0] = $1 },
                             onSetAllWanted: { item.setAllFilesWanted($0) },
-                            showsControls: false, isCompact: true, showsActionBar: false
+                            showsControls: false, isCompact: true, shortEpisodeNames: true, showsActionBar: false
                         )
                         .disabled(item.wasAdded)
                     }
                 }
             }
+            .contentMargins(.bottom, InspectorGlassPill.height + 38, for: .scrollContent)
+            .scrollEdgeEffectHidden()
         }
             }
         .disabled(isAdding)
