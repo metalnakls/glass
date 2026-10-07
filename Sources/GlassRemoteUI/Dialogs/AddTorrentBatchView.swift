@@ -96,11 +96,16 @@ struct AddTorrentBatchView: View {
                         removal: .move(edge: .top).combined(with: .opacity)))
             }
         }
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .padding(.horizontal, groups.count > 1 ? 12 : 0)
+        .padding(.bottom, groups.count > 1 ? 24 : 0)
         .background {
             if groups.count > 1 {
                 ForEach(1...min(3, groups.count - 1), id: \.self) { depth in
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .fill(.thinMaterial)
+                        .overlay { RoundedRectangle(cornerRadius: 24).stroke(.primary.opacity(0.16), lineWidth: 1) }
+                        .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
                         .rotationEffect(.degrees(Double(depth) * 1.5))
                         .offset(y: CGFloat(depth) * 7)
                         .padding(.horizontal, CGFloat(depth) * 6)
