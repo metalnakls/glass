@@ -75,15 +75,10 @@ struct RemovalUndoToast: View {
         toastContent
             .overlay(alignment: .bottomLeading) {
                 if !accessibilityReduceMotion {
-                    GeometryReader { proxy in
-                        HStack(spacing: 0) {
-                            Capsule().fill(Color.primary.opacity(0.9)).frame(width: 5, height: 7)
-                            Capsule().fill(Color.primary.opacity(0.9))
-                                .frame(width: max(0, (proxy.size.width - 32) * countdownProgress), height: 2)
-                        }
-                        .padding(.leading, 16).padding(.bottom, 3)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    }
+                    ToastCountdownContour()
+                        .trim(from: 0, to: max(0, countdownProgress))
+                        .stroke(Color.primary.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                        .padding(1)
                     .allowsHitTesting(false)
                 }
             }
@@ -200,5 +195,24 @@ struct RemovalUndoToast: View {
                 countdownProgress = 0
             }
         }
+    }
+}
+
+/// The countdown follows the lower capsule edge, including its rounded ends.
+/// It is part of the toast's boundary, rather than another line beneath its label.
+private struct ToastCountdownContour: Shape {
+    func path(in rect: CGRect) -> Path {
+        let radius = min(rect.height / 2, rect.width / 2)
+        let k: CGFloat = 0.5522847498
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
+        path.addCurve(to: CGPoint(x: rect.minX + radius, y: rect.maxY),
+            control1: CGPoint(x: rect.minX, y: rect.maxY - radius + k * radius),
+            control2: CGPoint(x: rect.minX + radius - k * radius, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
+        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - radius),
+            control1: CGPoint(x: rect.maxX - radius + k * radius, y: rect.maxY),
+            control2: CGPoint(x: rect.maxX, y: rect.maxY - radius + k * radius))
+        return path
     }
 }
