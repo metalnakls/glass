@@ -184,16 +184,16 @@ struct TorrentFolderMotionTests {
         motion.prepare(groupID: "group", members: members, expanding: true,
             inset: 20, indices: ["group": 1], reduceMotion: false)
         let visibleIDs = motion.flyingIDs
-        #expect(visibleIDs.count > 3)
+        #expect(visibleIDs.count > 4)
         #expect(visibleIDs.count < members.count)
-        #expect(visibleIDs.contains("member-3"))
+        #expect(visibleIDs.contains("member-4"))
         #expect(!visibleIDs.contains("member-19"))
         let flightViews = table.subviews.flatMap(\.subviews)
             .filter { $0.identifier?.rawValue.hasPrefix("member-") == true }
         let flights = flightViews.compactMap(\.layer)
         #expect(flightViews.count == visibleIDs.count)
         #expect(flightViews.allSatisfy { $0.subviews.filter { $0 is NSHostingView<FolderFlightArtwork> }.count == 1 })
-        let extra = try #require(flightViews.first { $0.identifier?.rawValue == "member-3" }?.layer)
+        let extra = try #require(flightViews.first { $0.identifier?.rawValue == "member-4" }?.layer)
         let first = try #require(flightViews.first { $0.identifier?.rawValue == "member-0" }?.layer)
         #expect(extra.opacity == 0)
         #expect(extra.zPosition < first.zPosition)
