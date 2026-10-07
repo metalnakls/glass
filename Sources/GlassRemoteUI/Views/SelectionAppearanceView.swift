@@ -50,6 +50,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.itemVerticalPadding") private var itemVerticalPadding = 0.0
     @AppearanceStorage("GlassList.sectionSpacing") private var sectionSpacing = 16.0
     @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.colorScheme) private var colorScheme
     @AppearanceStorage("GlassList.selectionEaseIn") private var selectionEaseIn = 0.25
     @AppearanceStorage("GlassList.selectionEaseOut") private var selectionEaseOut = 0.30
@@ -126,7 +127,7 @@ public struct SelectionAppearanceView: View {
                         ForEach(TuningSection.allCases) { item in
                             Button {
                                 sectionPickerPresented = false
-                                withAnimation(.smooth) { selectSection(item) }
+                                withAnimation(reduceMotion ? nil : .smooth) { selectSection(item) }
                             } label: {
                                 Label(glassText(item.title), systemImage: item.symbol)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -139,7 +140,7 @@ public struct SelectionAppearanceView: View {
                 Spacer()
             }
         }, bottom: { footer })
-        .animation(.smooth, value: section)
+        .animation(reduceMotion ? nil : .smooth, value: section)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .glassTextStyle()

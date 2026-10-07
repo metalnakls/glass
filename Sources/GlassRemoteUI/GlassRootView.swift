@@ -100,12 +100,15 @@ public struct GlassRootView: View {
                     isVisible: !showsTune || tuneOnLeft
                 )
                 .opacity(showsTune && !tuneOnLeft ? 0 : 1)
+                .blur(radius: showsTune && !tuneOnLeft ? 6 : 0)
                 .allowsHitTesting(!showsTune || tuneOnLeft)
                 .accessibilityHidden(showsTune && !tuneOnLeft)
                 if showsTune && !tuneOnLeft {
                     SelectionAppearanceView(testSession: testSession, section: $tuningSection)
+                        .transition(.blurReplace)
                 }
             }
+            .animation(accessibilityReduceMotion ? nil : .smooth, value: showsTune)
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
         }
         .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
