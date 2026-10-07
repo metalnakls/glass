@@ -7,7 +7,7 @@ struct StickyTitleLabel: View {
     var body: some View {
         Text(title).font(.largeTitle.bold()).foregroundStyle(.primary)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, inset).padding(.vertical, 8)
+            .padding(.leading, inset).padding(.vertical, GlassListMetrics.titleVerticalInset)
     }
 }
 
@@ -132,6 +132,8 @@ private struct HeaderAnchor: NSViewRepresentable {
 @MainActor
 final class TorrentStickyHeaders: NSObject {
     static let topInset: CGFloat = 0
+    private let measuringTitle = TitleHost(title: " ", inset: 0)
+    var titleHeight: CGFloat { measuringTitle.fittingSize(width: 400).height }
     fileprivate var barSurface: NSView {
         overlay.externallyHosted = true
         return overlay.pinnedSurface
@@ -269,12 +271,10 @@ final class TorrentStickyHeaders: NSObject {
         }
         let viewport = table.convert(clip.bounds, from: clip)
         if NSApp.currentEvent?.type == .scrollWheel || NSApp.currentEvent?.type == .keyDown { heldPinned = nil }
-        // Begin retiring as the final two displayed rows approach the title.
-        let releasePoints = ordered.enumerated().map { offset, header -> CGFloat in
-            let endIndex = offset + 1 < ordered.count ? ordered[offset + 1].index : table.numberOfRows
-            let releaseIndex = max(header.index + 1, endIndex - 2)
-            let boundary = releaseIndex < table.numberOfRows ? table.rect(ofRow: releaseIndex).minY : table.bounds.maxY
-            return boundary - appearance.pushLead
+        // The next measured section title pushes this one. Retiring before
+        // the final rows produced a gap and then a second visible title.
+        let releasePoints = ordered.indices.map { index in
+            index + 1 < frames.count ? frames[index + 1].minY - appearance.pushLead : CGFloat.greatestFiniteMagnitude
         }
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
                                          pushLead: appearance.pushLead, stickyAllowed: ordered.map(\.stickyAllowed))
@@ -428,7 +428,11 @@ final class HeaderBackdrop: NSView {
             // above the native blur. Pinning never changes their compositing.
             let inViewport = externallyHosted || placement.pinned
             let parent: NSView = inViewport ? pinnedSurface : self
-            let frame = inViewport ? placement.frame
+            let viewportOffset: CGPoint
+            if externallyHosted, let table = superview as? NSTableView, let clip = table.enclosingScrollView?.contentView {
+                viewportOffset = pinnedSurface.convert(clip.bounds.origin, from: clip)
+            } else { viewportOffset = .zero }
+            let frame = inViewport ? placement.frame.offsetBy(dx: viewportOffset.x, dy: viewportOffset.y)
                 : placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
             CATransaction.begin()
             CATransaction.setDisableActions(true)
@@ -464,7 +468,7 @@ final class HeaderViewportSurface: NSView {
         super.init(frame: frame)
         wantsLayer = true
         layer?.zPosition = TorrentListRenderOrder.sectionHeader
-        layer?.masksToBounds = true
+        layer?.masksToBounds = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
@@ -522,17 +526,8 @@ final class TitleHost: NSView {
     }
 }
 
-/// Reserve the native scroll-edge effect without painting a background.
-struct TorrentPinnedHeaderBar: View {
-    var body: some View {
-        StickyTitleLabel(title: " ", inset: 0)
-            .hidden()
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
-    }
-}
-
-/// All titles stay above the blur through inline, pin and push states.
+/// The actual header surface registers with the native top bar. Its inline
+/// titles can extend into the document; the bar owns the progressive effect.
 struct TorrentHeaderSurface: NSViewRepresentable {
     let controller: TorrentStickyHeaders
     func makeNSView(context: Context) -> NSView { controller.barSurface }

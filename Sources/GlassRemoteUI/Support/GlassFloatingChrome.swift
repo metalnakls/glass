@@ -19,10 +19,10 @@ private struct GlassFloatingChrome<Top: View, Bottom: View>: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .glassScrollEdges()
             .safeAreaBar(edge: .top, spacing: 0) {
                 GlassFloatingDock(content: top)
             }
-            .scrollEdgeEffectHidden(true, for: .bottom)
             .safeAreaBar(edge: .bottom, spacing: 0) {
                 GlassFloatingDock(content: bottom)
             }
@@ -47,7 +47,7 @@ struct GlassPillButton<Label: View>: View {
         Button(action: action, label: label)
             .buttonStyle(.glass)
             .buttonBorderShape(iconOnly ? .circle : .capsule)
-            .controlSize(.extraLarge)
+            .controlSize(GlassControlMetrics.size)
             .tint(tint)
     }
 }
@@ -64,7 +64,6 @@ struct GlassChromeScrollView<Content: View>: View {
     @ViewBuilder var content: () -> Content
     var body: some View {
         ScrollView { content() }
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .scrollEdgeEffectHidden(true, for: .bottom)
+            .glassScrollEdges()
     }
 }

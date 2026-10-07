@@ -11,6 +11,7 @@ struct GlassSearchPill: View {
     var inspectorFocus = true
     var permanentlyExpanded = false
     private var expanded: Bool { isPresented || permanentlyExpanded }
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @FocusState private var focused: Bool
     @Namespace private var glassNamespace
 
@@ -18,20 +19,20 @@ struct GlassSearchPill: View {
         Group {
         if !expanded {
             GlassPillButton(iconOnly: true) {
-                withAnimation(.smooth(duration: 0.35)) { isPresented = true }
+                withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = true }
                 focused = true
             } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel(glassText(prompt))
         } else {
         HStack {
-            Button { focused = true; withAnimation(.smooth(duration: 0.35)) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
+            Button { focused = true; withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
                 .buttonStyle(.plain).accessibilityLabel(glassText(prompt))
             if expanded {
                 TextField(glassText(prompt), text: $text)
                     .textFieldStyle(.plain).focused($focused)
                     .focusedValue(\.glassInspectorFileFilterFocused, inspectorFocus)
                     .onExitCommand { isPresented = false; focused = false; text = "" }
-                if !permanentlyExpanded { Button { withAnimation(.smooth(duration: 0.35)) { isPresented = false } } label: { Image(systemName: "xmark").frame(width: 28, height: 28).contentShape(Rectangle()) }
+                if !permanentlyExpanded { Button { withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = false } } label: { Image(systemName: "xmark").frame(width: 28, height: 28).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel(glassText("Close search")) }
             }
         }
@@ -42,7 +43,7 @@ struct GlassSearchPill: View {
         }
         }
         .font(.body)
-        .controlSize(.extraLarge)
+        .controlSize(GlassControlMetrics.size)
         .glassEffectID(transitionID, in: transitionNamespace ?? glassNamespace)
         .glassEffectTransition(.matchedGeometry)
         .onChange(of: isPresented) { _, presented in focused = presented; if !presented { text = "" } }

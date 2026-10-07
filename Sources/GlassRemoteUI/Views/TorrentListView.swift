@@ -168,6 +168,7 @@ struct TorrentListView: View {
             } else {
             List(selection: $selection) {
                 ForEach(entries) { entry in
+                    Group {
                     switch entry {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
@@ -192,31 +193,26 @@ struct TorrentListView: View {
                             // inset is what made the header sit flush against
                             // the row before it.
                             .listRowInsets(EdgeInsets(top: (headerPositions[section.id] ?? 0) == 0 ? 0 : TorrentInspectorLayout.listEdgePadding / 2, leading: 0, bottom: 0, trailing: 0))
-                            .listRowSeparator(.hidden)
                     case let .torrent(row):
                         liveRow(for: row)
-                            // The rule belongs to this native row. No scrolling
-                            // overlay, cached rect or independent animation owns it.
-                            .overlay(alignment: .bottom) {
-                                Rectangle().fill(Color.primary.opacity(0.12))
-                                    .frame(height: 1 / displayScale)
-                                    .padding(.leading, separatorLeading)
-                                    .padding(.trailing, separatorTrailing)
-                                    .opacity(layout.showsSeparator(after: row.id, selection: selection) ? 1 : 0)
-                                    .allowsHitTesting(false)
-                            }
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
-                            .listRowSeparator(.hidden)
                             .listItemTint(.monochrome)
                             .tag(row.id)
                             .focusEffectDisabled()
                             .accessibilityElement(children: .contain)
                             .moveDisabled(rowIsAdding(row))
                     }
+                    }
+                    // Apply separator ownership to the complete List entry;
+                    // an AppKit-backed header label cannot inherit a default rule.
+                    .modifier(GlassListRowSeparator(
+                        visible: {
+                            if case let .torrent(row) = entry { return layout.showsSeparator(after: row.id, selection: selection) }
+                            return false
+                        }(),
+                        leading: separatorLeading, trailing: separatorTrailing))
                 }.reorderable()
-                    .listRowSeparator(.hidden)
-                    .listRowSeparatorTint(.clear)
                     .listRowBackground(Color.clear)
             }
             .reorderContainer(for: TorrentListEntry.self) { difference in
@@ -231,6 +227,7 @@ struct TorrentListView: View {
             .scrollContentBackground(.hidden)
             .background(listSurface)
             .contentMargins(.horizontal, 0, for: .scrollContent)
+            .contentMargins(.top, 0, for: .scrollContent)
             .contentMargins(.bottom, endPadding, for: .scrollContent)
             .background(GeometryReader { proxy in
                 Color.clear.preference(
@@ -240,12 +237,12 @@ struct TorrentListView: View {
             })
             .environment(\.defaultMinListRowHeight, 0)
             .focusEffectDisabled()
-            // Titles already own their Tune-controlled row spacing. The native
-            // blur bar must not add another header-height gap above that row.
-            .ignoresSafeArea(.container, edges: .top)
-            .safeAreaBar(edge: .top, spacing: 0) { TorrentPinnedHeaderBar() }
-            .scrollEdgeEffectStyle(.soft, for: .top)
-            .overlay { TorrentHeaderSurface(controller: stickyHeaders).allowsHitTesting(false).accessibilityHidden(true) }
+            .safeAreaBar(edge: .top, spacing: 0) {
+                TorrentHeaderSurface(controller: stickyHeaders)
+                    .frame(height: stickyHeaders.titleHeight)
+                    .allowsHitTesting(false)
+            }
+            .glassScrollEdges()
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)
