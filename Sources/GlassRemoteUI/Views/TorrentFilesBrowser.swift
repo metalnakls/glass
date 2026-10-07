@@ -247,8 +247,13 @@ struct TorrentFilesBrowser: View {
     private func displayName(_ row: TorrentFileTreeRow, hiding hiddenExtension: String?) -> String {
         let name = row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension)
         guard shortEpisodeNames, !row.isFolder,
-              let range = name.range(of: "^S[0-9]+E[0-9]+", options: [.regularExpression, .caseInsensitive]) else { return name }
-        return String(name[range]).uppercased()
+              let range = name.range(of: "S[0-9]+E([0-9]+)", options: [.regularExpression, .caseInsensitive]) else { return name }
+        let token = String(name[range]).uppercased()
+        guard let e = token.firstIndex(of: "E"), let episode = Int(token[token.index(after: e)...]) else { return name }
+        let suffix = String(name[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let separator = suffix.first, "-–—".contains(separator) else { return name }
+        let title = suffix.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+        return title.isEmpty ? String(episode) : "\(episode). \(title)"
     }
 
     private func progress(_ row: TorrentFileTreeRow, byIndex: [Int: TorrentFileBrowserEntry]) -> Double {
