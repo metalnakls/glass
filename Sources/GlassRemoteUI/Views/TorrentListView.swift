@@ -36,6 +36,7 @@ struct TorrentListView: View {
     @AppearanceStorage("GlassList.initialPadding") private var initialPadding = 16.0
     @AppearanceStorage("GlassList.endPadding") private var endPadding = 68.0
     @AppearanceStorage("GlassList.headerBottomPadding") private var headerBottomPadding = 0.0
+    @AppearanceStorage("GlassList.stateGap") private var stateGap = 8.0
     @AppearanceStorage("GlassList.loadingSort") private var loadingSort = "priority"
     @AppearanceStorage("GlassList.completedSort") private var completedSort = "lastDownloaded"
     private var sorting: TorrentListSorting {
@@ -131,8 +132,9 @@ struct TorrentListView: View {
         let sections = layout.titledSections(lowercase: lowercaseTitles)
         let entries = layout.entries(lowercase: lowercaseTitles)
         let headerPositions = layout.headerIndices
-        let separatorLeading = CGFloat(leftPadding) + (density.showsIcon ? 64 : 16)
-        let separatorTrailing = CGFloat(rightPadding) + 32
+        let columns = TorrentRowColumns(showsArtwork: density.showsIcon, compact: density == .compact, stateGap: CGFloat(stateGap))
+        let separatorLeading = CGFloat(leftPadding) + columns.textLeading
+        let separatorTrailing = CGFloat(rightPadding) + columns.textTrailing
         ScrollViewReader { scrollProxy in
             Group {
             if grid {
@@ -168,7 +170,11 @@ struct TorrentListView: View {
             } else {
             List(selection: $selection) {
                 ForEach(entries) { entry in
-                    Group {
+                    GlassNativeReorderableRow(item: entry, moveDisabled: {
+                        if case let .torrent(row) = entry { return rowIsAdding(row) }
+                        return true
+                    }()) {
+                    VStack(alignment: .leading, spacing: 0) {
                     switch entry {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
@@ -182,21 +188,11 @@ struct TorrentListView: View {
                                     .padding(.trailing, rightPadding + 16)
                                 }
                             }
-                            .padding(.top, (headerPositions[section.id] ?? 0) == 0 ? initialPadding : sectionSpacing)
-                            .padding(.bottom, headerBottomPadding)
-                            .selectionDisabled()
-                            // A section title is a label, not a row: it must not
-                            // select, reorder or carry a rule.
-                            .moveDisabled(true)
-                            .listRowBackground(Color.clear)
-                            // Room to breathe above the title. Zeroing the top
-                            // inset is what made the header sit flush against
-                            // the row before it.
-                            .listRowInsets(EdgeInsets(top: (headerPositions[section.id] ?? 0) == 0 ? 0 : TorrentInspectorLayout.listEdgePadding / 2, leading: 0, bottom: 0, trailing: 0))
+                            .modifier(TorrentInlineHeaderSpacing(isFirst: (headerPositions[section.id] ?? 0) == 0,
+                                beforeFirst: initialPadding, betweenSections: sectionSpacing, belowHeader: headerBottomPadding))
                     case let .torrent(row):
                         liveRow(for: row)
                             .listRowBackground(Color.clear)
-                            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                             .listItemTint(.monochrome)
                             .tag(row.id)
                             .focusEffectDisabled()
@@ -204,6 +200,19 @@ struct TorrentListView: View {
                             .moveDisabled(rowIsAdding(row))
                     }
                     }
+                    }
+                    .tag(entry.id)
+                    .selectionDisabled({ if case .header = entry { return true }; return false }())
+                    .moveDisabled({
+                        if case let .torrent(row) = entry { return rowIsAdding(row) }
+                        return true
+                    }())
+                    .listRowInsets(EdgeInsets(top: {
+                        if case let .header(section) = entry, (headerPositions[section.id] ?? 0) != 0 {
+                            return TorrentInspectorLayout.listEdgePadding / 2
+                        }
+                        return 0
+                    }(), leading: 0, bottom: 0, trailing: 0))
                     // Apply separator ownership to the complete List entry;
                     // an AppKit-backed header label cannot inherit a default rule.
                     .modifier(GlassListRowSeparator(
@@ -212,7 +221,7 @@ struct TorrentListView: View {
                             return false
                         }(),
                         leading: separatorLeading, trailing: separatorTrailing))
-                }.reorderable()
+                }
                     .listRowBackground(Color.clear)
             }
             .reorderContainer(for: TorrentListEntry.self) { difference in
@@ -691,8 +700,8 @@ private struct TorrentListLiveRow: View {
         .opacity(isReordering ? 0.45 : 1)
         .simultaneousGesture(TapGesture().onEnded { select() })
         .glassContextMenu(select: select) { contextMenuContent }
-        .padding(.leading, grid ? 0 : leftPadding + 16)
-        .padding(.trailing, grid ? 0 : rightPadding + 16)
+        .padding(.leading, grid ? 0 : leftPadding + TorrentRowColumns.horizontalInset)
+        .padding(.trailing, grid ? 0 : rightPadding + TorrentRowColumns.horizontalInset)
         .background { if grid && isSelected { RoundedRectangle(cornerRadius: 16).fill(Color(nsColor: .controlBackgroundColor)).shadow(color: .black.opacity(0.15), radius: 8, y: 4) } }
         }
     }

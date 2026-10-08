@@ -9,6 +9,33 @@ struct TorrentStickyHeaderTests {
     let frames = [CGRect(x: 8, y: 6, width: 480, height: 48), CGRect(x: 8, y: 186, width: 480, height: 48)]
     func viewport(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 500, height: 600) }
 
+    @MainActor @Test("production pinning preserves breathing room and releases two displayed rows early")
+    func productionPolicy() throws {
+        // Unequal row heights distinguish a displayed-row rule from a pixel approximation.
+        let rows = [CGRect(x: 0, y: 0, width: 500, height: 48),
+                    CGRect(x: 0, y: 48, width: 500, height: 64),
+                    CGRect(x: 0, y: 112, width: 500, height: 40),
+                    CGRect(x: 0, y: 152, width: 500, height: 80),
+                    CGRect(x: 0, y: 232, width: 500, height: 48),
+                    CGRect(x: 0, y: 280, width: 500, height: 64)]
+        let releases = TorrentStickyHeaders.releasePoints(headerIndices: [0, 4], rowCount: rows.count, pushLead: 0, rowFrame: { rows[$0] })
+        #expect(releases[0] == rows[2].minY)
+        let appearance = TorrentHeaderAppearance()
+        let titles = [rows[0], rows[4]]
+        let pinned = try #require(TorrentStickyHeaders.stickyLayout(frames: titles, viewport: viewport(10), appearance: appearance,
+            releases: releases, stickyAllowed: [true, false]))
+        #expect(pinned.titles.first?.frame.minY == 20)
+        let pushing = try #require(TorrentStickyHeaders.stickyLayout(frames: titles, viewport: viewport(60), appearance: appearance,
+            releases: releases, stickyAllowed: [true, false]))
+        #expect(pushing.titles.first?.frame.maxY == rows[2].minY - 60)
+        #expect(TorrentStickyHeaders.stickyLayout(frames: titles, viewport: viewport(250), appearance: appearance,
+            releases: releases, stickyAllowed: [true, false]) == nil)
+        #expect(TorrentStickyHeaders.stickyLayout(frames: titles, viewport: viewport(10), appearance: appearance,
+            releases: releases, stickyAllowed: [false, false]) == nil)
+        let led = TorrentStickyHeaders.releasePoints(headerIndices: [0, 4], rowCount: rows.count, pushLead: 12, rowFrame: { rows[$0] })
+        #expect(led[0] == rows[2].minY - 12)
+    }
+
     @MainActor @Test("rows inserted after the header cannot paint over it")
     func lateRowStacking() throws {
         _ = NSApplication.shared

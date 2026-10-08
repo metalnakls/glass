@@ -18,8 +18,25 @@ enum GlassMotion {
 }
 
 enum GlassListMetrics {
+    // Established breathing room for pinned titles, independent of document spacing.
+    static let pinnedTitleInset: CGFloat = 20
     // Preserve the established title position while the native bar owns blur.
     static let titleVerticalInset: CGFloat = 8
+    static func stateDiameter(compact: Bool) -> CGFloat { compact ? 24 : GlassControlMetrics.height }
+}
+
+/// Established torrent-row columns, shared by content and native separator bounds.
+/// The state button includes its two-point interior padding on both sides.
+struct TorrentRowColumns {
+    static let horizontalInset: CGFloat = 16
+    static let artworkWidth: CGFloat = 36
+    static let artworkGap: CGFloat = 12
+    static let statePadding: CGFloat = 2
+    let showsArtwork: Bool
+    let compact: Bool
+    let stateGap: CGFloat
+    var textLeading: CGFloat { Self.horizontalInset + (showsArtwork ? Self.artworkWidth + Self.artworkGap : 0) }
+    var textTrailing: CGFloat { Self.horizontalInset + GlassListMetrics.stateDiameter(compact: compact) + Self.statePadding * 2 + stateGap }
 }
 
 /// Scroll effects belong to the container, never to a row or title label.
@@ -49,16 +66,41 @@ struct GlassAddCard<Content: View, Header: View, Dock: View>: View {
     }
 }
 
+/// Document spacing moves inline titles and their content; it never changes
+/// the viewport pin inset. Existing Tune keys and saved meanings stay intact.
+struct TorrentInlineHeaderSpacing: ViewModifier {
+    let isFirst: Bool
+    let beforeFirst: CGFloat
+    let betweenSections: CGFloat
+    let belowHeader: CGFloat
+    func body(content: Content) -> some View {
+        content.padding(.top, isFirst ? beforeFirst : betweenSections).padding(.bottom, belowHeader)
+    }
+}
+
+/// Native reordering wraps its content before List reads row preferences.
+/// Attach row metadata to this owner, outside the decoration. Keeping each
+/// entry's original identity preserves the shared reorder container's IDs.
+struct GlassNativeReorderableRow<Item: Identifiable, Content: View>: View where Item.ID: Sendable {
+    let item: Item
+    var moveDisabled = false
+    @ViewBuilder var content: () -> Content
+    var body: some View {
+        ForEach([item]) { _ in content().moveDisabled(moveDisabled) }.reorderable()
+    }
+}
+
 /// A separator is part of a native row, rather than an overlay on its content.
 struct GlassListRowSeparator: ViewModifier {
     let visible: Bool
     let leading: CGFloat
     let trailing: CGFloat
+    var tint: Color = .primary.opacity(0.12)
     func body(content: Content) -> some View {
         content
             .listRowSeparator(visible ? .visible : .hidden, edges: .bottom)
             .listRowSeparator(.hidden, edges: .top)
-            .listRowSeparatorTint(visible ? .primary.opacity(0.12) : .clear)
+            .listRowSeparatorTint(visible ? tint : .clear)
             .alignmentGuide(.listRowSeparatorLeading) { _ in leading }
             .alignmentGuide(.listRowSeparatorTrailing) { dimensions in dimensions.width - trailing }
     }

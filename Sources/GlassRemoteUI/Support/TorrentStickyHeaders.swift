@@ -21,6 +21,9 @@ struct TorrentStickyTitle: View {
         HeaderAnchor(controller: controller, id: id, title: title, index: rowIndex, inset: inset)
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isHeader)
+            .onGeometryChange(for: CGRect.self) { proxy in proxy.frame(in: .global) } action: { _ in
+                controller.layoutDidChange()
+            }
     }
 }
 
@@ -94,6 +97,9 @@ private struct HeaderAnchor: NSViewRepresentable {
         view.controller = controller; view.id = id; view.title = title; view.index = index; view.inset = inset
         view.titleHost.setTitle(title, inset: inset)
         view.connect()
+        // Register local frame changes here. The document-geometry observer
+        // also catches padding that moves a SwiftUI ancestor of this anchor.
+        view.needsLayout = true
     }
     final class Anchor: NSView {
         weak var controller: TorrentStickyHeaders?
@@ -114,6 +120,8 @@ private struct HeaderAnchor: NSViewRepresentable {
             super.layout()
             connect()
         }
+        override func setFrameOrigin(_ origin: NSPoint) { super.setFrameOrigin(origin); connect() }
+        override func setFrameSize(_ size: NSSize) { super.setFrameSize(size); connect() }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); connect() }
         func connect() {
             guard !titleHost.isRetiring, window != nil, bounds.width > 0, bounds.height > 0 else { return }
@@ -131,7 +139,23 @@ private struct HeaderAnchor: NSViewRepresentable {
 
 @MainActor
 final class TorrentStickyHeaders: NSObject {
-    static let topInset: CGFloat = 0
+    static let topInset: CGFloat = GlassListMetrics.pinnedTitleInset
+    /// Release uses displayed native rows, independent of short-section eligibility.
+    static func releasePoints(headerIndices: [Int], rowCount: Int, pushLead: CGFloat, rowFrame: (Int) -> CGRect) -> [CGFloat] {
+        headerIndices.enumerated().map { offset, index in
+            let end = offset + 1 < headerIndices.count ? headerIndices[offset + 1] : rowCount
+            let release = max(index + 1, end - 2)
+            let boundary = release < rowCount ? rowFrame(release).minY : (rowCount > 0 ? rowFrame(rowCount - 1).maxY : 0)
+            return boundary - pushLead
+        }
+    }
+
+    /// Production pin configuration; tests exercise this entry point as well.
+    static func stickyLayout(frames: [CGRect], viewport: CGRect, appearance: TorrentHeaderAppearance,
+                             releases: [CGFloat], stickyAllowed: [Bool]) -> TorrentStickyHeaderGeometry.Layout? {
+        TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach,
+            topInset: topInset, releasePoints: releases, stickyAllowed: stickyAllowed)
+    }
     private let measuringTitle = TitleHost(title: " ", inset: 0)
     var titleHeight: CGFloat { measuringTitle.fittingSize(width: 400).height }
     fileprivate var barSurface: NSView {
@@ -163,6 +187,8 @@ final class TorrentStickyHeaders: NSObject {
     private weak var table: NSTableView?
     private var headers: [String: Header] = [:]
     private var measurements: [String: Measurement] = [:]
+    private struct AnchorReference { weak var view: NSView? }
+    private var anchors: [String: AnchorReference] = [:]
     private var titleHosts: [String: TitleHost] = [:]
     private let overlay = HeaderBackdrop()
     private var appearance = TorrentHeaderAppearance()
@@ -194,6 +220,7 @@ final class TorrentStickyHeaders: NSObject {
         let measurement = Measurement(leading: measured.minX - row.minX, trailing: row.maxX - measured.maxX,
                                       top: measured.minY - row.minY, height: measured.height)
         let changed = measurements[id] != measurement || headers[id].map { $0.title != title || $0.index != index || $0.inset != inset } ?? true
+        anchors[id] = AnchorReference(view: anchor)
         measurements[id] = measurement
         headers[id] = Header(id: id, title: title, index: index, inset: inset, stickyAllowed: headers[id]?.stickyAllowed ?? false)
         let needsAttach = self.table !== table
@@ -246,9 +273,11 @@ final class TorrentStickyHeaders: NSObject {
             (section.id, Header(id: section.id, title: section.title, index: layout.headerIndices[section.id]!, inset: inset, stickyAllowed: section.allowsStickyHeader))
         })
         measurements = measurements.filter { headers[$0.key] != nil }
+        anchors = anchors.filter { headers[$0.key] != nil }
         for header in headers.values { _ = titleHost(id: header.id, title: header.title, inset: header.inset) }
         scheduleUpdate()
     }
+    func layoutDidChange() { scheduleUpdate() }
     @objc private func resumeScroll() { heldPinned = nil; update() }
     private func scheduleUpdate() {
         guard !updateScheduled else { return }
@@ -262,6 +291,18 @@ final class TorrentStickyHeaders: NSObject {
     @objc private func update() {
         guard let table, let scroll = table.enclosingScrollView else { return }
         let clip = scroll.contentView
+        // A padded SwiftUI ancestor can move without changing the anchor's
+        // own frame. Geometry notifications read the final native position;
+        // offscreen/recycled anchors keep their last row-relative measurement.
+        for (id, reference) in anchors {
+            guard let anchor = reference.view, anchor.window === table.window, anchor.isDescendant(of: table),
+                  let header = headers[id], header.index < table.numberOfRows else { continue }
+            let measured = table.convert(anchor.bounds, from: anchor)
+            let row = table.rect(ofRow: header.index)
+            guard table.row(at: CGPoint(x: measured.midX, y: measured.midY)) == header.index else { continue }
+            measurements[id] = Measurement(leading: measured.minX - row.minX, trailing: row.maxX - measured.maxX,
+                top: measured.minY - row.minY, height: measured.height)
+        }
         let ordered = headers.values.filter { $0.index < table.numberOfRows }.sorted { $0.index < $1.index }
         let frames = ordered.map { header in
             let row = table.rect(ofRow: header.index)
@@ -271,11 +312,8 @@ final class TorrentStickyHeaders: NSObject {
         }
         let viewport = table.convert(clip.bounds, from: clip)
         if NSApp.currentEvent?.type == .scrollWheel || NSApp.currentEvent?.type == .keyDown { heldPinned = nil }
-        // The next measured section title pushes this one. Retiring before
-        // the final rows produced a gap and then a second visible title.
-        let releasePoints = ordered.indices.map { index in
-            index + 1 < frames.count ? frames[index + 1].minY - appearance.pushLead : CGFloat.greatestFiniteMagnitude
-        }
+        let releasePoints = Self.releasePoints(headerIndices: ordered.map(\.index),
+            rowCount: table.numberOfRows, pushLead: appearance.pushLead, rowFrame: { table.rect(ofRow: $0) })
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
                                          pushLead: appearance.pushLead, stickyAllowed: ordered.map(\.stickyAllowed))
         if structureCache?.structure != structure {
@@ -285,7 +323,7 @@ final class TorrentStickyHeaders: NSObject {
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []
         let releases = structureCache?.releases ?? []
-        var sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport, feather: appearance.reach, topInset: Self.topInset, releasePoints: releases, stickyAllowed: stickyAllowed)
+        var sticky = Self.stickyLayout(frames: frames, viewport: viewport, appearance: appearance, releases: releases, stickyAllowed: stickyAllowed)
         if let heldPinned {
             let titles = ordered.enumerated().compactMap { index, header -> TorrentStickyHeaderGeometry.Placement? in
                 guard let title = heldPinned[header.id] else { return nil }
@@ -293,7 +331,7 @@ final class TorrentStickyHeaders: NSObject {
                 frame.size.width = frames[index].width
                 return .init(index: index, frame: frame, pinned: title.pinned, retiring: title.retiring, exitProgress: title.exitProgress)
             }
-            sticky = titles.isEmpty ? nil : .init(titles: titles, backdropHeight: 20 + (titles.first?.frame.height ?? 0) + appearance.reach)
+            sticky = titles.isEmpty ? nil : .init(titles: titles, backdropHeight: Self.topInset + (titles.first?.frame.height ?? 0) + appearance.reach)
         }
         lastPinned = Dictionary(uniqueKeysWithValues: (sticky?.titles ?? []).filter(\.pinned).map { (ordered[$0.index].id, $0) })
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)

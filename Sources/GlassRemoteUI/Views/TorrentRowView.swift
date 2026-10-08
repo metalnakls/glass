@@ -86,13 +86,15 @@ struct TorrentRowView: View, Equatable {
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
             if density.showsIcon {
-                interactiveLeadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil))
+                interactiveLeadingIcon
+                    .frame(width: TorrentRowColumns.artworkWidth)
+                    .modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil))
                     .background {
                         if let folderMotion, groupIsExpanded != nil || folderID != nil {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
                         }
                     }
-                    .padding(.trailing, 12)
+                    .padding(.trailing, TorrentRowColumns.artworkGap)
             }
 
             torrentContent
@@ -333,7 +335,7 @@ struct TorrentRowView: View, Equatable {
         }
     }
 
-    private var stateDiameter: CGFloat { density == .compact && !grid ? 24 : 36 }
+    private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: density == .compact && !grid) }
 
     private var transferButton: some View {
         ZStack {
@@ -358,7 +360,7 @@ struct TorrentRowView: View, Equatable {
         }
         .frame(width: stateDiameter, height: stateDiameter)
         .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
-        .padding(2)
+        .padding(TorrentRowColumns.statePadding)
     }
 
     @ViewBuilder
