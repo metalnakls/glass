@@ -247,6 +247,7 @@ struct TorrentListView: View {
             .environment(\.defaultMinListRowHeight, 0)
             .focusEffectDisabled()
             .glassScrollEdges()
+            .ignoresSafeArea(.container, edges: .top)
             .safeAreaBar(edge: .top, spacing: 0) {
                 TorrentHeaderSurface(controller: stickyHeaders)
                     .frame(height: stickyHeaders.titleHeight)
