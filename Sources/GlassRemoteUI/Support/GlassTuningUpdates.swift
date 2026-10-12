@@ -31,20 +31,16 @@ public final class GlassTuningUpdates {
         }
         var values: [String: Any] = [:]
         for (key, value) in object {
-            // Ignore future keys so older clients can still consume newer configs.
             guard let original = baseline[key] else { continue }
-            if let original = original as? NSNumber, let number = value as? NSNumber {
+            if let original = original as? NSNumber {
+                guard let number = value as? NSNumber else { continue }
                 let boolean = CFGetTypeID(original) == CFBooleanGetTypeID()
                 guard boolean == (CFGetTypeID(number) == CFBooleanGetTypeID()),
-                      boolean || (number.doubleValue.isFinite && range(for: key).contains(number.doubleValue)) else {
-                    throw URLError(.cannotParseResponse)
-                }
+                      boolean || (number.doubleValue.isFinite && range(for: key).contains(number.doubleValue)) else { continue }
                 values[key] = number
             } else if original is String, let color = value as? String,
                       color.range(of: "^[0-9A-Fa-f]{6}$", options: .regularExpression) != nil {
                 values[key] = color
-            } else {
-                throw URLError(.cannotParseResponse)
             }
         }
         guard !values.isEmpty else { throw URLError(.cannotParseResponse) }

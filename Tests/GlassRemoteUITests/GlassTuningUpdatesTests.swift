@@ -14,6 +14,22 @@ struct GlassTuningUpdatesTests {
         #expect(values.count == 1)
     }
 
+    @Test func skipsUnsupportedValuesWithoutDiscardingSavedTune() throws {
+        let baseline = GlassAppearanceDefaults.bundled
+        let data = Data("""
+        {
+          "GlassList.initialPadding": 0,
+          "GlassList.loadingSort": "transmission",
+          "GlassList.highlightColorDark": "bad",
+          "GlassList.funMode": 1,
+          "future.setting": true
+        }
+        """.utf8)
+        let values = try GlassTuningUpdates.validate(data, against: baseline)
+        #expect(values.count == 1)
+        #expect((values["GlassList.initialPadding"] as? NSNumber)?.doubleValue == 0)
+    }
+
     @Test func savedWindowDimensionsAreAccepted() throws {
         let baseline = GlassAppearanceDefaults.bundled
         let data = Data("{\"GlassWindow.defaultWidth\":792,\"GlassWindow.defaultHeight\":459}".utf8)

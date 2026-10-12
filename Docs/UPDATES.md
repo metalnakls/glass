@@ -121,8 +121,9 @@ apply live and replace local values for published keys, including tuning edits.
 Cached published values are reapplied on launch. Reset uses the latest remote
 defaults. Valid config is cached for offline launches; missing or invalid config
 keeps the last valid values, falling back to bundled defaults on first launch.
-Only known appearance keys, booleans, finite bounded numbers, and hex colours
-are accepted. This is HTTPS configuration delivery, separate from Sparkle's
+Known keys with supported values are applied individually. Unknown keys and
+unsupported values are skipped, so one value does not discard the rest of a
+saved Tune. This is HTTPS configuration delivery, separate from Sparkle's
 signed application updates.
 
 Older app versions that read the former `tunes` branch need the 4.2 app update
