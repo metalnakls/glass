@@ -63,8 +63,12 @@ struct GlassApp: App {
             GlassRootView(model: model, platformIntegration: platformIntegration)
                 .frame(minWidth: 680, minHeight: 260)
                 .task { await GlassTuningUpdates.shared.refresh() }
+                .task { await InstallationReporter.shared.reportCurrentInstallation() }
                 .onChange(of: scenePhase) { _, phase in
-                    if phase == .active { Task { await GlassTuningUpdates.shared.refresh() } }
+                    if phase == .active {
+                        Task { await GlassTuningUpdates.shared.refresh() }
+                        Task { await InstallationReporter.shared.reportCurrentInstallation() }
+                    }
                 }
         }
         .defaultLaunchBehavior(.presented)

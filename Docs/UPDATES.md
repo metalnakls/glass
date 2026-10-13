@@ -67,14 +67,31 @@ Installed copies read the stable feed URL:
 https://glass.metalglass.workers.dev
 ```
 
-The Worker records weekly aggregate counts by Glass and macOS version, then
-passes through the appcast hosted on GitHub Releases. Sparkle sends only
-`appName`, `appVersion`, and `osVersion`; the service does not store IP
-addresses or a per-install identifier. See the [privacy page](../site/privacy.html).
+The Worker passes through the appcast hosted on GitHub Releases. Its private D1
+`installations` table keeps one current row per random installation ID: Glass
+version, macOS version, Mac model identifier, first report, first report of the
+current Glass version, and latest report. `POST /installations` accepts reports;
+there is no public read endpoint. Query the table through the Metal Cloudflare
+account (`flare` database):
 
-The download asset is always named `Glass.zip`, so the link never changes.
-Glass checks hourly and installs and relaunches updates on its own. Sparkle
-sends the profile once a week, regardless of the hourly check interval.
+```sql
+SELECT installation_id, app_version, mac_model, os_version,
+       version_first_seen, last_reported
+FROM installations ORDER BY version_first_seen DESC;
+```
+
+The older `weekly_install_checks` table remains for legacy clients.
+
+Glass reports at first foreground launch and when version, OS, or model changes.
+Successful unchanged reports are suppressed. Failures retry on a later launch or
+activation, with a one-minute in-process backoff. The preferences UUID identifies
+an installation, not a person or guaranteed physical Mac. `version_first_seen`
+is server receipt time, not exact install time. See the [privacy page](../site/privacy.html).
+
+The download asset is always named `Glass.zip`. Glass checks hourly and installs
+and relaunches updates on its own; installation reporting is independent of
+Sparkle's optional weekly profile. Existing clients need a new app release to
+start reporting. A local install does not publish the app or privacy page.
 
 ## First launch
 

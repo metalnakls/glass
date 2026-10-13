@@ -12,8 +12,9 @@
 </head>
 <body>
   <h1>Glass privacy</h1>
-  <p>Glass uses Sparkle to check for updates. Once per week, Sparkle sends the Glass version and macOS version with an update check. Glass uses aggregate counts of these checks to understand which versions are in use and support updates. This is a count of update-checking installations, not people or app launches.</p>
-  <p>Glass does not send a persistent device identifier. The metrics database stores only weekly counts grouped by Glass version and macOS version, without IP addresses or detailed hardware information. Cloudflare processes the network request to serve updates; its Worker invocation logs are disabled.</p>
+  <p>Glass reports its version, macOS version, Mac model identifier (such as Mac14,2), and a random installation ID on first launch and when these details change. Failed reports are retried on a later launch or activation. There is no daily heartbeat.</p>
+  <p>The installation ID is stored in local preferences; it is not a serial number or hardware identifier. The private metrics database keeps one current record per installation, including when it was first reported, when its current Glass version was first reported, and when details were last reported. These timestamps describe reports, not the exact installation time. Resetting preferences or copying them to another Mac can affect installation counts.</p>
+  <p>The collector does not store your Mac name, serial number, IP address, files, or torrent activity. Cloudflare processes network requests; Worker invocation logs are disabled. Older versions may send weekly aggregate Sparkle profiles.</p>
   <p><a href="index.html">Back to Glass</a></p>
 </body>
 </html>
