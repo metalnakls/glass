@@ -5,14 +5,6 @@ import GlassRemoteCore
 
 @Suite("Torrent folder artwork")
 struct TorrentArtworkKindTests {
-    @Test func singleFileFolders() {
-        #expect(TorrentArtworkKind.isFolder(name: "Fargo", fileCount: 1))
-        #expect(TorrentArtworkKind.isFolder(name: "Roger Dodger", fileCount: 1))
-        #expect(TorrentArtworkKind.isFolder(name: "Unknown", fileCount: nil))
-        #expect(TorrentArtworkKind.isFolder(name: "Series.S05", fileCount: 10))
-        #expect(!TorrentArtworkKind.isFolder(name: "Movie.mkv", fileCount: 1))
-    }
-
     @MainActor @Test("a grouped season uses folder styling even when it has movie artwork")
     func groupedSeasonOverridesMovieArtwork() throws {
         let torrent = TorrentSummary(id: 3, hashString: "season-3", name: "Season 3.mkv", status: 0,

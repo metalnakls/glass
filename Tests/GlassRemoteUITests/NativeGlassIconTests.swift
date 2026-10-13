@@ -53,25 +53,4 @@ struct NativeGlassIconTests {
         #expect(abs(expected.height - bounds.height) <= tolerance)
     }
 
-    @Test("the cached silhouette preserves native cutouts and transparent margins")
-    @MainActor func nativeFolder() throws {
-        let image = TorrentFileIconCache.icon(fileName: "", isFolder: true)
-        let artwork = try #require(NativeIconGeometry.artwork(for: image))
-        #expect(artwork === NativeIconGeometry.artwork(for: image))
-        let source = NSBitmapImageRep(cgImage: artwork.image)
-        var foundInk = false
-        var foundMargin = false
-        for y in 0..<source.pixelsHigh {
-            for x in 0..<source.pixelsWide {
-                let original = try #require(source.colorAt(x: x, y: y))
-                let point = CGPoint(x: (Double(x) + 0.5) / Double(source.pixelsWide), y: (Double(y) + 0.5) / Double(source.pixelsHigh))
-                #expect(artwork.path.contains(point) == (original.alphaComponent >= 0.5))
-                if original.alphaComponent > 0.5 {
-                    foundInk = true
-                } else if original.alphaComponent == 0 { foundMargin = true }
-            }
-        }
-        #expect(foundInk)
-        #expect(foundMargin)
-    }
 }

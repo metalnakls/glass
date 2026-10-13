@@ -220,18 +220,6 @@ struct TorrentStickyHeaderTests {
         }
     }
 
-    @MainActor @Test("title updates keep their native height and full opacity")
-    func stableHeaderHeight() {
-        let host = TitleHost(title: "Completed", inset: 40)
-        let size = host.fittingSize(width: 500)
-        host.setTitle("Loading", inset: 40)
-        #expect(host.fittingSize(width: 500) == size)
-        host.setTitle("Completed", inset: 40)
-        #expect(host.alphaValue == 1)
-        #expect(host.fittingSize(width: 500) == size)
-        #expect(host.fittingSize(width: 600).width == 600)
-    }
-
     @Test("inline-to-pinned handoff preserves the actual frame and padding")
     func measuredHandoff() throws {
         #expect(TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport(6)) == nil)

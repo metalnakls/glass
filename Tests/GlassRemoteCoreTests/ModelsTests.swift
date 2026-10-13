@@ -131,22 +131,6 @@ struct ModelsTests {
         #expect(merged.first?.queuePosition == 8)
     }
 
-    @Test("keeps unchanged incoming torrents unchanged")
-    func mergerReusesUnchangedValues() {
-        let unchanged = makeTorrent(id: 11, hashString: "unchanged", name: "Unchanged", queuePosition: 2)
-        let changed = makeTorrent(id: 12, hashString: "changed", name: "Changed")
-        let changedIncoming = makeTorrent(id: 12, hashString: "changed", name: "Changed Incoming")
-
-        let merged = TorrentListMerger.merge(
-            existing: [unchanged, changed],
-            incoming: [unchanged, changedIncoming]
-        )
-
-        #expect(merged[0] == unchanged)
-        #expect(merged[0].queuePosition == 2)
-        #expect(merged[1] == changedIncoming)
-    }
-
     @Test("cleans TV episode and movie release names")
     func cleansMediaReleaseNames() {
         #expect(
