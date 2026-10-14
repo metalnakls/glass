@@ -575,6 +575,15 @@ struct RemoteAppModelTests {
         #expect(model.isCompletionWatcherRunning == false)
     }
 
+    @Test("activating Glass does not clear unseen completion notifications")
+    func activationKeepsUnseenNotifications() {
+        let notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profile: makeProfile(), factory: StubRPCClientFactory(), completionNotifier: notifier)
+        model.setApplicationActive(false)
+        model.setApplicationActive(true)
+        #expect(notifier.badgeClearCount == 0)
+    }
+
     @Test("does not watch a duplicate torrent")
     func doesNotWatchDuplicateTorrent() async throws {
         let profile = makeProfile()

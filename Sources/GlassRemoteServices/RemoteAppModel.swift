@@ -611,9 +611,6 @@ public final class RemoteAppModel {
 
     public func setApplicationActive(_ isActive: Bool) {
         isApplicationActive = isActive
-        if isActive {
-            completionNotifier?.clearBadge()
-        }
     }
 
     public func updatePreferences(_ preferences: GlassRemotePreferences) {
@@ -1310,7 +1307,13 @@ public final class RemoteAppModel {
                     .fetchTorrentDetails(hashString: watch.hashString)
                 guard Self.isCompleted(details) else { continue }
                 watchedTorrents[watch] = nil
-                completionNotifier?.notifyTorrentCompleted(name: details.name.isEmpty ? fallbackName : details.name, sourceID: watch.sourceID, hashString: watch.hashString, downloadDirectory: details.downloadDir)
+                let name = details.name.isEmpty ? fallbackName : details.name
+                let stored = torrentDisplayNames[TorrentRecord.identity(sourceID: watch.sourceID, hashString: watch.hashString)]
+                completionNotifier?.notifyTorrentCompleted(name: name,
+                    displayName: stored.flatMap { $0.rootName == name ? $0.displayName : nil } ?? name,
+                    fileCount: details.files.count,
+                    filePath: details.files.first?.name.split(separator: "/").first.map(String.init), sourceID: watch.sourceID,
+                    hashString: watch.hashString, downloadDirectory: details.downloadDir)
             } catch {
                 // Keep watching through transient server and network failures.
             }

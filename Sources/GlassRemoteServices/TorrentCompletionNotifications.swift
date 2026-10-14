@@ -5,10 +5,15 @@ public protocol TorrentCompletionNotifying: AnyObject {
     func requestAuthorization()
     func notifyTorrentCompleted(name: String)
     func notifyTorrentCompleted(name: String, sourceID: UUID, hashString: String, downloadDirectory: String?)
+    func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?)
     func clearBadge()
 }
 
 public extension TorrentCompletionNotifying {
+    func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?) {
+        notifyTorrentCompleted(name: name, sourceID: sourceID, hashString: hashString, downloadDirectory: downloadDirectory)
+    }
+
     func notifyTorrentCompleted(name: String, sourceID: UUID, hashString: String, downloadDirectory: String?) {
         notifyTorrentCompleted(name: name)
     }

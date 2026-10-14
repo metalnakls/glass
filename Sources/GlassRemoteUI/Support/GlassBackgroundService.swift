@@ -367,12 +367,13 @@ private actor GlassBackgroundWorker {
                 let key = "\(profile.id.uuidString):\(torrent.hashString)"
                 seen.insert(key)
                 if notify, let previous = observed[key], previous < 1, torrent.percentDone >= 1 {
-                    let content = UNMutableNotificationContent()
-                    content.title = await MainActor.run { glassText("Download complete") }
-                    content.body = torrent.name
-                    content.sound = .default
-                    content.userInfo = ["sourceID": profile.id.uuidString, "hashString": torrent.hashString, "name": torrent.name, "directory": torrent.downloadDir ?? ""]
-                    try? await UNUserNotificationCenter.current().add(.init(identifier: "completed-\(key)", content: content, trigger: nil))
+                    let details = try? await rpc.fetchTorrentDetails(hashString: torrent.hashString)
+                    let stored = (try? store.loadTorrentDisplayNames())?["\(profile.id.uuidString):\(torrent.hashString)"]
+                    await GlassCompletionNotificationCenter.shared.notifyTorrentCompleted(name: torrent.name,
+                        displayName: stored.flatMap { $0.rootName == torrent.name ? $0.displayName : nil } ?? torrent.name,
+                        fileCount: torrent.fileCount,
+                        filePath: details?.files.first?.name.split(separator: "/").first.map(String.init), sourceID: profile.id, hashString: torrent.hashString,
+                        downloadDirectory: torrent.downloadDir)
                 }
                 observed[key] = torrent.percentDone
             }

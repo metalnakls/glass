@@ -444,8 +444,15 @@ struct TorrentListView: View {
             commitRename: commitRename,
             remove: remove,
             toggleTransfers: { await toggleTransfers(for: row) }
-        )
+        ).modifier(CompletionVisibility(keys: completionKeys(for: row)))
 
+    }
+
+    private func completionKeys(for row: TorrentListRowPresentation) -> Set<String> {
+        switch row.kind {
+        case let .torrent(record, _): return ["\(record.sourceID.uuidString):\(record.hashString)"]
+        case let .group(records, _, _): return Set(records.map { "\($0.sourceID.uuidString):\($0.hashString)" })
+        }
     }
 
     private func performFileAction(for row: TorrentListRowPresentation, action: TorrentFileActions.Action) {
