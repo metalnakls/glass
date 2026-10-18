@@ -67,11 +67,12 @@ struct TorrentFilesBrowser: View {
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
-                    Toggle(glassText("Download all files"), isOn: Binding(
+                    Toggle(isOn: Binding(
                         get: { !entries.isEmpty && entries.allSatisfy(wanted) },
                         set: { value in setAllWanted(value) }
-                    ))
+                    )) { EmptyView() }
                     .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
+                    .accessibilityLabel(glassText("Download all files"))
                     TextField(glassText("Search Files"), text: $searchText)
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
@@ -87,12 +88,14 @@ struct TorrentFilesBrowser: View {
                 ForEach(rows) { row in
                     let completed = !row.indices.isEmpty && row.indices.allSatisfy { byIndex[$0]?.isComplete == true }
                     HStack(spacing: layout.columnGap) {
-                        Toggle("Download \(row.name)", isOn: Binding(
+                        Toggle(isOn: Binding(
                             get: { (isCompact && completed) || row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
                             set: { value in for index in row.indices { setWanted(index, value) } }
-                        )).labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
+                        )) { EmptyView() }
+                        .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
                         .frame(width: layout.leadingIconWidth)
                         .disabled(isCompact && completed)
+                        .accessibilityLabel(glassText("Download \(displayName(row, hiding: hiddenExtension))"))
                         HStack(spacing: 0) {
                             if row.isFolder {
                                 Button {
