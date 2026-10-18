@@ -499,6 +499,9 @@ public final class RemoteAppModel {
         let sourceIDs = [localSourceID] + profiles.map(\.id)
         sources.removeAll { !sourceIDs.contains($0.id) }
         for id in sourceIDs { _ = sourceState(for: id) }
+        // The last successful list is visible before the first refresh returns,
+        // including when the saved server is currently offline.
+        for id in sourceIDs { prepareVisibleTorrentsForRefresh(of: id) }
     }
 
     public func refresh() async {
@@ -611,6 +614,10 @@ public final class RemoteAppModel {
 
     public func setApplicationActive(_ isActive: Bool) {
         isApplicationActive = isActive
+        if !isActive, torrentCachePersistenceTask != nil {
+            // A short session must not lose the list it just refreshed.
+            persistTorrentCache()
+        }
     }
 
     public func updatePreferences(_ preferences: GlassRemotePreferences) {
