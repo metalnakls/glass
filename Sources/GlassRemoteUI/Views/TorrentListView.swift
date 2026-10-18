@@ -15,12 +15,15 @@ struct TorrentListView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     let records: [TorrentRecord]
+    let drafts: [TorrentAddDraft]
     let structureRevision: Int
     let pendingRenameNames: [String: String]
     let pendingRenameOldNames: [String: String]
     @Binding var selection: String?
     let presentation: TorrentListPresentationModel
     let revealSelectionToken: UUID
+    var resumeDraft: (TorrentAddDraft) -> Void = { _ in }
+    var discardDraft: (TorrentAddDraft) -> Void = { _ in }
     var commitRename: (TorrentSummary, UUID, String) -> Void = { _, _, _ in }
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
@@ -143,6 +146,19 @@ struct TorrentListView: View {
                         ForEach(sections) { section in
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
+                                    ForEach(section.drafts) { draft in
+                                        TorrentDraftRow(
+                                            model: model,
+                                            draft: draft,
+                                            grid: true,
+                                            rowHeight: 164,
+                                            leadingPadding: 0,
+                                            trailingPadding: 0,
+                                            columns: columns,
+                                            resume: { resumeDraft(draft) },
+                                            discard: { discardDraft(draft) }
+                                        )
+                                    }
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
                                             .moveDisabled(rowIsAdding(row) || !rowUsesManualOrder(row))
@@ -190,6 +206,22 @@ struct TorrentListView: View {
                             }
                             .modifier(TorrentInlineHeaderSpacing(isFirst: (headerPositions[section.id] ?? 0) == 0,
                                 beforeFirst: initialPadding, betweenSections: sectionSpacing, belowHeader: headerBottomPadding))
+                    case let .draft(draft):
+                        TorrentDraftRow(
+                            model: model,
+                            draft: draft,
+                            rowHeight: listRowHeight,
+                            leadingPadding: leftPadding + TorrentRowColumns.horizontalInset,
+                            trailingPadding: rightPadding + TorrentRowColumns.horizontalInset,
+                            columns: columns,
+                            resume: { resumeDraft(draft) },
+                            discard: { discardDraft(draft) }
+                        )
+                        .listRowBackground(Color.clear)
+                        .focusEffectDisabled()
+                        .accessibilityElement(children: .contain)
+                        .selectionDisabled(true)
+                        .moveDisabled(true)
                     case let .torrent(row):
                         liveRow(for: row)
                             .listRowBackground(Color.clear)
@@ -201,8 +233,8 @@ struct TorrentListView: View {
                     }
                     }
                     }
-                    .tag(entry.id)
-                    .selectionDisabled({ if case .header = entry { return true }; return false }())
+                    .tag(entry.selectionTag)
+                    .selectionDisabled({ if case .header = entry { return true }; if case .draft = entry { return true }; return false }())
                     .moveDisabled({
                         if case let .torrent(row) = entry { return rowIsAdding(row) }
                         return true
@@ -278,6 +310,7 @@ struct TorrentListView: View {
             Text(failure.message)
         }
         .onAppear {
+            presentation.setDrafts(drafts, animated: false, reduceMotion: accessibilityReduceMotion)
             elevationController.setRows(layout.nativeRowIDs)
             stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16)
             elevationController.observeTable { table in
@@ -290,6 +323,11 @@ struct TorrentListView: View {
             TorrentArtworkPrefetchObserver(entries: entries, localSourceID: model.localSourceID, preloader: artworkPreloader)
         }
         .onChange(of: lowercaseTitles) { _, _ in stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16) }
+        .onChange(of: drafts) { _, drafts in
+            presentation.setDrafts(drafts, animated: true, reduceMotion: accessibilityReduceMotion)
+            elevationController.setRows(presentation.layout.nativeRowIDs)
+            stickyHeaders.configure(presentation.layout, lowercase: lowercaseTitles, inset: leftPadding + 16)
+        }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
         .onChange(of: entries.map(\.id)) { _, _ in
@@ -373,7 +411,7 @@ struct TorrentListView: View {
             return .handled
         }
         .overlay {
-            if records.isEmpty {
+            if records.isEmpty, drafts.isEmpty {
                 emptyState
             }
         }

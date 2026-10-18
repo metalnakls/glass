@@ -13,7 +13,7 @@ struct TorrentImportQueueTests {
         var delivered: [String] = []
         let first = URL(fileURLWithPath: "/tmp/first.torrent")
         let second = URL(fileURLWithPath: "/tmp/second.torrent")
-        let update: @MainActor ([TorrentFileAddDraft], Bool) -> Void = { drafts, _ in
+        let update: @MainActor ([TorrentFileAddDraft], [URL], Bool) -> Void = { drafts, _, _ in
             delivered = drafts.compactMap { $0.sourceURL?.lastPathComponent }
         }
         queue.enqueue([first], load: loader.load, update: update)
@@ -33,7 +33,9 @@ struct TorrentImportQueueTests {
         let queue = TorrentImportQueue()
         let loader = SuspendedLoader()
         var deliveries = 0
-        queue.enqueue([URL(fileURLWithPath: "/tmp/canceled.torrent")], load: loader.load) { _, _ in deliveries += 1 }
+        queue.enqueue([URL(fileURLWithPath: "/tmp/canceled.torrent")], load: loader.load) { _, _, finished in
+            if finished { deliveries += 1 }
+        }
         await loader.waitForRequest()
         queue.cancel()
         loader.resume()

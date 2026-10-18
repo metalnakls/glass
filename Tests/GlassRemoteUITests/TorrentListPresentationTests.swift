@@ -78,6 +78,29 @@ struct TorrentListPresentationTests {
         #expect(TorrentListLayout(rows: sortRows).sections.first { $0.id == "finished" }?.rows.map(\.id) == [earlier.id, latest.id])
     }
 
+    @Test("draft rows share the native identity space without moving real rows")
+    func draftRowsKeepLayoutAligned() throws {
+        let source = UUID()
+        let complete = filterRecord(source, season: 1, complete: true)
+        let rows = TorrentListRowPresentation.rows(records: [complete], pendingRenameNames: [:], expandedGroupIDs: [])
+        let draft = TorrentAddDraft(id: UUID(), magnet: "magnet:?xt=urn:btih:draft")
+        let layout = TorrentListLayout(rows: rows, drafts: [draft])
+
+        #expect(layout.sections.map(\.id) == ["unfinished", "finished"])
+        #expect(layout.sections.first?.drafts.map(\.id) == [draft.id])
+        #expect(layout.sections.first?.allowsStickyHeader == false)
+        #expect(layout.rows.map(\.id) == [complete.id])
+        #expect(layout.nativeRowIDs == [nil, "draft:\(draft.id.uuidString)", nil, complete.id])
+        #expect(layout.headerIndices == ["unfinished": 0, "finished": 2])
+        #expect(layout.rowIndices["draft:\(draft.id.uuidString)"] == 1)
+        #expect(layout.rowIndices[complete.id] == 3)
+        let entries = layout.entries(lowercase: false)
+        #expect(entries.count == layout.nativeRowIDs.count)
+        #expect(entries[1].selectionTag == nil)
+        #expect(entries[3].selectionTag == complete.id)
+        #expect(layout.showsSeparator(after: complete.id, selection: nil) == false)
+    }
+
     @Test("server queue telemetry cannot reorder the visible library")
     func queueTelemetryKeepsOrder() throws {
         let source = UUID()

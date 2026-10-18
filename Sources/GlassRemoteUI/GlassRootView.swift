@@ -30,6 +30,7 @@ public struct GlassRootView: View {
     @State private var torrentRevealToken = UUID()
     @State private var isFileImporterPresented = false
     @State private var activeSheet: ActiveSheet?
+    @State private var addDrafts = TorrentAddDraftStore()
     @State private var torrentImports = TorrentImportQueue()
     @State private var pendingProfileDeletion: RemoteProfile?
     @State private var pendingRenames: [PendingRemovalKey: PendingTorrentRename] = [:]
@@ -71,6 +72,9 @@ public struct GlassRootView: View {
                 committingRemovalKeys: committingRemovalKeys,
                 pendingRemovalResetToken: pendingRemovalResetToken,
                 pendingRemovalDuration: pendingRemovalDuration,
+                drafts: addDrafts.mostRecentFirst,
+                resumeDraft: restoreDraft,
+                discardDraft: { addDrafts.discard($0.id) },
                 commitRename: { torrent, sourceID, name in submitRename(torrent, sourceID: sourceID, newName: name) },
                 remove: scheduleRemoval,
                 removeSelected: removeSelectedTorrent,
@@ -124,7 +128,7 @@ public struct GlassRootView: View {
             }
             if !urls.isEmpty { openURLs(urls); return true }
             if let magnet = items.compactMap(\.text).compactMap({ normalizedMagnetLink(from: $0) }).first {
-                activeSheet = .addMagnet(magnet)
+                presentMagnet(magnet)
                 return true
             }
             return false
@@ -133,7 +137,7 @@ public struct GlassRootView: View {
             Task {
                 for provider in providers {
                     if let magnet = await MagnetPaste.load(from: provider) {
-                        activeSheet = .addMagnet(magnet)
+                        presentMagnet(magnet)
                         break
                     }
                 }
@@ -159,18 +163,24 @@ public struct GlassRootView: View {
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .background(MainWindowChrome(widthChanged: updateInspectorWidth))
         .ignoresSafeArea(.container, edges: .top)
-        .sheet(item: $activeSheet, onDismiss: { torrentImports.cancel() }) { sheet in
+        .sheet(item: $activeSheet, onDismiss: {
+            torrentImports.cancel()
+            addDrafts.flush()
+        }) { sheet in
             NavigationStack {
                 switch sheet {
                 case .newProfile:
                     ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: nil)
                 case let .editProfile(profile):
                     ProfileEditorView(model: model, platformIntegration: platformIntegration, profile: profile)
-                case let .addMagnet(magnet):
+                case let .addMagnet(magnet, draftID, restore):
                     AddMagnetView(model: model, platformIntegration: platformIntegration, magnet: magnet,
+                        draftID: draftID, restore: restore,
+                        capture: { addDrafts.capture($0) },
+                        discardDraft: { addDrafts.discard(draftID) },
                         submit: submitTorrentFile, didFinishAdding: showAddedTorrent)
                 case .loadingTorrentFiles, .addTorrentFiles:
-                    torrentImportContent
+                    torrentImportContent(sheet)
                 }
             }
             .toolbarVisibility(sheet.isTorrentImport ? .hidden : .visible, for: .windowToolbar)
@@ -254,15 +264,20 @@ public struct GlassRootView: View {
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
     }
 
-    @ViewBuilder private var torrentImportContent: some View {
-        switch activeSheet {
+    @ViewBuilder private func torrentImportContent(_ sheet: ActiveSheet) -> some View {
+        switch sheet {
         case .loadingTorrentFiles:
             DelayedTorrentLoadingView()
-        case let .addTorrentFiles(drafts):
+        case let .addTorrentFiles(session):
                     AddTorrentBatchView(
                         model: model,
                         platformIntegration: platformIntegration,
-                        drafts: drafts,
+                        drafts: session.drafts,
+                        pendingURLs: session.pendingURLs,
+                        restore: session.restore,
+                        draftID: session.id,
+                        capture: { addDrafts.capture($0) },
+                        discardDraft: { addDrafts.discard(session.id) },
                         submit: { draft, sourceID, name, downloadDirectory, fileSelection, namingPlan in
                             await submitTorrentFile(
                                 draft,
@@ -294,10 +309,10 @@ public struct GlassRootView: View {
         GlassCommandActions(
             addServer: { activeSheet = .newProfile },
             addMagnet: {
-                activeSheet = .addMagnet(NSPasteboard.general.string(forType: .string).flatMap(normalizedMagnetLink(from:)) ?? "")
+                presentMagnet(NSPasteboard.general.string(forType: .string).flatMap(normalizedMagnetLink(from:)) ?? "")
             },
             addTorrentFile: { isFileImporterPresented = true },
-            openMagnet: { activeSheet = .addMagnet($0) },
+            openMagnet: { presentMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
             canRemoveSelectedTorrent: (selectedRecord != nil || presentation.rows.contains { $0.id == selectedTorrentID && !$0.isTorrent }) && activeSheet == nil && activeAlert == nil,
@@ -380,7 +395,7 @@ public struct GlassRootView: View {
         var torrentFileURLs: [URL] = []
         for url in urls {
             if let magnet = magnetLink(from: url) {
-                activeSheet = .addMagnet(magnet)
+                presentMagnet(magnet)
                 continue
             }
             guard url.pathExtension.lowercased() == "torrent" else { continue }
@@ -388,15 +403,69 @@ public struct GlassRootView: View {
         }
 
         guard !torrentFileURLs.isEmpty else { return }
-        if activeSheet?.isTorrentImport != true {
+        let session: TorrentAddSession
+        if let open = activeSheet?.importSession {
+            session = open
+        } else {
             torrentImports.cancel()
-            activeSheet = .loadingTorrentFiles(UUID())
+            session = TorrentAddSession(id: UUID(), drafts: [], pendingURLs: [], restore: nil)
+            activeSheet = .loadingTorrentFiles(session.id)
         }
-        torrentImports.enqueue(torrentFileURLs, load: prepareTorrentFile) { drafts, finished in
+        loadTorrentFiles(torrentFileURLs, session: session)
+    }
+
+    private func presentMagnet(_ magnet: String) {
+        activeSheet = .addMagnet(magnet, draftID: UUID(), restore: nil)
+    }
+
+    /// Drafts are offered only when an Add modal went away without Cancel.
+    private func restoreDraft(_ draft: TorrentAddDraft) {
+        let items = draft.items.compactMap { TorrentFileAddDraft(restoring: $0) }
+        let session = TorrentAddSession(id: draft.id, drafts: items, pendingURLs: draft.pendingURLs, restore: draft)
+        if items.isEmpty, draft.pendingURLs.isEmpty, let magnet = draft.magnet {
+            activeSheet = .addMagnet(magnet, draftID: draft.id, restore: draft)
+            return
+        }
+        torrentImports.cancel()
+        torrentImports.seed(items)
+        activeSheet = items.isEmpty ? .loadingTorrentFiles(draft.id) : .addTorrentFiles(session)
+        if !draft.pendingURLs.isEmpty {
+            loadTorrentFiles(draft.pendingURLs, session: session)
+        }
+    }
+
+    private func loadTorrentFiles(_ urls: [URL], session: TorrentAddSession) {
+        torrentImports.enqueue(urls, load: prepareTorrentFile) { drafts, pendingURLs, finished in
             guard activeSheet?.isTorrentImport == true else { return }
-            if !drafts.isEmpty { activeSheet = .addTorrentFiles(drafts) }
-            else if finished { activeSheet = nil }
+            guard !drafts.isEmpty else {
+                if finished {
+                    activeSheet = nil
+                    addDrafts.discard(session.id)
+                }
+                return
+            }
+            let updated = TorrentAddSession(
+                id: session.id, drafts: drafts, pendingURLs: pendingURLs, restore: session.restore
+            )
+            activeSheet = .addTorrentFiles(updated)
+            if addDrafts.draft(id: session.id) == nil {
+                // The card's own autosave refines this record; guarantee it
+                // exists before the card can appear.
+                addDrafts.capture(intakeRecord(for: updated))
+            }
         }
+    }
+
+    private func intakeRecord(for session: TorrentAddSession) -> TorrentAddDraft {
+        TorrentAddDraft(
+            id: session.id,
+            sourceID: session.restore?.sourceID ?? model.selectedSourceID,
+            downloadDirectory: session.restore?.downloadDirectory,
+            pendingURLs: session.pendingURLs,
+            items: session.drafts.map {
+                TorrentAddDraftItem(id: $0.id, data: $0.data, sourceURL: $0.sourceURL, name: $0.preview.name)
+            }
+        )
     }
 
     private func prepareTorrentFile(at url: URL) async -> TorrentFileAddDraft? {
@@ -602,6 +671,9 @@ private struct TorrentWorkspaceView: View {
     let committingRemovalKeys: Set<PendingRemovalKey>
     let pendingRemovalResetToken: UUID
     let pendingRemovalDuration: TimeInterval
+    let drafts: [TorrentAddDraft]
+    let resumeDraft: (TorrentAddDraft) -> Void
+    let discardDraft: (TorrentAddDraft) -> Void
     let commitRename: (TorrentSummary, UUID, String) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
@@ -618,6 +690,9 @@ private struct TorrentWorkspaceView: View {
             pendingRenames: pendingRenames,
             pendingRemovals: pendingRemovals,
             committingRemovalKeys: committingRemovalKeys,
+            drafts: drafts,
+            resumeDraft: resumeDraft,
+            discardDraft: discardDraft,
             commitRename: commitRename,
             remove: remove,
             removeSelected: removeSelected
@@ -653,6 +728,9 @@ private struct TorrentListContent: View {
     let pendingRenames: [PendingRemovalKey: PendingTorrentRename]
     let pendingRemovals: [PendingTorrentRemoval]
     let committingRemovalKeys: Set<PendingRemovalKey>
+    let drafts: [TorrentAddDraft]
+    let resumeDraft: (TorrentAddDraft) -> Void
+    let discardDraft: (TorrentAddDraft) -> Void
     let commitRename: (TorrentSummary, UUID, String) -> Void
     let remove: (TorrentSummary, UUID, Bool) -> Void
     let removeSelected: (Bool) -> Void
@@ -662,12 +740,15 @@ private struct TorrentListContent: View {
             model: model,
             platformIntegration: platformIntegration,
             records: visibleRecords,
+            drafts: drafts,
             structureRevision: model.libraryStructureRevision,
             pendingRenameNames: pendingRenameNames,
             pendingRenameOldNames: pendingRenameOldNames,
             selection: $selection,
             presentation: presentation,
             revealSelectionToken: torrentRevealToken,
+            resumeDraft: resumeDraft,
+            discardDraft: discardDraft,
             commitRename: commitRename,
             remove: remove,
             removeSelected: removeSelected
@@ -724,14 +805,27 @@ private struct TorrentSelectionInspector: View {
 private enum ActiveSheet: Identifiable {
     case newProfile
     case editProfile(RemoteProfile)
-    case addMagnet(String)
+    case addMagnet(String, draftID: UUID, restore: TorrentAddDraft?)
     case loadingTorrentFiles(UUID)
-    case addTorrentFiles([TorrentFileAddDraft])
+    case addTorrentFiles(TorrentAddSession)
 
     var isTorrentImport: Bool {
         switch self {
         case .addMagnet, .loadingTorrentFiles, .addTorrentFiles: true
         default: false
+        }
+    }
+
+    /// A Finder delivery joins the batch that is already on screen instead of
+    /// replacing it. A loading placeholder can continue the same session.
+    var importSession: TorrentAddSession? {
+        switch self {
+        case let .addTorrentFiles(session):
+            return session
+        case let .loadingTorrentFiles(id):
+            return TorrentAddSession(id: id, drafts: [], pendingURLs: [], restore: nil)
+        default:
+            return nil
         }
     }
 
@@ -741,8 +835,8 @@ private enum ActiveSheet: Identifiable {
             return "new-profile"
         case let .editProfile(profile):
             return "edit-profile-\(profile.id.uuidString)"
-        case let .addMagnet(magnet):
-            return "add-magnet-\(magnet)"
+        case let .addMagnet(_, draftID, _):
+            return "add-magnet-\(draftID.uuidString)"
         case .loadingTorrentFiles, .addTorrentFiles:
             return "add-torrent-files"
         }

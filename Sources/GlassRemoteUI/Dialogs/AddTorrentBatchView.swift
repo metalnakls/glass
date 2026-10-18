@@ -9,6 +9,11 @@ struct AddTorrentBatchView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     let drafts: [TorrentFileAddDraft]
+    let pendingURLs: [URL]
+    let restore: TorrentAddDraft?
+    let draftID: UUID
+    let capture: @MainActor (TorrentAddDraft) -> Void
+    let discardDraft: @MainActor () -> Void
     let submit: @MainActor (
         TorrentFileAddDraft,
         UUID,
@@ -42,13 +47,21 @@ struct AddTorrentBatchView: View {
     @State private var isAdding = false
     @State private var addErrorMessage: String?
     @State private var lastAddedTorrentHash: String?
+    /// Cancel deletes the draft; this stops the disappear capture from recreating it.
+    @State private var isCancelled = false
+    @State private var restoredEditsApplied = false
 
     init(
         model: RemoteAppModel,
         platformIntegration: any GlassPlatformIntegrating,
         drafts: [TorrentFileAddDraft],
+        pendingURLs: [URL] = [],
+        restore: TorrentAddDraft? = nil,
+        draftID: UUID = UUID(),
         initialSourceID: UUID? = nil,
         initialDirectory: String? = nil,
+        capture: @escaping @MainActor (TorrentAddDraft) -> Void,
+        discardDraft: @escaping @MainActor () -> Void,
         submit: @escaping @MainActor (
             TorrentFileAddDraft,
             UUID,
@@ -62,10 +75,21 @@ struct AddTorrentBatchView: View {
         self.model = model
         self.platformIntegration = platformIntegration
         self.drafts = drafts
+        self.pendingURLs = pendingURLs
+        self.restore = restore
+        self.draftID = draftID
+        self.capture = capture
+        self.discardDraft = discardDraft
         self.submit = submit
         self.didFinishAdding = didFinishAdding
 
-        let items = drafts.map { TorrentBatchItemState(draft: $0, defersNaming: true) }
+        let items = drafts.map { draft -> TorrentBatchItemState in
+            let item = TorrentBatchItemState(draft: draft, defersNaming: true)
+            if let restored = restore?.items.first(where: { $0.id == draft.id }) {
+                item.apply(restored)
+            }
+            return item
+        }
         let groups = drafts.indices.map {
             TorrentBatchGroup(displayName: drafts[$0].preview.name, itemIndices: [$0])
         }
@@ -78,8 +102,9 @@ struct AddTorrentBatchView: View {
         _smartNamesByGroupID = State(initialValue: Dictionary(
             uniqueKeysWithValues: groups.map { ($0.id, true) }
         ))
-        _sourceID = State(initialValue: initialSourceID ?? model.selectedSourceID)
-        _downloadDirectory = State(initialValue: initialDirectory)
+        _sourceID = State(initialValue: TorrentAddDraftRestore.sourceID(restore?.sourceID, in: model)
+            ?? initialSourceID ?? model.selectedSourceID)
+        _downloadDirectory = State(initialValue: restore?.downloadDirectory ?? initialDirectory)
     }
 
     var body: some View {
@@ -100,7 +125,8 @@ struct AddTorrentBatchView: View {
                     TorrentBatchGroupEditor(group: group, items: items,
                         groupName: groupNameBinding(for: group),
                         smartNamesEnabled: Binding(get: { !optionHeld && (smartNamesByGroupID[group.id] ?? true) },
-                            set: { smartNamesByGroupID[group.id] = $0 }),
+                            set: { smartNamesByGroupID[group.id] = $0; captureDraft() }),
+                        onFilesChanged: { captureDraft() },
                         isAdding: isAdding, fileSearchText: $fileSearchText)
                 } header: { header(for: group) } dock: { addDock }
                     .padding(.trailing, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
@@ -122,20 +148,66 @@ struct AddTorrentBatchView: View {
         }
         .background(ModifierKeyObserver { optionHeld = $0 })
         .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
-        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { dismissImport() } }
+        .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { cancelImport() } }
         .task(id: drafts.map(\.id)) {
             let known = Set(items.map { $0.draft.id })
             items.append(contentsOf: drafts.filter { !known.contains($0.id) }.map {
                 TorrentBatchItemState(draft: $0, defersNaming: true)
             })
             await prepareNames()
+            captureDraft()
         }
+        .onAppear { captureDraft() }
+        .onDisappear { captureDraft() }
+        .onChange(of: pendingURLs) { captureDraft() }
+        .onChange(of: sourceID) { captureDraft() }
+        .onChange(of: downloadDirectory) { captureDraft() }
+        .onChange(of: selectedGroupID) { captureDraft() }
         .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
+    }
+
+    /// Autosaves the whole card: intake, names, choices and destination. The
+    /// record outlives the modal until the user cancels or every item is added.
+    private func captureDraft() {
+        guard !isCancelled, restore == nil || restoredEditsApplied, namingReady || !items.isEmpty else { return }
+        let records = items.enumerated().compactMap { index, item -> TorrentAddDraftItem? in
+            guard !item.wasAdded, !consumedDraftIDs.contains(item.draft.id) else { return nil }
+            let group = groups.first { $0.itemIndices.contains(index) }
+            return TorrentAddDraftItem(
+                id: item.draft.id,
+                data: item.draft.data,
+                sourceURL: item.draft.sourceURL,
+                name: item.name,
+                selectedFileIndices: item.selectedFileIndices.count == item.draft.preview.files.count
+                    ? nil : item.selectedFileIndices.sorted(),
+                filePriorities: item.filePriorities.isEmpty ? nil : item.filePriorities,
+                groupName: group.flatMap { groupNamesByID[$0.id] },
+                smartNamesEnabled: group.flatMap { smartNamesByGroupID[$0.id] }
+            )
+        }
+        let record = TorrentAddDraft(
+            id: draftID,
+            sourceID: sourceID,
+            downloadDirectory: downloadDirectory,
+            magnet: nil,
+            pendingURLs: pendingURLs,
+            frontItemID: items.enumerated().first { index, _ in
+                groups.first { $0.itemIndices.contains(index) }?.id == selectedGroupID
+            }?.element.draft.id,
+            items: records
+        )
+        if record.isEmpty { discardDraft() } else { capture(record) }
+    }
+
+    private func cancelImport() {
+        isCancelled = true
+        discardDraft()
+        dismiss()
     }
 
     private var addDock: some View {
         HStack {
-            GlassPillButton(iconOnly: true) { dismissImport() } label: {
+            GlassPillButton(iconOnly: true) { cancelImport() } label: {
                 Image(systemName: "xmark")
             }.disabled(isAdding)
                 .accessibilityLabel(glassText("Cancel"))
@@ -194,10 +266,6 @@ struct AddTorrentBatchView: View {
         group.itemIndices.reduce(0) { $0 + items[$1].draft.preview.files.count } > 1
     }
 
-    private func dismissImport() {
-        dismiss()
-    }
-
     private func addTitleIcon(_ group: TorrentBatchGroup) -> some View {
         let files = group.itemIndices.flatMap { items[$0].draft.preview.files }
         let folder = group.isSeasonGroup || files.count > 1
@@ -248,7 +316,27 @@ struct AddTorrentBatchView: View {
                     }
                 }
             }
+            applyRestoredEdits()
             namingReady = true
+        }
+    }
+
+    /// Group edits and the front card are reattached after naming preparation has
+    /// rebuilt the groups; later runs keep whatever the user edited since.
+    private func applyRestoredEdits() {
+        guard !restoredEditsApplied, let restore else { return }
+        restoredEditsApplied = true
+        let restoredByID = Dictionary(restore.items.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        for index in items.indices {
+            guard let restored = restoredByID[items[index].draft.id],
+                  let group = groups.first(where: { $0.itemIndices.contains(index) }) else { continue }
+            if let name = restored.groupName { groupNamesByID[group.id] = name }
+            if let smart = restored.smartNamesEnabled { smartNamesByGroupID[group.id] = smart }
+        }
+        if let frontItemID = restore.frontItemID,
+           let index = items.firstIndex(where: { $0.draft.id == frontItemID }),
+           let group = groups.first(where: { $0.itemIndices.contains(index) }) {
+            selectedGroupID = group.id
         }
     }
 
@@ -258,7 +346,10 @@ struct AddTorrentBatchView: View {
         }
         if group.isSeasonGroup { return groupNameBinding(for: group) }
         guard let index = group.itemIndices.first else { return .constant("") }
-        return Binding(get: { items[index].presentedName(holdingOption: false, showExtensions: showExtensions) }, set: { items[index].editPresentedName($0, showExtensions: showExtensions) })
+        return Binding(
+            get: { items[index].presentedName(holdingOption: false, showExtensions: showExtensions) },
+            set: { items[index].editPresentedName($0, showExtensions: showExtensions); captureDraft() }
+        )
     }
 
     /// A known insufficient destination defaults to paused; Command reverses
@@ -319,7 +410,7 @@ struct AddTorrentBatchView: View {
         model.selectedTorrentGroup = .all
         consumedDraftIDs.formUnion(jobs.map { $0.0.draft.id })
         let remaining = groups.filter { $0.id != selectedGroupID }
-        if remaining.isEmpty { dismissImport() }
+        if remaining.isEmpty { dismiss() }
         else {
             withAnimation(reduceMotion ? nil : .smooth) { groups = remaining; selectedGroupID = remaining[0].id }
         }
@@ -339,6 +430,7 @@ struct AddTorrentBatchView: View {
         }
         if let addedHash { didFinishAdding(destinationSource, addedHash) }
         if !failures.isEmpty { model.errorMessage = failures.joined(separator: "\n") }
+        captureDraft()
     }
 
     private var resolvedBaseDownloadDirectory: String? {
@@ -398,7 +490,7 @@ struct AddTorrentBatchView: View {
     private func groupNameBinding(for group: TorrentBatchGroup) -> Binding<String> {
         Binding(
             get: { groupNamesByID[group.id] ?? group.displayName },
-            set: { groupNamesByID[group.id] = $0 }
+            set: { groupNamesByID[group.id] = $0; captureDraft() }
         )
     }
 
@@ -420,6 +512,7 @@ private struct TorrentBatchGroupEditor: View {
     let items: [TorrentBatchItemState]
     @Binding var groupName: String
     @Binding var smartNamesEnabled: Bool
+    let onFilesChanged: () -> Void
     let isAdding: Bool
     @Binding var fileSearchText: String
 
@@ -434,10 +527,12 @@ private struct TorrentBatchGroupEditor: View {
                     onSetWanted: { index, wanted in
                         guard files.indices.contains(index), !files[index].item.wasAdded else { return }
                         files[index].item.setFileWanted(files[index].localIndex, wanted)
+                        onFilesChanged()
                     },
                     onSetPriority: { index, priority in
                         guard files.indices.contains(index), !files[index].item.wasAdded else { return }
                         files[index].item.filePriorities[files[index].localIndex] = priority
+                        onFilesChanged()
                     },
                     onSetAllWanted: { setAllFilesWanted($0) },
                     showsControls: false, isCompact: true, showsCompletion: false, scrolls: true,
@@ -499,6 +594,7 @@ private struct TorrentBatchGroupEditor: View {
         for index in group.itemIndices where !items[index].wasAdded {
             items[index].setAllFilesWanted(wanted)
         }
+        onFilesChanged()
     }
 }
 
@@ -529,6 +625,17 @@ final class TorrentBatchItemState {
         self.cachedSuggestion = suggestion
         self.name = suggestion?.suggestedName ?? draft.preview.name
         self.selectedFileIndices = selected
+    }
+
+    func apply(_ restored: TorrentAddDraftItem) {
+        if !restored.name.isEmpty { name = restored.name }
+        if let selected = restored.selectedFileIndices {
+            let valid = Set(selected.filter { draft.preview.files.indices.contains($0) })
+            selectedFileIndices = valid
+        }
+        if let priorities = restored.filePriorities {
+            filePriorities = priorities.filter { draft.preview.files.indices.contains($0.key) }
+        }
     }
 
     func presentedName(holdingOption: Bool, showExtensions: Bool = false) -> String {

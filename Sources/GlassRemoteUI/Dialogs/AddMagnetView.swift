@@ -9,6 +9,10 @@ struct AddMagnetView: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @State var magnet: String
+    let draftID: UUID
+    let restore: TorrentAddDraft?
+    let capture: @MainActor (TorrentAddDraft) -> Void
+    let discardDraft: @MainActor () -> Void
     let submit: @MainActor (TorrentFileAddDraft, UUID, String, String?, TorrentAddFileSelection, TorrentAddNamingPlan?) async -> TorrentFileAddSubmissionResult
     let didFinishAdding: @MainActor (UUID, String?) -> Void
     @Environment(\.dismiss) private var dismiss
@@ -18,6 +22,31 @@ struct AddMagnetView: View {
     @State private var defaultDownloadDirectory: String?
     @State private var errorMessage: String?
     @State private var requestRevision = 0
+    @State private var isCancelled = false
+
+    init(
+        model: RemoteAppModel,
+        platformIntegration: any GlassPlatformIntegrating,
+        magnet: String,
+        draftID: UUID,
+        restore: TorrentAddDraft?,
+        capture: @escaping @MainActor (TorrentAddDraft) -> Void,
+        discardDraft: @escaping @MainActor () -> Void,
+        submit: @escaping @MainActor (TorrentFileAddDraft, UUID, String, String?, TorrentAddFileSelection, TorrentAddNamingPlan?) async -> TorrentFileAddSubmissionResult,
+        didFinishAdding: @escaping @MainActor (UUID, String?) -> Void
+    ) {
+        self.model = model
+        self.platformIntegration = platformIntegration
+        _magnet = State(initialValue: magnet)
+        self.draftID = draftID
+        self.restore = restore
+        self.capture = capture
+        self.discardDraft = discardDraft
+        self.submit = submit
+        self.didFinishAdding = didFinishAdding
+        _selectedDestinationID = State(initialValue: TorrentAddDraftRestore.sourceID(restore?.sourceID, in: model))
+        _downloadDirectory = State(initialValue: restore?.downloadDirectory)
+    }
 
     private var destinationID: UUID { selectedDestinationID ?? model.selectedSourceID }
     private var destination: Binding<UUID> {
@@ -32,8 +61,10 @@ struct AddMagnetView: View {
         Group {
             if let draft {
                 AddTorrentBatchView(model: model, platformIntegration: platformIntegration,
-                    drafts: [draft], initialSourceID: destinationID,
+                    drafts: [draft], restore: nil, draftID: draftID,
+                    initialSourceID: destinationID,
                     initialDirectory: downloadDirectory ?? defaultDownloadDirectory,
+                    capture: capture, discardDraft: discardDraft,
                     submit: submit, didFinishAdding: didFinishAdding)
             } else {
                 GlassAddCard {
@@ -65,7 +96,7 @@ struct AddMagnetView: View {
                     }
                 } dock: {
                     HStack {
-                        GlassPillButton(iconOnly: true) { dismiss() } label: { Image(systemName: "xmark") }
+                        GlassPillButton(iconOnly: true) { cancelImport() } label: { Image(systemName: "xmark") }
                             .accessibilityLabel(glassText("Cancel")).keyboardShortcut(.cancelAction)
                         Spacer()
                         GlassPillButton { addWhileLoading() } label: { Text(glassText("Add")) }
@@ -95,7 +126,29 @@ struct AddMagnetView: View {
             } catch is CancellationError { }
             catch { if !Task.isCancelled { errorMessage = error.localizedDescription } }
         }
-        .onDisappear { if let link { model.cancelMagnetPreview(link) } }
+        .onAppear { captureIntake() }
+        .onDisappear { captureIntake() }
+        .onChange(of: magnet) { captureIntake() }
+        .onChange(of: selectedDestinationID) { captureIntake() }
+        .onChange(of: downloadDirectory) { captureIntake() }
+    }
+
+    /// While metainfo is unresolved the magnet itself is the draft; the file
+    /// editor takes over the same record as soon as the torrent arrives.
+    private func captureIntake() {
+        guard !isCancelled, draft == nil, let link else { return }
+        capture(TorrentAddDraft(
+            id: draftID,
+            sourceID: destinationID,
+            downloadDirectory: downloadDirectory,
+            magnet: link
+        ))
+    }
+
+    private func cancelImport() {
+        isCancelled = true
+        discardDraft()
+        dismiss()
     }
 
     private func addWhileLoading() {
@@ -108,6 +161,8 @@ struct AddMagnetView: View {
         }
         model.selectedProfileID = sourceID
         model.selectedTorrentGroup = .all
+        isCancelled = true
+        discardDraft()
         dismiss()
     }
 }

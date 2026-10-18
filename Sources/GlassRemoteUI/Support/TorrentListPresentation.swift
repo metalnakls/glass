@@ -40,6 +40,8 @@ struct TorrentListSection: Identifiable {
     let id: String
     let title: String
     let rows: [TorrentListRowPresentation]
+    /// Unfinished Adds sit above the loading rows, as if already added.
+    var drafts: [TorrentAddDraft] = []
 
     /// Pin only when the section displays more than two rows, including expanded seasons.
     var allowsStickyHeader: Bool {
@@ -72,9 +74,18 @@ struct TorrentListSection: Identifiable {
 /// One identity domain lets native List move torrents across section boundaries.
 @MainActor enum TorrentListEntry: Identifiable {
     case header(TorrentListSection)
+    case draft(TorrentAddDraft)
     case torrent(TorrentListRowPresentation)
     nonisolated var id: String {
-        switch self { case let .header(section): "section:" + section.id; case let .torrent(row): row.id }
+        switch self {
+        case let .header(section): "section:" + section.id
+        case let .draft(draft): "draft:" + draft.id.uuidString
+        case let .torrent(row): row.id
+        }
+    }
+    var selectionTag: String? {
+        if case .draft = self { return nil }
+        return id
     }
     static func entries(for rows: [TorrentListRowPresentation], lowercase: Bool) -> [Self] {
         TorrentListLayout(rows: rows).entries(lowercase: lowercase)
@@ -95,12 +106,24 @@ struct TorrentListLayout {
     let iconPositions: [String: Int]
     let movingFolderIDs: Set<String>
 
-    init(rows: [TorrentListRowPresentation], sorting: TorrentListSorting = .transmission) {
-        sections = TorrentListSection.sections(for: rows).map { section in
+    init(rows: [TorrentListRowPresentation], sorting: TorrentListSorting = .transmission, drafts: [TorrentAddDraft] = []) {
+        var sections = TorrentListSection.sections(for: rows).map { section in
             TorrentListSection(id: section.id, title: section.title, rows: sorting.sort(section.rows, section: section.id))
         }
+        if !drafts.isEmpty {
+            if let position = sections.firstIndex(where: { $0.id == "unfinished" }) {
+                sections[position].drafts = drafts
+            } else {
+                sections.insert(TorrentListSection(id: "unfinished", title: "Loading", rows: [], drafts: drafts), at: 0)
+            }
+        }
+        self.sections = sections
         self.rows = sections.flatMap(\.rows)
-        orderedEntries = sections.flatMap { [.header($0)] + $0.rows.map(TorrentListEntry.torrent) }
+        orderedEntries = sections.flatMap { section in
+            [TorrentListEntry.header(section)]
+                + section.drafts.map(TorrentListEntry.draft)
+                + section.rows.map(TorrentListEntry.torrent)
+        }
         var ids: [String?] = []
         var indices: [String: Int] = [:]
         var headers: [String: Int] = [:]
@@ -108,6 +131,10 @@ struct TorrentListLayout {
         for section in sections {
             headers[section.id] = ids.count
             ids.append(nil)
+            for draft in section.drafts {
+                indices[TorrentListEntry.draft(draft).id] = ids.count
+                ids.append(TorrentListEntry.draft(draft).id)
+            }
             for (offset, row) in section.rows.enumerated() {
                 indices[row.id] = ids.count
                 ids.append(row.id)
@@ -124,14 +151,16 @@ struct TorrentListLayout {
 
     func titledSections(lowercase: Bool) -> [TorrentListSection] {
         guard lowercase else { return sections }
-        return sections.map { TorrentListSection(id: $0.id, title: $0.title.lowercased(), rows: $0.rows) }
+        return sections.map {
+            TorrentListSection(id: $0.id, title: $0.title.lowercased(), rows: $0.rows, drafts: $0.drafts)
+        }
     }
 
     func entries(lowercase: Bool) -> [TorrentListEntry] {
         guard lowercase else { return orderedEntries }
         return orderedEntries.map { entry in
             guard case let .header(section) = entry else { return entry }
-            return .header(TorrentListSection(id: section.id, title: section.title.lowercased(), rows: section.rows))
+            return .header(TorrentListSection(id: section.id, title: section.title.lowercased(), rows: section.rows, drafts: section.drafts))
         }
     }
 
@@ -145,12 +174,21 @@ struct TorrentListLayout {
 @Observable
 final class TorrentListPresentationModel {
     private(set) var layout = TorrentListLayout(rows: [])
+    private(set) var drafts: [TorrentAddDraft] = []
     var rows: [TorrentListRowPresentation] { layout.rows }
     var iconPositions: [String: Int] { layout.iconPositions }
     var movingFolderIDs: Set<String> { layout.movingFolderIDs }
 
     @ObservationIgnored private var sorting = TorrentListSorting.transmission
     @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
+
+    /// Drafts live outside the torrent records but share the native list identity
+    /// space, so adding or removing one never changes a real row's position.
+    func setDrafts(_ drafts: [TorrentAddDraft], animated: Bool, reduceMotion: Bool) {
+        guard self.drafts != drafts else { return }
+        self.drafts = drafts
+        setRows(rows, animated: animated, reduceMotion: reduceMotion)
+    }
 
     @discardableResult
     func synchronize(
@@ -225,7 +263,7 @@ final class TorrentListPresentationModel {
     func applyNativeMove(_ updatedRows: [TorrentListRowPresentation]) {
         var transaction = Transaction()
         transaction.disablesAnimations = true
-        withTransaction(transaction) { layout = TorrentListLayout(rows: updatedRows) }
+        withTransaction(transaction) { layout = TorrentListLayout(rows: updatedRows, drafts: drafts) }
     }
 
     private func setRows(
@@ -235,13 +273,13 @@ final class TorrentListPresentationModel {
     ) {
         if animated, !reduceMotion {
             withAnimation(.smooth(duration: 0.26, extraBounce: 0)) {
-                layout = TorrentListLayout(rows: updatedRows, sorting: sorting)
+                layout = TorrentListLayout(rows: updatedRows, sorting: sorting, drafts: drafts)
             }
         } else {
             var transaction = Transaction()
             transaction.disablesAnimations = true
             withTransaction(transaction) {
-                layout = TorrentListLayout(rows: updatedRows, sorting: sorting)
+                layout = TorrentListLayout(rows: updatedRows, sorting: sorting, drafts: drafts)
             }
         }
     }
