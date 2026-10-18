@@ -26,7 +26,7 @@ struct TorrentDownloadLocationPicker: View {
 
     var body: some View {
         VStack(alignment: .trailing) {
-            GlassMorphingPicker(isPresented: $isPresented, alignment: .topTrailing) {
+            GlassMorphingPicker(isPresented: $isPresented) {
                 HStack {
                     NativeLocationIcon(path: nativeLocationPath,
                         sourceID: sourceID == model.localSourceID ? nil : sourceID,
