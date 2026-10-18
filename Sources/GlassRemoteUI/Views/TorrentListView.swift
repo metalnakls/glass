@@ -83,6 +83,7 @@ struct TorrentListView: View {
     @State private var swipingRowID: String?
     @State private var searchPresented = false
     @State private var searchText = ""
+    @State private var updateButtonVisible = false
 
     private var visibleRecords: [TorrentRecord] {
         guard !searchText.isEmpty else { return records }
@@ -195,12 +196,18 @@ struct TorrentListView: View {
                     case let .header(section):
                         TorrentStickyTitle(title: section.title, id: section.id, rowIndex: (headerPositions[section.id] ?? 0), inset: leftPadding + 16, controller: stickyHeaders)
                             .overlay(alignment: .trailing) {
-                                if (headerPositions[section.id] ?? 0) == 0, GlassUpdateAvailability.shared.isAvailable {
-                                    Button { GlassUpdateAvailability.shared.checkForUpdates() } label: {
-                                        Label(glassText("Update"), systemImage: "arrow.down.circle")
-                                            .padding(.horizontal, 16).frame(height: 34)
+                                if (headerPositions[section.id] ?? 0) == 0 {
+                                    GlassPillButton(iconOnly: true) {
+                                        GlassUpdateAvailability.shared.checkForUpdates()
+                                    } label: {
+                                        Image(systemName: "arrow.down")
                                     }
-                                    .buttonStyle(.plain).glassEffect(.regular.interactive(), in: Capsule())
+                                    .accessibilityLabel(glassText("Update"))
+                                    .help(glassText("Update Glass"))
+                                    .opacity(updateButtonVisible ? 1 : 0)
+                                    .scaleEffect(updateButtonVisible ? 1 : 0.7)
+                                    .allowsHitTesting(updateButtonVisible)
+                                    .accessibilityHidden(!updateButtonVisible)
                                     .padding(.trailing, rightPadding + 16)
                                 }
                             }
@@ -317,6 +324,18 @@ struct TorrentListView: View {
                 stickyHeaders.attach(table)
                 folderMotion.attach(table)
                 artworkPreloader.attach(table)
+            }
+        }
+        .task {
+            try? await Task.sleep(for: .milliseconds(180))
+            guard !Task.isCancelled else { return }
+            withAnimation(accessibilityReduceMotion ? nil : .smooth(duration: 0.28)) {
+                updateButtonVisible = GlassUpdateAvailability.shared.isAvailable
+            }
+        }
+        .onChange(of: GlassUpdateAvailability.shared.isAvailable) { _, available in
+            withAnimation(accessibilityReduceMotion ? nil : .smooth(duration: 0.28)) {
+                updateButtonVisible = available
             }
         }
         .background {
