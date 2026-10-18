@@ -12,6 +12,7 @@ struct TorrentDownloadLocationPicker: View {
     @Binding var defaultDirectory: String?
     @Binding var errorMessage: String?
     var isDisabled = false
+    var prefersMacDownloads = false
 
     @State private var isEditingServer = false
     @State private var previousProfileIDs = Set<UUID>()
@@ -55,7 +56,9 @@ struct TorrentDownloadLocationPicker: View {
             defaultDirectory = nil
             let path = await model.defaultDownloadDirectory(for: requestedSourceID)
             guard !Task.isCancelled, requestedSourceID == sourceID else { return }
-            defaultDirectory = path
+            let preferred = prefersMacDownloads && requestedSourceID == model.localSourceID
+                ? TorrentDownloadDirectoryPolicy.downloadsDirectory : nil
+            defaultDirectory = preferred ?? path
         }
     }
 

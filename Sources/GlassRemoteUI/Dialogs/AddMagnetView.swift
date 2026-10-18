@@ -92,7 +92,10 @@ struct AddMagnetView: View {
                         TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
                             sourceID: destination, directory: $downloadDirectory,
                             defaultDirectory: $defaultDownloadDirectory, errorMessage: $errorMessage,
-                            isDisabled: false)
+                            isDisabled: false,
+                            prefersMacDownloads: TorrentDownloadDirectoryPolicy.prefersMacDownloads(
+                                fileNames: [TorrentAddDraft.magnetDisplayName(magnet) ?? title]
+                            ))
                     }
                 } dock: {
                     HStack {

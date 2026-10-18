@@ -233,7 +233,10 @@ struct AddTorrentBatchView: View {
         let locationPicker = TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
             sourceID: $sourceID, directory: $downloadDirectory,
             defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
-            isDisabled: isAdding)
+            isDisabled: isAdding,
+            prefersMacDownloads: TorrentDownloadDirectoryPolicy.prefersMacDownloads(
+                fileNames: items.flatMap { $0.draft.preview.files.map(\.name) }
+            ))
         return GlassAddHeader {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
