@@ -242,26 +242,54 @@ struct TorrentRowView: View, Equatable {
                     renameFieldFocused = true
                 }
         } else {
-            Text(displayName(torrent.name)).textCase(nil)
-                .font(density == .compact ? .callout : .body)
-                .lineLimit(1)
-                .truncationMode(.tail)
-                .layoutPriority(3)
-                .onTapGesture {
-                    guard allowsInlineRename else { return }
-                    if isSelected {
-                        guard Date() >= ignoreTitleRenameUntil else { return }
-                        scheduleTitleRename()
-                    } else {
-                        select?()
+            Group {
+                if groupIsExpanded != nil {
+                    Button {
+                        toggleGroupExpansion?()
+                    } label: {
+                        Text(displayName(torrent.name)).textCase(nil)
                     }
+                    .buttonStyle(TorrentGroupTitleButtonStyle())
+                    .accessibilityLabel(glassText(displayName(torrent.name)))
+                    .accessibilityHint(glassText(groupIsExpanded == true ? "Collapse Group" : "Expand Group"))
+                } else {
+                    Text(displayName(torrent.name)).textCase(nil)
+                        .onTapGesture {
+                            guard allowsInlineRename else { return }
+                            if isSelected {
+                                guard Date() >= ignoreTitleRenameUntil else { return }
+                                scheduleTitleRename()
+                            } else {
+                                select?()
+                            }
+                        }
+                        .onTapGesture(count: 2) {
+                            cancelPendingTitleRename()
+                            ignoreTitleRenameUntil = Date().addingTimeInterval(NSEvent.doubleClickInterval)
+                            fileAction?(.open)
+                        }
                 }
-                .onTapGesture(count: 2) {
-                    cancelPendingTitleRename()
-                    ignoreTitleRenameUntil = Date().addingTimeInterval(NSEvent.doubleClickInterval)
-                    fileAction?(.open)
-                }
-                .help(allowsInlineRename ? glassText("Click the selected name to rename") : "")
+            }
+            .font(density == .compact ? .callout : .body)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .layoutPriority(3)
+            .help(groupIsExpanded != nil
+                ? glassText(groupIsExpanded == true ? "Collapse Group" : "Expand Group")
+                : (allowsInlineRename ? glassText("Click the selected name to rename") : ""))
+        }
+    }
+
+    /// The pressed state is the only feedback for a season title; the row's
+    /// existing folder transition owns the actual expand or collapse.
+    private struct TorrentGroupTitleButtonStyle: ButtonStyle {
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+                .opacity(configuration.isPressed ? 0.72 : 1)
+                .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
 

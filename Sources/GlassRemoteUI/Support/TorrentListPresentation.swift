@@ -181,6 +181,9 @@ final class TorrentListPresentationModel {
 
     @ObservationIgnored private var sorting = TorrentListSorting.transmission
     @ObservationIgnored private var expandedGroupIDs = TorrentGroupExpansionStore.expandedGroupIDs()
+    /// A group collapses once when it becomes fully downloaded; later expands
+    /// are the user's choice and survive while the app stays open.
+    @ObservationIgnored private var completedGroupIDs: Set<String> = []
 
     /// Drafts live outside the torrent records but share the native list identity
     /// space, so adding or removing one never changes a real row's position.
@@ -199,13 +202,37 @@ final class TorrentListPresentationModel {
         sorting: TorrentListSorting? = nil
     ) -> [TorrentListRowPresentation] {
         if let sorting { self.sorting = sorting }
-        let updatedRows = TorrentListRowPresentation.rows(
+        var updatedRows = TorrentListRowPresentation.rows(
             records: records,
             pendingRenameNames: pendingRenameNames,
             expandedGroupIDs: expandedGroupIDs
         )
+        let completedNow = Self.completedGroupIDs(in: updatedRows)
+        let newlyCompleted = completedNow.subtracting(completedGroupIDs)
+        if !newlyCompleted.isEmpty {
+            expandedGroupIDs.subtract(newlyCompleted)
+            TorrentGroupExpansionStore.save(expandedGroupIDs)
+            updatedRows = TorrentListRowPresentation.rows(
+                records: records,
+                pendingRenameNames: pendingRenameNames,
+                expandedGroupIDs: expandedGroupIDs
+            )
+        }
+        completedGroupIDs = completedNow
         setRows(updatedRows, animated: animated, reduceMotion: reduceMotion)
         return updatedRows
+    }
+
+    /// Fully downloaded seasons return to their compact row even if they were
+    /// left expanded while downloading. No member changes on later refreshes,
+    /// so an expansion the user makes afterwards is preserved.
+    private static func completedGroupIDs(in rows: [TorrentListRowPresentation]) -> Set<String> {
+        Set(rows.compactMap { row in
+            guard case let .group(records, _, _) = row.kind,
+                  !records.isEmpty,
+                  records.allSatisfy({ $0.summary.isCompleted }) else { return nil }
+            return row.id
+        })
     }
 
     @discardableResult
