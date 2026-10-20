@@ -14,6 +14,7 @@ struct TorrentDraftRow: View {
     let columns: TorrentRowColumns
     let resume: () -> Void
     let discard: () -> Void
+    @AppearanceStorage("GlassList.funMode") private var funMode = false
 
     private var name: String { draft.displayName ?? glassText("New Torrent") }
     private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: columns.compact && !grid) }
@@ -23,6 +24,7 @@ struct TorrentDraftRow: View {
             if grid { gridBody } else { row }
         }
         .opacity(0.45)
+        .background(TorrentArtworkOverflow(enabled: funMode && !grid))
         .contentShape(Rectangle())
         .contextMenu {
             Button(glassText("Resume Draft")) { resume() }
@@ -36,6 +38,7 @@ struct TorrentDraftRow: View {
             if columns.showsArtwork {
                 TorrentFileIcon(fileName: name, isFolder: false)
                     .frame(width: TorrentRowColumns.artworkWidth, height: 42)
+                    .modifier(TorrentIconPersonality(role: .document))
                     .padding(.trailing, TorrentRowColumns.artworkGap)
             }
 
@@ -62,6 +65,7 @@ struct TorrentDraftRow: View {
     private var gridBody: some View {
         VStack(spacing: 10) {
             TorrentFileIcon(fileName: name, isFolder: false)
+                .modifier(TorrentIconPersonality(role: .document, grid: true))
                 .scaleEffect(1.7)
                 .frame(height: 76)
             Text(name)
