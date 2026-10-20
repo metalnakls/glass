@@ -51,6 +51,37 @@ struct CompletionNotificationTests {
         #expect(GlassCompletionNotificationCenter.unreadCount(requests: requests, visibleKeys: []) == 4)
     }
 
+    @Test("read local completion badges stay clear after restart and replay")
+    func readCompletionSurvivesRestart() throws {
+        let suite = "GlassTests.CompletionRead.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func request(_ source: String, _ hash: String, completedAt: String? = nil) -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.categoryIdentifier = GlassCompletionNotificationCenter.category
+            content.userInfo = ["sourceID": source, "hashString": hash]
+            if let completedAt { content.userInfo["completedAt"] = completedAt }
+            return .init(identifier: "completed-\(source):\(hash)", content: content, trigger: nil)
+        }
+        let local = "00000000-0000-0000-0000-000000000001"
+        let read = request(local, "movie", completedAt: "100")
+        let legacy = request(local, "older")
+        let other = request("remote", "movie", completedAt: "100")
+        let unseen = request(local, "unseen", completedAt: "100")
+        CompletionAcknowledgements(defaults: defaults).acknowledge([read, legacy], at: Date(timeIntervalSince1970: 200))
+        // A new defaults client represents the next process. macOS may still return old delivered requests.
+        let restarted = CompletionAcknowledgements(defaults: try #require(UserDefaults(suiteName: suite)))
+        #expect(GlassCompletionNotificationCenter.unreadCount(requests: [read, legacy], visibleKeys: [], acknowledgements: restarted) == 0)
+        #expect(GlassCompletionNotificationCenter.unreadCount(requests: [read, legacy, other, unseen], visibleKeys: [], acknowledgements: restarted) == 2)
+        #expect(restarted.contains(request(local, "movie", completedAt: "100")))
+        #expect(!restarted.contains(request(local, "movie", completedAt: "300")))
+        // A server clock ahead of this Mac still acknowledges the event itself.
+        let future = request(local, "future", completedAt: "500")
+        restarted.acknowledge([future], at: Date(timeIntervalSince1970: 200))
+        #expect(restarted.contains(future))
+        #expect(!restarted.contains(request(local, "future", completedAt: "501")))
+    }
+
     @Test("missing local files and unmapped shares report failure for the Glass fallback")
     func unavailableDownload() async {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path

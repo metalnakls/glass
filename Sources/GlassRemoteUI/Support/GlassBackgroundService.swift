@@ -373,7 +373,7 @@ private actor GlassBackgroundWorker {
                         displayName: stored.flatMap { $0.rootName == torrent.name ? $0.displayName : nil } ?? torrent.name,
                         fileCount: torrent.fileCount,
                         filePath: details?.files.first?.name.split(separator: "/").first.map(String.init), sourceID: profile.id, hashString: torrent.hashString,
-                        downloadDirectory: torrent.downloadDir)
+                        downloadDirectory: torrent.downloadDir, completionDate: details?.doneDate ?? torrent.doneDate)
                 }
                 observed[key] = torrent.percentDone
             }

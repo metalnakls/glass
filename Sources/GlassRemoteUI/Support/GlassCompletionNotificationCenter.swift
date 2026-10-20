@@ -5,13 +5,14 @@ import SwiftUI
 import UserNotifications
 
 /// Completion delivery and per-download acknowledgement share one owner in the
-/// foreground app and worker. Notification Center retains unread state across launches.
+/// foreground app and worker. Read acknowledgements survive Notification Center replay.
 @MainActor
 public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletionNotifying, UNUserNotificationCenterDelegate {
     public static let shared = GlassCompletionNotificationCenter()
     nonisolated static let category = "glass-download-completed"
     nonisolated static let openAction = "glass-open-download"
     private let center = UNUserNotificationCenter.current()
+    private let acknowledgements = CompletionAcknowledgements(defaults: .standard)
     private var didRequestAuthorization = false
     private var configured = false
     private var visibleRows: [UUID: Set<String>] = [:]
@@ -29,7 +30,7 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
                 name: NSApplication.didBecomeActiveNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
                 name: NSWindow.didBecomeKeyNotification, object: nil)
-            serialize { await self.updateBadge() }
+            serialize { await self.updateBadge(clearAcknowledged: true) }
         }
     }
 
@@ -51,10 +52,15 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             sourceID: sourceID, hashString: hashString, downloadDirectory: downloadDirectory)
     }
     public func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?) {
+        notifyTorrentCompleted(name: name, displayName: displayName, fileCount: fileCount, filePath: filePath,
+            sourceID: sourceID, hashString: hashString, downloadDirectory: downloadDirectory, completionDate: nil)
+    }
+    public func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?, completionDate: Int?) {
         enqueue(title: Self.title(name: name, displayName: displayName, fileCount: fileCount,
             showsExtensions: UserDefaults.standard.bool(forKey: "GlassList.showExtensions")),
             payload: ["name": name, "path": filePath ?? name, "sourceID": sourceID.uuidString, "hashString": hashString,
-                      "directory": downloadDirectory ?? ""])
+                      "directory": downloadDirectory ?? "",
+                      "completedAt": String(completionDate.flatMap { $0 > 0 ? Double($0) : nil } ?? Date().timeIntervalSince1970)])
     }
 
     private func enqueue(title: String, payload: [String: String]) {
@@ -68,8 +74,13 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             content.categoryIdentifier = Self.category
             content.sound = .default
             let identifier = Self.key(payload).map { "completed-" + $0 } ?? UUID().uuidString
+            let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
+            guard !self.acknowledgements.contains(request) else {
+                await self.updateBadge()
+                return
+            }
             do {
-                try await self.center.add(.init(identifier: identifier, content: content, trigger: nil))
+                try await self.center.add(request)
             } catch {
                 Logger(subsystem: "tsmc.glass", category: "notifications")
                     .error("Completion notification delivery failed: \(error.localizedDescription, privacy: .public)")
@@ -111,6 +122,7 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
         guard !keys.isEmpty else { return }
         let notifications = await center.deliveredNotifications()
         let ids = Self.identifiersToClear(requests: notifications.map(\.request), keys: keys, excluding: excluding)
+        acknowledgements.acknowledge(notifications.map(\.request).filter { ids.contains($0.identifier) })
         center.removeDeliveredNotifications(withIdentifiers: ids)
         center.removePendingNotificationRequests(withIdentifiers: ids)
     }
@@ -119,16 +131,21 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             !excluding.contains($0.identifier) && (Self.key($0.content.userInfo).map(keys.contains) ?? false)
         }.map(\.identifier)
     }
-    static func unreadCount(requests: [UNNotificationRequest], visibleKeys: Set<String>) -> Int {
+    static func unreadCount(requests: [UNNotificationRequest], visibleKeys: Set<String>, acknowledgements: CompletionAcknowledgements? = nil) -> Int {
         requests.filter {
             let key = Self.key($0.content.userInfo)
             return ($0.content.categoryIdentifier == Self.category || key != nil) &&
-                !(key.map(visibleKeys.contains) ?? false)
+                !(key.map(visibleKeys.contains) ?? false) && !(acknowledgements?.contains($0) ?? false)
         }.count
     }
-    private func updateBadge() async {
+    private func updateBadge(clearAcknowledged: Bool = false) async {
         let requests = await center.deliveredNotifications().map(\.request)
-        let count = Self.unreadCount(requests: requests, visibleKeys: activeVisibleKeys)
+        if clearAcknowledged {
+            let readIDs = requests.filter { acknowledgements.contains($0) }.map(\.identifier)
+            center.removeDeliveredNotifications(withIdentifiers: readIDs)
+            center.removePendingNotificationRequests(withIdentifiers: readIDs)
+        }
+        let count = Self.unreadCount(requests: requests, visibleKeys: activeVisibleKeys, acknowledgements: acknowledgements)
         if !GlassBackgroundService.isWorker {
             NSApp?.dockTile.badgeLabel = count == 0 ? nil : count.formatted()
         }
@@ -151,8 +168,11 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
                 isLocal: sourceText == "00000000-0000-0000-0000-000000000001")
         }
         let identifier = response.notification.request.identifier
+        let readKey = Self.key(payload)
+        let completedAt = CompletionAcknowledgements.completedAt(response.notification.request)
         await MainActor.run {
             self.serialize {
+                if let readKey { self.acknowledgements.acknowledge(key: readKey, completedAt: completedAt) }
                 self.center.removeDeliveredNotifications(withIdentifiers: [identifier])
                 await self.updateBadge()
             }
@@ -169,8 +189,49 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
 
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let key = Self.key(notification.request.content.userInfo)
-        let seen = await MainActor.run { key.map(self.activeVisibleKeys.contains) ?? false }
+        let completedAt = CompletionAcknowledgements.completedAt(notification.request)
+        let seen = await MainActor.run {
+            let seen = key.map(self.activeVisibleKeys.contains) ?? false
+            if seen, let key { self.acknowledgements.acknowledge(key: key, completedAt: completedAt) }
+            return seen
+        }
         return Self.presentationOptions(isVisible: seen)
+    }
+}
+
+/// Persist only source/hash read watermarks, shared by the app and worker.
+@MainActor
+struct CompletionAcknowledgements {
+    let defaults: UserDefaults
+    private let storageKey = "GlassCompletion.readThrough"
+
+    func acknowledge(_ requests: [UNNotificationRequest], at date: Date = Date()) {
+        for request in requests {
+            guard let key = GlassCompletionNotificationCenter.key(request.content.userInfo) else { continue }
+            acknowledge(key: key, completedAt: Self.completedAt(request), at: date)
+        }
+    }
+
+    func acknowledge(key: String, completedAt: Double?, at date: Date = Date()) {
+        let preference = storageKey + "." + key
+        let watermark = max(defaults.double(forKey: preference), date.timeIntervalSince1970, completedAt ?? 0)
+        defaults.set(watermark, forKey: preference)
+    }
+
+    nonisolated static func completedAt(_ request: UNNotificationRequest) -> Double? {
+        guard let value = request.content.userInfo["completedAt"] as? String,
+              let timestamp = Double(value), timestamp.isFinite, timestamp > 0 else { return nil }
+        return timestamp
+    }
+
+    func contains(_ request: UNNotificationRequest) -> Bool {
+        guard let key = GlassCompletionNotificationCenter.key(request.content.userInfo) else { return false }
+        // Read preferences on demand so a worker's acknowledgement is visible too.
+        let watermark = defaults.double(forKey: storageKey + "." + key)
+        guard watermark > 0 else { return false }
+        // Older notifications have no event date. A saved read acknowledgement
+        // still retires them; newly created requests always carry completedAt.
+        return Self.completedAt(request).map { $0 <= watermark } ?? true
     }
 }
 

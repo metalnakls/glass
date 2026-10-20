@@ -584,9 +584,10 @@ struct RemoteAppModelTests {
         await model.refresh(sourceID: model.localSourceID)
         #expect(model.isCompletionWatcherRunning)
         model.setApplicationActive(false)
-        await local.setCompletionProgress(1)
+        await local.setCompletionProgress(1, doneDate: 1_700_000_000)
         await model.checkWatchedTorrentCompletions()
         #expect(notifier.completedTorrentNames == ["Local"])
+        #expect(notifier.completionDates == [1_700_000_000])
         #expect(!model.isCompletionWatcherRunning)
         #expect(await local.addedFiles.isEmpty)
     }
@@ -1208,6 +1209,7 @@ private enum TestError: Error {
 private final class RecordingTorrentCompletionNotifier: TorrentCompletionNotifying {
     private(set) var authorizationRequestCount = 0
     private(set) var completedTorrentNames: [String] = []
+    private(set) var completionDates: [Int?] = []
     private(set) var badgeClearCount = 0
 
     func requestAuthorization() {
@@ -1216,6 +1218,11 @@ private final class RecordingTorrentCompletionNotifier: TorrentCompletionNotifyi
 
     func notifyTorrentCompleted(name: String) {
         completedTorrentNames.append(name)
+    }
+
+    func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?, completionDate: Int?) {
+        completedTorrentNames.append(name)
+        completionDates.append(completionDate)
     }
 
     func clearBadge() {
@@ -1552,7 +1559,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private var completionProgress: Double?
-    func setCompletionProgress(_ value: Double) { completionProgress = value }
+    private var completionDate: Int?
+    func setCompletionProgress(_ value: Double, doneDate: Int? = nil) {
+        completionProgress = value
+        completionDate = doneDate
+    }
     private var metadata = Data()
     private var holdsMetadata = false
     private var metadataContinuation: CheckedContinuation<Void, Error>?
@@ -1615,7 +1626,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
 
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        TorrentDetails(id: 7, hashString: hashString, name: "Local", percentDone: completionProgress)
+        TorrentDetails(id: 7, hashString: hashString, name: "Local", percentDone: completionProgress, doneDate: completionDate)
     }
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {

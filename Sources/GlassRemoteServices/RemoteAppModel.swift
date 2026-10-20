@@ -1327,7 +1327,7 @@ public final class RemoteAppModel {
                     displayName: stored.flatMap { $0.rootName == name ? $0.displayName : nil } ?? name,
                     fileCount: details.files.count,
                     filePath: details.files.first?.name.split(separator: "/").first.map(String.init), sourceID: watch.sourceID,
-                    hashString: watch.hashString, downloadDirectory: details.downloadDir)
+                    hashString: watch.hashString, downloadDirectory: details.downloadDir, completionDate: details.doneDate)
             } catch {
                 // Keep watching through transient server and network failures.
             }
