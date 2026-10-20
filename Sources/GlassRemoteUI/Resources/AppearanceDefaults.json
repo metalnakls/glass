@@ -13,6 +13,7 @@
   "GlassInspector.blurRadius" : 6,
   "GlassInspector.fileSideInset" : 26.028688524590162,
   "GlassInspector.nativeSelectionHighlight" : false,
+  "GlassInspector.permanentSearch" : false,
   "GlassList.columnDarkBrightness" : 0.10843983208955224,
   "GlassList.columnLightBrightness" : 1,
   "GlassList.completedSort" : "lastDownloaded",

@@ -4,6 +4,41 @@ import Testing
 
 @MainActor @Suite("Config-only tuning updates", .serialized)
 struct GlassTuningUpdatesTests {
+    @Test func explicitUpdateChecksIncludeTuning() {
+        var tuneChecks = 0
+        var appChecks = 0
+        let availability = GlassUpdateAvailability(refreshTuning: { tuneChecks += 1 })
+        availability.setCheckForUpdates { appChecks += 1 }
+        availability.checkForUpdates()
+        #expect(tuneChecks == 1)
+        #expect(appChecks == 1)
+    }
+
+    @Test func explicitTuneRefreshBypassesDailyThrottle() async throws {
+        let suite = "GlassTests.ForceTune.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer {
+            defaults.removePersistentDomain(forName: suite)
+            try? FileManager.default.removeItem(at: folder)
+            GlassAppearanceDefaults.remote = [:]
+        }
+        var requests = 0
+        let client = GlassTuningUpdates(defaults: defaults, cacheURL: folder.appendingPathComponent("tune.json")) { request in
+            requests += 1
+            return (Data("{\"GlassInspector.permanentSearch\":false}".utf8),
+                HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        }
+        #expect(await client.refresh())
+        #expect(await client.refresh() == false)
+        #expect(await client.refresh(force: true))
+        #expect(requests == 2)
+        #expect(defaults.object(forKey: "GlassInspector.permanentSearch") as? Bool == false)
+        defaults.set(true, forKey: "GlassInspector.permanentSearch")
+        client.loadCached()
+        #expect(defaults.bool(forKey: "GlassInspector.permanentSearch") == false)
+    }
+
     @Test func validation() throws {
         let baseline = GlassAppearanceDefaults.bundled
         #expect(throws: (any Error).self) { try GlassTuningUpdates.validate(Data("{\"GlassList.funMode\":1}".utf8), against: baseline) }

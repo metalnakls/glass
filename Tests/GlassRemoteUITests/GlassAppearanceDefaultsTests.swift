@@ -25,6 +25,30 @@ struct GlassAppearanceDefaultsTests {
         #expect(snapshot["GlassList.iconGlassHDRDark"] as? Double == 2.5)
     }
 
+    @Test("every Tune appearance control is included in the saved snapshot")
+    func tuneControlCoverage() throws {
+        let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let source = try String(contentsOf: root.appendingPathComponent("Sources/GlassRemoteUI/Views/SelectionAppearanceView.swift"), encoding: .utf8)
+        let expression = try NSRegularExpression(pattern: #"@AppearanceStorage\("([^"]+)""#)
+        let matches = expression.matches(in: source, range: NSRange(source.startIndex..<source.endIndex, in: source))
+        let keys = matches.compactMap { Range($0.range(at: 1), in: source).map { String(source[$0]) } }
+        let missing = keys.filter { GlassAppearanceDefaults.bundled[$0] == nil }
+        #expect(missing.isEmpty, "Tune controls missing from the saved configuration: \(missing)")
+    }
+
+    @Test("compact inspector search survives saving and Tune validation")
+    func compactSearchSnapshot() throws {
+        let suite = "GlassTests.SearchTune.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        defaults.set(false, forKey: "GlassInspector.permanentSearch")
+        let snapshot = GlassAppearanceDefaults.snapshot(in: defaults)
+        #expect(snapshot["GlassInspector.permanentSearch"] as? Bool == false)
+        let data = try JSONSerialization.data(withJSONObject: snapshot)
+        let values = try GlassTuningUpdates.validate(data, against: GlassAppearanceDefaults.bundled)
+        #expect(values["GlassInspector.permanentSearch"] as? Bool == false)
+    }
+
     @Test("legacy shared strength seeds both independent modes")
     func migration() throws {
         let suite = "GlassTests.Defaults.\(UUID().uuidString)"

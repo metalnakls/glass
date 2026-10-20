@@ -7,7 +7,13 @@ public final class GlassUpdateAvailability {
     public private(set) var isAvailable = false
     @ObservationIgnored private var checkForUpdatesHandler: (() -> Void)?
 
-    private init() {}
+    @ObservationIgnored private let refreshTuning: () -> Void
+
+    init(refreshTuning: @escaping () -> Void = {
+        Task { await GlassTuningUpdates.shared.refresh(force: true) }
+    }) {
+        self.refreshTuning = refreshTuning
+    }
 
     public func setAvailable(_ available: Bool) {
         isAvailable = available
@@ -18,6 +24,7 @@ public final class GlassUpdateAvailability {
     }
 
     public func checkForUpdates() {
+        refreshTuning()
         checkForUpdatesHandler?()
     }
 }

@@ -152,9 +152,9 @@ private struct GlassCommands: Commands {
             #endif
         }
         CommandGroup(after: .appInfo) {
-            if let updaterController {
+            if updaterController != nil {
                 Button(glassText("Check for Updates…")) {
-                    updaterController.updater.checkForUpdates()
+                    GlassUpdateAvailability.shared.checkForUpdates()
                 }
             }
         }
