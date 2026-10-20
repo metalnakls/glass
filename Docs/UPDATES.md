@@ -11,10 +11,10 @@ first time.
 
 ## Publishing a release
 
-Bump `VERSION`, build, then release:
+Reserve and commit one version when preparing an authorized release, reusing any
+already reserved version. Then run the release script:
 
 ```sh
-printf '2.2\n' > VERSION
 ./Scripts/release.sh
 ```
 
@@ -52,12 +52,26 @@ both `CFBundleVersion` and `CFBundleShortVersionString` through the
 `GLASS_VERSION` build setting. Sparkle decides what is newer by comparing
 `CFBundleVersion`, so the number must rise for every release.
 
-- Small fixes are point releases. Pick the next sensible number without asking.
+- Individual fixes, local commits/builds, and Tune updates do not change `VERSION`.
+- Reserve the next point version once for an authorized release batch. Keep an
+  already reserved version through subsequent fixes and release interruptions.
+  A pending 8.7 stays 8.7 until published; its follow-up fixes do not become 8.8–8.10.
+- Advance again only after publication, unless the user explicitly changes the target.
 - Big features and breaking changes are major releases. Ask first.
 - There is no separate marketing version.
 
 Local builds derive a date-based version (`YYYYMMDDHHMM`) so debugging never
 modifies the repository.
+
+Before building, `Scripts/release.sh` checks GitHub's latest published release
+and the first differing `VERSION` committed since it. A later accidental bump
+blocks publication. Restore the first reserved value in a new commit to correct
+it; neither published history nor existing releases need to be rewritten.
+`python3 Scripts/check-release-version.py --repo metalnakls/glass` runs that check
+without building or publishing. A failed lookup stops the check rather than
+assuming there is no previous release. Source pushes alone do not publish apps.
+If the user explicitly names a different target, pass that exact value through
+`GLASS_REQUESTED_RELEASE_VERSION`; a plain “release” request never authorizes this override.
 
 ## The update feed
 

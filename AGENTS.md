@@ -36,15 +36,23 @@ Glass uses a single version number for both `CFBundleVersion` and `CFBundleShort
 
 The release version lives in the `VERSION` file at the repository root. Local builds derive a date-based version (`YYYYMMDDHHMM`) so debugging never modifies the repository.
 
-Every push to `main` publishes a release, so bump `VERSION` in the same commit as the change you want to ship.
+Local commits and pushes do not allocate app versions or publish releases.
+Only `Scripts/release.sh` publishes an app release; Tune publication is separate.
 
 Bump rules:
 
-- Small fixes and incremental work are point releases. Pick the next sensible number and bump `VERSION` in the same commit; do not ask.
+- Do not change `VERSION` for individual fixes, local commits, builds, tests, or Tune updates.
+- When the user requests a release, reserve one point version for the whole unreleased batch, in one preparation commit. If an unreleased version is already reserved, keep it through every follow-up fix, pause, and resumed release. For example, fixes to a pending 8.7 remain 8.7, never 8.8, 8.9, or 8.10.
+- Advance again only after that version has actually been published, or when the user explicitly requests a different version. Never renumber an already published release.
 - Big features and breaking changes are major releases. Ask before shipping one.
 - There is no marketing version. If `12.42` is the next sensible number, use it.
 
 See `Docs/UPDATES.md` for the release pipeline.
+The release script checks the first reserved version against the latest published
+release before building. If it rejects an accidental second bump, restore the
+reserved value in a new commit; do not rewrite published history or bypass the check.
+Use `GLASS_REQUESTED_RELEASE_VERSION` only for an exact version explicitly named
+by the user, never to work around an accidental bump or a plain “release” request.
 
 Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using the private key in the login Keychain (`-a ed25519 -s https://sparkle-project.org`), and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.
 

@@ -23,6 +23,13 @@ if [[ -z "$VERSION" ]]; then
     exit 1
 fi
 
+VERSION_CHECK_ARGS=(--repo "$REPO")
+# This is an exact user-requested target, never an automatic escape hatch.
+if [[ -n "${GLASS_REQUESTED_RELEASE_VERSION:-}" ]]; then
+    VERSION_CHECK_ARGS+=(--requested-version "$GLASS_REQUESTED_RELEASE_VERSION")
+fi
+python3 "$ROOT_DIR/Scripts/check-release-version.py" "${VERSION_CHECK_ARGS[@]}"
+
 GLASS_VERSION="$VERSION" GLASS_SKIP_INSTALL=1 "$ROOT_DIR/Scripts/build-mac-app.sh" release
 
 APP_DIR="$ROOT_DIR/.build/Xcode/Build/Products/Release/Glass.app"
