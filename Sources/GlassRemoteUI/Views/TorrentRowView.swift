@@ -386,9 +386,8 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityLabel(stateLabel)
                 .accessibilityValue("\(formatPercent(progress)) downloaded")
         }
-        .frame(width: stateDiameter, height: stateDiameter)
+        .modifier(TorrentRowStateSlot(compact: density == .compact && !grid))
         .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
-        .padding(TorrentRowColumns.statePadding)
     }
 
     @ViewBuilder

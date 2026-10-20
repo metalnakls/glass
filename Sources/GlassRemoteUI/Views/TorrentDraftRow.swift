@@ -93,6 +93,7 @@ struct TorrentDraftRow: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
+        .modifier(TorrentRowStateSlot(compact: columns.compact && !grid))
         .help(glassText("Resume Draft"))
         .accessibilityLabel(glassText("Resume Draft"))
     }
