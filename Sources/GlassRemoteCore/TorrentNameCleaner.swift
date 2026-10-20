@@ -65,6 +65,23 @@ public enum TorrentNameCleaner {
         return first
     }
 
+    /// A semantic folder heading only; file paths, collapse IDs and disk names
+    /// remain unchanged. Episode directories and multi-season packs are not seasons.
+    public static func seasonFolderName(_ name: String) -> String {
+        let range = NSRange(name.startIndex..<name.endIndex, in: name)
+        guard episodeRegex.firstMatch(in: name, range: range) == nil,
+              seasonRangeRegex.firstMatch(in: name, range: range) == nil else { return name }
+        let season: Int?
+        if let descriptor = seasonDescriptor(in: name) {
+            season = descriptor.season
+        } else if let match = plainSeasonRegex.firstMatch(in: name, range: range),
+                  let text = capture(1, in: match, text: name) {
+            season = Int(text)
+        } else { season = nil }
+        guard let season, (1...99).contains(season) else { return name }
+        return "Season \(season)"
+    }
+
     public static func batchGroups(for inputs: [TorrentBatchNamingInput]) -> [TorrentBatchGroup] {
         let descriptors = inputs.map(seasonDescriptor(for:))
         var candidatesByKey: [String: [(index: Int, descriptor: TorrentSeasonDescriptor)]] = [:]
@@ -113,7 +130,7 @@ public enum TorrentNameCleaner {
     public static func plan(
         rootName: String,
         files: [TorrentFile],
-        selectedFileIndices: Set<Int>,
+        selectedFileIndices _: Set<Int>,
         removingTokens: [String] = []
     ) -> TorrentAddNamingPlan? {
         let season = isMediaFile(rootName) ? nil : seasonDescriptor(for: TorrentBatchNamingInput(rootName: rootName, files: files))
@@ -124,8 +141,10 @@ public enum TorrentNameCleaner {
             let existingPaths = Set(files.map(\.name))
             var proposedPaths = Set<String>()
 
-            for (index, file) in files.enumerated() {
-                guard selectedFileIndices.contains(index), isMediaFile(file.name) else { continue }
+            // Wanted flags govern downloading, not metadata naming. Keep the
+            // complete rename plan when files or entire seasons are unchecked.
+            for file in files {
+                guard isMediaFile(file.name) else { continue }
                 let oldName = URL(fileURLWithPath: file.name).lastPathComponent
                 let newName = cleanMediaFileName(oldName, removingTokens: removingTokens)
                 guard newName != oldName else { continue }
@@ -295,6 +314,13 @@ public enum TorrentNameCleaner {
 
     private static let episodeRegex = try! NSRegularExpression(
         pattern: #"(?i)(?:s(\d{1,2})[\s._-]*e(\d{1,3})|(\d{1,2})x(\d{1,3}))"#
+    )
+
+    private static let plainSeasonRegex = try! NSRegularExpression(
+        pattern: #"(?i)^(?:s(?:eason)?|series|сезон)[\s._-]*0?(\d{1,2})$"#
+    )
+    private static let seasonRangeRegex = try! NSRegularExpression(
+        pattern: #"(?i)(?:s(?:eason)?|series|сезон)[\s._-]*\d{1,2}[\s._]*[-–][\s._]*(?:(?:s(?:eason)?|series|сезон)[\s._-]*)?\d{1,2}"#
     )
 
     private static let seasonIdentityRegex = try! NSRegularExpression(

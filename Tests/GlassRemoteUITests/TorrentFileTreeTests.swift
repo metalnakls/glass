@@ -1,3 +1,4 @@
+import Foundation
 import GlassRemoteCore
 import Testing
 @testable import GlassRemoteUI
@@ -75,6 +76,37 @@ struct TorrentFileTreeTests {
         }
         #expect(TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "").map(\.name) == ["Season 1", "S01E01.mkv", "Season 2", "S02E01.mkv"])
         #expect(TorrentFileBrowserEntry.commonRoot(paths: ["a.mkv", "b.mkv"]) == nil)
+    }
+
+    @Test("Friends collection release folders are season headings without changing their paths")
+    func friendsSeasonFolders() {
+        let entries = (1...10).map { season in
+            let folder = String(format: "Friends.S%02d.%d.720p.BDRip.HDCLUB", season, 1993 + season)
+            return TorrentFileBrowserEntry(index: season - 1,
+                file: TorrentFile(name: "Friends BluRay 720p Collection/\(folder)/Friends.S\(String(format: "%02d", season))E01.Pilot.mkv", length: 10, bytesCompleted: 0),
+                rootName: "Friends BluRay 720p Collection", isWanted: false)
+        }
+        let rows = TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "")
+        let folders = rows.filter(\.isFolder)
+        #expect(folders.map(\.name) == (1...10).map { "Season \($0)" })
+        #expect(folders.first?.id == "Friends.S01.1994.720p.BDRip.HDCLUB")
+        let collapsed = TorrentFileTreeRow.rows(entries: entries,
+            collapsed: ["Friends.S01.1994.720p.BDRip.HDCLUB"], query: "")
+        #expect(collapsed.count == rows.count - 1)
+        let found = TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "Season 2")
+        #expect(found.first?.name == "Season 2")
+        #expect(found.last?.entry?.originalPath == entries[1].originalPath)
+        #expect(found.last?.entry?.isWanted == false)
+    }
+
+    @Test("only season folders get semantic headings, not episode folders or season ranges")
+    func seasonFolderBoundaries() {
+        let names = ["S01", "Season 2", "Friends.S01E01.Pilot", "Friends.S01-S10", "Extras"]
+        let entries = names.enumerated().map { index, folder in
+            TorrentFileBrowserEntry(index: index, file: TorrentFile(name: "Show/\(folder)/video.mkv", length: 1, bytesCompleted: 0), rootName: "Show")
+        }
+        let headings = Set(TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "").filter(\.isFolder).map(\.name))
+        #expect(headings == ["Season 1", "Season 2", "Friends.S01E01.Pilot", "Friends.S01-S10", "Extras"])
     }
 
     @Test("nested folders preserve file indices and aggregate sizes when collapsed or searched")

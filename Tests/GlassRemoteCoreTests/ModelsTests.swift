@@ -149,7 +149,7 @@ struct ModelsTests {
         )
     }
 
-    @Test("builds an opt-in naming plan for selected media only")
+    @Test("builds a naming plan for all media independently of download selection")
     func buildsTorrentNamingPlan() throws {
         let files = [
             TorrentFile(
@@ -177,7 +177,8 @@ struct ModelsTests {
             TorrentPathRename(
                 path: files[0].name,
                 name: "S02E20 — Episode Name.mkv"
-            )
+            ),
+            TorrentPathRename(path: files[2].name, name: "S02E21.mkv")
         ])
     }
 

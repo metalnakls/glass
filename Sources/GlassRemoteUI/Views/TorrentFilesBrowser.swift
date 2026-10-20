@@ -428,7 +428,13 @@ struct TorrentFileTreeRow: Identifiable {
     static func rows(entries: [TorrentFileBrowserEntry], collapsed: Set<String>, query: String) -> [Self] {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let root = Node(path: "", name: "")
-        for entry in entries where query.isEmpty || entry.displayName.localizedCaseInsensitiveContains(query) || entry.originalPath.localizedCaseInsensitiveContains(query) {
+        func matches(_ entry: TorrentFileBrowserEntry) -> Bool {
+            if query.isEmpty || entry.displayName.localizedCaseInsensitiveContains(query) || entry.originalPath.localizedCaseInsensitiveContains(query) { return true }
+            let folders = entry.displayName.split(separator: "/").dropLast()
+                .map { TorrentNameCleaner.seasonFolderName(String($0)) }.joined(separator: "/")
+            return folders.localizedCaseInsensitiveContains(query)
+        }
+        for entry in entries where matches(entry) {
             let components = entry.displayName.split(separator: "/").map(String.init)
             var parent = root
             for (offset, name) in components.enumerated() {
@@ -443,7 +449,8 @@ struct TorrentFileTreeRow: Identifiable {
         }
         func flatten(_ parent: Node, depth: Int) -> [Self] {
             parent.children.values.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.flatMap { node in
-                let row = Self(id: node.path, name: node.name, depth: depth, indices: node.indices, size: node.size, entry: node.entry)
+                let title = node.entry == nil ? TorrentNameCleaner.seasonFolderName(node.name) : node.name
+                let row = Self(id: node.path, name: title, depth: depth, indices: node.indices, size: node.size, entry: node.entry)
                 return [row] + (node.entry == nil && (!collapsed.contains(node.path) || !query.isEmpty) ? flatten(node, depth: depth + 1) : [])
             }
         }

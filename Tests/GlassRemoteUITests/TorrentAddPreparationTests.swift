@@ -28,16 +28,19 @@ struct TorrentAddPreparationTests {
         #expect(item.name == "My title")
     }
 
-    @Test("deselected files are excluded from downloading and renaming")
+    @Test("deselected files stay excluded from downloading but still get smart names")
     func selectionReachesSubmission() throws {
         let item = makeItem()
         item.setFileWanted(1, false)
         #expect(item.fileSelection.filesWanted == [0])
         #expect(item.fileSelection.filesUnwanted == [1])
         let plan = try #require(item.namingPlan())
-        #expect(plan.pathRenames.count == 1)
-        #expect(plan.pathRenames[0].path == item.draft.preview.files[0].name)
+        #expect(plan.pathRenames.count == 2)
+        #expect(Set(plan.pathRenames.map(\.path)) == Set(item.draft.preview.files.map(\.name)))
         item.setAllFilesWanted(false)
+        #expect(item.fileSelection.filesWanted.isEmpty)
+        #expect(item.fileSelection.filesUnwanted == [0, 1])
+        #expect(item.namingPlan() == plan)
         #expect(item.canAdd)
     }
 

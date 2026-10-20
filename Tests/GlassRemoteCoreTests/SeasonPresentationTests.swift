@@ -31,4 +31,15 @@ struct SeasonPresentationTests {
         let name = TorrentStoredDisplayName(rootName: "Original", displayName: "Santa Clarita Diet", season: .init(title: "Santa Clarita Diet", season: 2))
         #expect(try JSONDecoder().decode(TorrentStoredDisplayName.self, from: JSONEncoder().encode(name)) == name)
     }
+    @Test("unchecked episodes keep the complete smart naming plan")
+    func uncheckedNaming() throws {
+        let files = ["Friends.S01E01.Pilot.mkv", "Friends.S02E01.Next.720p.mkv"].map {
+            TorrentFile(name: "Friends/" + $0, length: 1, bytesCompleted: 0)
+        }
+        let all = try #require(TorrentNameCleaner.plan(rootName: "Friends", files: files, selectedFileIndices: [0, 1]))
+        #expect(TorrentNameCleaner.plan(rootName: "Friends", files: files, selectedFileIndices: [0]) == all)
+        #expect(TorrentNameCleaner.plan(rootName: "Friends", files: files, selectedFileIndices: []) == all)
+        #expect(all.season == nil)
+    }
+
 }
