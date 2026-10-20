@@ -272,6 +272,9 @@ fi
 
 INSTALL_STARTED=1
 mkdir -p "$INSTALL_DIR"
+# Keep the app wrapper stable, but replace its contents exactly. A merge leaves
+# removed resources behind and invalidates the new bundle's sealed signature.
+find "$INSTALL_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +
 ditto "$APP_DIR" "$INSTALL_DIR"
 codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 codesign --display --verbose=4 "$INSTALL_DIR" 2>&1

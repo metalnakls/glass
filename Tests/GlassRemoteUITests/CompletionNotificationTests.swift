@@ -14,6 +14,18 @@ struct CompletionNotificationTests {
         #expect(GlassCompletionNotificationCenter.title(name: "Series", displayName: "Series Season 1", fileCount: 12, showsExtensions: false) == "Series Season 1")
         #expect(GlassCompletionNotificationCenter.title(name: "Game.ZIP", displayName: "Game.ZIP", fileCount: 1, showsExtensions: false) == "Game.ZIP")
     }
+    @Test("system completion alerts appear even for downloads visible in Glass")
+    func foregroundCompletionAlert() {
+        let visible = GlassCompletionNotificationCenter.presentationOptions(isVisible: true)
+        let offscreen = GlassCompletionNotificationCenter.presentationOptions(isVisible: false)
+        #expect(visible.contains(.banner))
+        #expect(visible.contains(.sound))
+        #expect(!visible.contains(.list))
+        #expect(offscreen.contains(.banner))
+        #expect(offscreen.contains(.sound))
+        #expect(offscreen.contains(.list))
+    }
+
     @Test("acknowledgement distinguishes identical hashes on different destinations")
     func identities() {
         let first = GlassCompletionNotificationCenter.key(["sourceID": "first", "hashString": "same", "name": "Title"])
@@ -34,6 +46,9 @@ struct CompletionNotificationTests {
                         request("other-destination", source: "two", hash: "seen")]
         #expect(GlassCompletionNotificationCenter.identifiersToClear(requests: requests, keys: ["one:seen"]) == ["legacy-random", "completed-one:seen"])
         #expect(GlassCompletionNotificationCenter.identifiersToClear(requests: requests, keys: []).isEmpty)
+        #expect(GlassCompletionNotificationCenter.identifiersToClear(requests: requests, keys: ["one:seen"], excluding: ["completed-one:seen"]) == ["legacy-random"])
+        #expect(GlassCompletionNotificationCenter.unreadCount(requests: requests, visibleKeys: ["one:seen"]) == 2)
+        #expect(GlassCompletionNotificationCenter.unreadCount(requests: requests, visibleKeys: []) == 4)
     }
 
     @Test("missing local files and unmapped shares report failure for the Glass fallback")

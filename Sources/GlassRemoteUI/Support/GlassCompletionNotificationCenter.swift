@@ -1,5 +1,6 @@
 import AppKit
 import GlassRemoteServices
+import OSLog
 import SwiftUI
 import UserNotifications
 
@@ -67,8 +68,15 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             content.categoryIdentifier = Self.category
             content.sound = .default
             let identifier = Self.key(payload).map { "completed-" + $0 } ?? UUID().uuidString
-            try? await self.center.add(.init(identifier: identifier, content: content, trigger: nil))
-            await self.remove(keys: self.activeVisibleKeys)
+            do {
+                try await self.center.add(.init(identifier: identifier, content: content, trigger: nil))
+            } catch {
+                Logger(subsystem: "tsmc.glass", category: "notifications")
+                    .error("Completion notification delivery failed: \(error.localizedDescription, privacy: .public)")
+            }
+            // Let the new system alert appear. Seen foreground completions omit
+            // Notification Center retention in willPresent instead of retracting it.
+            await self.remove(keys: self.activeVisibleKeys, excluding: [identifier])
             await self.updateBadge()
         }
     }
@@ -99,20 +107,28 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
               let hash = payload["hashString"] as? String else { return nil }
         return source + ":" + hash
     }
-    private func remove(keys: Set<String>) async {
+    private func remove(keys: Set<String>, excluding: Set<String> = []) async {
         guard !keys.isEmpty else { return }
         let notifications = await center.deliveredNotifications()
-        let ids = Self.identifiersToClear(requests: notifications.map(\.request), keys: keys)
+        let ids = Self.identifiersToClear(requests: notifications.map(\.request), keys: keys, excluding: excluding)
         center.removeDeliveredNotifications(withIdentifiers: ids)
         center.removePendingNotificationRequests(withIdentifiers: ids)
     }
-    static func identifiersToClear(requests: [UNNotificationRequest], keys: Set<String>) -> [String] {
-        requests.filter { Self.key($0.content.userInfo).map(keys.contains) ?? false }.map(\.identifier)
+    static func identifiersToClear(requests: [UNNotificationRequest], keys: Set<String>, excluding: Set<String> = []) -> [String] {
+        requests.filter {
+            !excluding.contains($0.identifier) && (Self.key($0.content.userInfo).map(keys.contains) ?? false)
+        }.map(\.identifier)
+    }
+    static func unreadCount(requests: [UNNotificationRequest], visibleKeys: Set<String>) -> Int {
+        requests.filter {
+            let key = Self.key($0.content.userInfo)
+            return ($0.content.categoryIdentifier == Self.category || key != nil) &&
+                !(key.map(visibleKeys.contains) ?? false)
+        }.count
     }
     private func updateBadge() async {
-        let count = await center.deliveredNotifications().filter {
-            $0.request.content.categoryIdentifier == Self.category || Self.key($0.request.content.userInfo) != nil
-        }.count
+        let requests = await center.deliveredNotifications().map(\.request)
+        let count = Self.unreadCount(requests: requests, visibleKeys: activeVisibleKeys)
         if !GlassBackgroundService.isWorker {
             NSApp?.dockTile.badgeLabel = count == 0 ? nil : count.formatted()
         }
@@ -147,10 +163,14 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             }
         }
     }
+    nonisolated static func presentationOptions(isVisible: Bool) -> UNNotificationPresentationOptions {
+        isVisible ? [.banner, .sound] : [.banner, .list, .sound]
+    }
+
     public nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let key = Self.key(notification.request.content.userInfo)
         let seen = await MainActor.run { key.map(self.activeVisibleKeys.contains) ?? false }
-        return seen ? [] : [.banner, .sound]
+        return Self.presentationOptions(isVisible: seen)
     }
 }
 

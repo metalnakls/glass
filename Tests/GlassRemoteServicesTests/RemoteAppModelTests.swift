@@ -554,7 +554,7 @@ struct RemoteAppModelTests {
         #expect(model.currentAutoRefreshInterval == RemoteAppModel.quietAutoRefreshInterval)
     }
 
-    @Test("watches only newly added torrents and stops after completion")
+    @Test("newly added torrents notify once and stop watching after completion")
     func watchesAddedTorrentUntilCompletion() async throws {
         let profile = makeProfile()
         let factory = StubRPCClientFactory()
@@ -575,6 +575,83 @@ struct RemoteAppModelTests {
         #expect(model.isCompletionWatcherRunning == false)
     }
 
+    @Test("existing local downloads still notify when Glass loses focus")
+    func existingLocalDownloadCompletion() async {
+        let local = StubLocalTransmissionSession()
+        let notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profiles: [], factory: StubRPCClientFactory(), localSession: local, completionNotifier: notifier)
+        await local.setCompletionProgress(0.5)
+        await model.refresh(sourceID: model.localSourceID)
+        #expect(model.isCompletionWatcherRunning)
+        model.setApplicationActive(false)
+        await local.setCompletionProgress(1)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames == ["Local"])
+        #expect(!model.isCompletionWatcherRunning)
+        #expect(await local.addedFiles.isEmpty)
+    }
+
+    @Test("existing remote downloads notify once across refreshes")
+    func existingRemoteDownloadCompletion() async throws {
+        let client = StubRPCClient(), notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profile: makeProfile(), factory: StubRPCClientFactory { _ in client }, completionNotifier: notifier)
+        await model.refresh()
+        #expect(model.isCompletionWatcherRunning)
+        await client.setInspectorProgress(percentDone: 1, fileBytesCompleted: 100)
+        await model.checkWatchedTorrentCompletions()
+        await model.refresh()
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames == ["Spider-Noir"])
+    }
+
+    @Test("cached local downloads resume completion tracking after a fresh launch")
+    func restoredLocalDownloadCompletion() async throws {
+        let store = MemoryProfileStore(profiles: []), local = StubLocalTransmissionSession()
+        await local.setCompletionProgress(0.5)
+        let snapshot = try await local.fetchSnapshot()
+        try store.saveTorrentCache([CachedTorrentList(profileID: UUID(uuidString: "00000000-0000-0000-0000-000000000001")!, torrents: snapshot.torrents)])
+        let notifier = RecordingTorrentCompletionNotifier()
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            localSessionFactory: { local }, completionNotifier: notifier, completionPollingInterval: .seconds(60))
+        #expect(!model.isCompletionWatcherRunning)
+        await model.refresh(sourceID: model.localSourceID)
+        #expect(model.isCompletionWatcherRunning)
+        await local.setCompletionProgress(1)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames == ["Local"])
+    }
+
+    @Test("already completed local downloads do not replay notifications on launch")
+    func completedLocalDownloadBaseline() async {
+        let local = StubLocalTransmissionSession(), notifier = RecordingTorrentCompletionNotifier()
+        await local.setCompletionProgress(1)
+        let model = makeModel(profiles: [], factory: StubRPCClientFactory(), localSession: local, completionNotifier: notifier)
+        await model.refresh(sourceID: model.localSourceID)
+        await model.checkWatchedTorrentCompletions()
+        #expect(!model.isCompletionWatcherRunning)
+        #expect(notifier.completedTorrentNames.isEmpty)
+        #expect(notifier.authorizationRequestCount == 0)
+    }
+
+    @Test("removing a local download retires its watch and allows a fresh download")
+    func removedLocalDownloadRetiresWatch() async throws {
+        let local = StubLocalTransmissionSession(), notifier = RecordingTorrentCompletionNotifier()
+        let model = makeModel(profiles: [], factory: StubRPCClientFactory(), localSession: local, completionNotifier: notifier)
+        await local.setCompletionProgress(0.5)
+        await model.refresh(sourceID: model.localSourceID)
+        let torrent = try #require(model.allTorrentRecords.first?.summary)
+        #expect(await model.remove([torrent], deleteData: false, sourceID: model.localSourceID))
+        #expect(!model.isCompletionWatcherRunning)
+        await local.setCompletionProgress(1)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames.isEmpty)
+        await local.setCompletionProgress(0.5)
+        await model.refresh(sourceID: model.localSourceID)
+        await local.setCompletionProgress(1)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames == ["Local"])
+    }
+
     @Test("activating Glass does not clear unseen completion notifications")
     func activationKeepsUnseenNotifications() {
         let notifier = RecordingTorrentCompletionNotifier()
@@ -584,7 +661,7 @@ struct RemoteAppModelTests {
         #expect(notifier.badgeClearCount == 0)
     }
 
-    @Test("does not watch a duplicate torrent")
+    @Test("a duplicate import does not duplicate an existing completion watch")
     func doesNotWatchDuplicateTorrent() async throws {
         let profile = makeProfile()
         let factory = StubRPCClientFactory()
@@ -597,8 +674,11 @@ struct RemoteAppModelTests {
         let didAdd = await model.addTorrentFile(Data([0x01]), downloadDirectory: nil)
 
         #expect(didAdd)
-        #expect(notifier.authorizationRequestCount == 0)
-        #expect(model.isCompletionWatcherRunning == false)
+        #expect(notifier.authorizationRequestCount == 1)
+        #expect(model.isCompletionWatcherRunning)
+        await client.setInspectorProgress(percentDone: 1, fileBytesCompleted: 100)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedTorrentNames == ["Spider-Noir"])
     }
 
     @Test("inspector publishes a selection only when its files are ready and source matches")
@@ -1097,14 +1177,17 @@ private func makeModel(
     profiles: [RemoteProfile],
     factory: StubRPCClientFactory,
     disposer: RecordingTorrentSourceFileDisposer = RecordingTorrentSourceFileDisposer(),
-    localSession: StubLocalTransmissionSession = StubLocalTransmissionSession()
+    localSession: StubLocalTransmissionSession = StubLocalTransmissionSession(),
+    completionNotifier: (any TorrentCompletionNotifying)? = nil
 ) -> RemoteAppModel {
     RemoteAppModel(
         profileStore: MemoryProfileStore(profiles: profiles),
         credentialStore: MemoryCredentialStore(password: "secret"),
         torrentSourceFileDisposer: disposer,
         rpcClientFactory: factory.make(config:),
-        localSessionFactory: { localSession }
+        localSessionFactory: { localSession },
+        completionNotifier: completionNotifier,
+        completionPollingInterval: .seconds(60)
     )
 }
 
@@ -1468,6 +1551,8 @@ private actor StubRPCClient: TransmissionRPCServicing {
 }
 
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
+    private var completionProgress: Double?
+    func setCompletionProgress(_ value: Double) { completionProgress = value }
     private var metadata = Data()
     private var holdsMetadata = false
     private var metadataContinuation: CheckedContinuation<Void, Error>?
@@ -1530,7 +1615,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
 
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        TorrentDetails(id: 7, hashString: hashString, name: "Local")
+        TorrentDetails(id: 7, hashString: hashString, name: "Local", percentDone: completionProgress)
     }
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
@@ -1571,11 +1656,11 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
             hashString: "local-hash",
             name: "Local",
             status: TransmissionTorrentStatus.downloading.rawValue,
-            percentDone: 0.1,
+            percentDone: completionProgress ?? 0.1,
             rateDownload: 3,
             rateUpload: 4,
             sizeWhenDone: 100,
-            leftUntilDone: 90,
+            leftUntilDone: completionProgress.map { UInt64(100 * (1 - $0)) } ?? 90,
             eta: 60,
             uploadRatio: 0,
             peersConnected: 2,

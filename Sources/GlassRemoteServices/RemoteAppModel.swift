@@ -336,6 +336,7 @@ public final class RemoteAppModel {
     @ObservationIgnored private var visibleTorrentDetailSections: Set<TorrentDetailSection> = []
     public private(set) var isApplicationActive = true
     @ObservationIgnored private var watchedTorrents: [WatchedTorrent: String] = [:]
+    @ObservationIgnored private var notifiedTorrents: Set<WatchedTorrent> = []
     @ObservationIgnored private var completionWatcherTask: Task<Void, Never>?
 
     public init(
@@ -558,6 +559,7 @@ public final class RemoteAppModel {
         do {
             let snapshot = try await provider.fetchSnapshot()
             guard !Task.isCancelled, sources.contains(where: { $0 === state }) else { return }
+            let previouslyPresentHashes = Set(state.records.filter { !$0.isAdding }.map(\.hashString))
             let mergedTorrents: [TorrentSummary]
             switch snapshot.torrentUpdate {
             case let .full(incoming):
@@ -567,6 +569,9 @@ public final class RemoteAppModel {
             case let .delta(changed, removedIDs):
                 mergedTorrents = applyTorrentDelta(changed: changed, removedIDs: removedIDs, sourceID: sourceID)
             }
+            let presentHashes = Set(mergedTorrents.map(\.hashString))
+            stopWatching(sourceID: sourceID, hashStrings: previouslyPresentHashes.subtracting(presentHashes))
+            watchIncompleteTorrents(mergedTorrents, sourceID: sourceID)
             if state.stats != snapshot.stats { state.stats = snapshot.stats }
             if serverFreeSpace[sourceID] != snapshot.freeSpace { serverFreeSpace[sourceID] = snapshot.freeSpace }
             state.hasRefreshed = true
@@ -1312,8 +1317,10 @@ public final class RemoteAppModel {
             do {
                 let details = try await provider(for: watch.sourceID)
                     .fetchTorrentDetails(hashString: watch.hashString)
-                guard Self.isCompleted(details) else { continue }
+                // The source or torrent may have been removed while details were loading.
+                guard watchedTorrents[watch] != nil, !Task.isCancelled, Self.isCompleted(details) else { continue }
                 watchedTorrents[watch] = nil
+                notifiedTorrents.insert(watch)
                 let name = details.name.isEmpty ? fallbackName : details.name
                 let stored = torrentDisplayNames[TorrentRecord.identity(sourceID: watch.sourceID, hashString: watch.hashString)]
                 completionNotifier?.notifyTorrentCompleted(name: name,
@@ -1328,11 +1335,26 @@ public final class RemoteAppModel {
         stopCompletionWatcherIfIdle()
     }
 
+    private func watchIncompleteTorrents(_ torrents: [TorrentSummary], sourceID: UUID) {
+        guard completionNotifier != nil else { return }
+        for torrent in torrents where !torrent.hashString.isEmpty && torrent.percentDone < 1 {
+            let watch = WatchedTorrent(sourceID: sourceID, hashString: torrent.hashString)
+            guard !notifiedTorrents.contains(watch) else { continue }
+            watchTorrent(watch, name: torrent.name)
+        }
+    }
+
     private func watchAddedTorrent(_ result: TorrentAddResult?, sourceID: UUID) {
         guard let result, !result.wasDuplicate, !result.hashString.isEmpty else { return }
         let watch = WatchedTorrent(sourceID: sourceID, hashString: result.hashString)
-        watchedTorrents[watch] = result.name
-        completionNotifier?.requestAuthorization()
+        notifiedTorrents.remove(watch)
+        watchTorrent(watch, name: result.name)
+    }
+
+    private func watchTorrent(_ watch: WatchedTorrent, name: String) {
+        guard let completionNotifier, watchedTorrents[watch] == nil else { return }
+        watchedTorrents[watch] = name
+        completionNotifier.requestAuthorization()
         startCompletionWatcherIfNeeded()
     }
 
@@ -1351,6 +1373,10 @@ public final class RemoteAppModel {
     }
 
     private func stopWatching(sourceID: UUID, hashStrings: Set<String>? = nil) {
+        if let hashStrings, hashStrings.isEmpty { return }
+        notifiedTorrents = notifiedTorrents.filter { watch in
+            watch.sourceID != sourceID || (hashStrings.map { !$0.contains(watch.hashString) } ?? false)
+        }
         watchedTorrents = watchedTorrents.filter { watch, _ in
             guard watch.sourceID == sourceID else { return true }
             guard let hashStrings else { return false }
