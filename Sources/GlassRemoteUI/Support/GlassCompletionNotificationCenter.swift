@@ -12,6 +12,7 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
     nonisolated static let category = "glass-download-completed"
     nonisolated static let openAction = "glass-open-download"
     private let center = UNUserNotificationCenter.current()
+    private let deliveries = CompletionDeliveries(defaults: .standard)
     private let acknowledgements = CompletionAcknowledgements(defaults: .standard)
     private var didRequestAuthorization = false
     private var configured = false
@@ -30,7 +31,20 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
                 name: NSApplication.didBecomeActiveNotification, object: nil)
             NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
                 name: NSWindow.didBecomeKeyNotification, object: nil)
-            serialize { await self.updateBadge(clearAcknowledged: true) }
+        }
+        serialize {
+            let delivered = await self.center.deliveredNotifications().map(\.request)
+            delivered.forEach { self.deliveries.record($0) }
+            if !GlassBackgroundService.isWorker { await self.updateBadge(clearAcknowledged: true) }
+        }
+    }
+
+    public func prepareForNewDownload(sourceID: UUID, hashString: String) {
+        configure()
+        let key = sourceID.uuidString + ":" + hashString
+        serialize {
+            self.deliveries.reset(key: key)
+            self.acknowledgements.reset(key: key)
         }
     }
 
@@ -60,7 +74,7 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             showsExtensions: UserDefaults.standard.bool(forKey: "GlassList.showExtensions")),
             payload: ["name": name, "path": filePath ?? name, "sourceID": sourceID.uuidString, "hashString": hashString,
                       "directory": downloadDirectory ?? "",
-                      "completedAt": String(completionDate.flatMap { $0 > 0 ? Double($0) : nil } ?? Date().timeIntervalSince1970)])
+                      "completedAt": completionDate.flatMap { $0 > 0 ? String($0) : nil } ?? ""])
     }
 
     private func enqueue(title: String, payload: [String: String]) {
@@ -75,12 +89,13 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             content.sound = .default
             let identifier = Self.key(payload).map { "completed-" + $0 } ?? UUID().uuidString
             let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-            guard !self.acknowledgements.contains(request) else {
+            guard !self.deliveries.contains(request), !self.acknowledgements.contains(request) else {
                 await self.updateBadge()
                 return
             }
             do {
                 try await self.center.add(request)
+                self.deliveries.record(request)
             } catch {
                 Logger(subsystem: "tsmc.glass", category: "notifications")
                     .error("Completion notification delivery failed: \(error.localizedDescription, privacy: .public)")
@@ -218,6 +233,10 @@ struct CompletionAcknowledgements {
         defaults.set(watermark, forKey: preference)
     }
 
+    func reset(key: String) {
+        defaults.removeObject(forKey: storageKey + "." + key)
+    }
+
     nonisolated static func completedAt(_ request: UNNotificationRequest) -> Double? {
         guard let value = request.content.userInfo["completedAt"] as? String,
               let timestamp = Double(value), timestamp.isFinite, timestamp > 0 else { return nil }
@@ -233,6 +252,28 @@ struct CompletionAcknowledgements {
         // still retires them; newly created requests always carry completedAt.
         return Self.completedAt(request).map { $0 <= watermark } ?? true
     }
+}
+
+/// Delivery is independent of read state: an unread alert must not be sent
+/// again at every launch. Seed this history from existing delivered requests.
+@MainActor
+struct CompletionDeliveries {
+    let defaults: UserDefaults
+    private let prefix = "GlassCompletion.deliveredThrough."
+
+    func contains(_ request: UNNotificationRequest) -> Bool {
+        guard let key = GlassCompletionNotificationCenter.key(request.content.userInfo),
+              let watermark = defaults.object(forKey: prefix + key) as? Double else { return false }
+        return CompletionAcknowledgements.completedAt(request).map { $0 <= watermark } ?? true
+    }
+
+    func record(_ request: UNNotificationRequest, at date: Date = Date()) {
+        guard let key = GlassCompletionNotificationCenter.key(request.content.userInfo) else { return }
+        let timestamp = CompletionAcknowledgements.completedAt(request) ?? date.timeIntervalSince1970
+        defaults.set(max(timestamp, defaults.double(forKey: prefix + key)), forKey: prefix + key)
+    }
+
+    func reset(key: String) { defaults.removeObject(forKey: prefix + key) }
 }
 
 /// Native List does not emit SwiftUI scroll-visibility callbacks. Measure the

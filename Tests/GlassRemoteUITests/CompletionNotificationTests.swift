@@ -82,6 +82,37 @@ struct CompletionNotificationTests {
         #expect(!restarted.contains(request(local, "future", completedAt: "501")))
     }
 
+    @Test("delivered completions are not sent again after relaunch even when unread")
+    func deliverySurvivesLaunch() throws {
+        let suite = "GlassTests.Delivery.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        func request(_ source: String = "local", hash: String = "movie", time: String? = "100") -> UNNotificationRequest {
+            let content = UNMutableNotificationContent()
+            content.userInfo = ["sourceID": source, "hashString": hash]
+            if let time { content.userInfo["completedAt"] = time }
+            return .init(identifier: "completed-\(source):\(hash)", content: content, trigger: nil)
+        }
+        let first = request()
+        let history = CompletionDeliveries(defaults: defaults)
+        #expect(!history.contains(first))
+        history.record(first)
+        let relaunched = CompletionDeliveries(defaults: try #require(UserDefaults(suiteName: suite)))
+        #expect(relaunched.contains(first))
+        #expect(!CompletionAcknowledgements(defaults: defaults).contains(first))
+        #expect(!relaunched.contains(request("remote")))
+        #expect(!relaunched.contains(request(hash: "another")))
+        #expect(!relaunched.contains(request(time: "200")))
+        // A notification without a provider finish date still sends only once.
+        let legacy = request(hash: "legacy", time: nil)
+        history.record(legacy, at: Date(timeIntervalSince1970: 150))
+        #expect(relaunched.contains(legacy))
+        #expect(relaunched.contains(request(hash: "legacy", time: "140")))
+        // A deliberate new import of the same hash starts a new lifecycle.
+        relaunched.reset(key: "local:movie")
+        #expect(!relaunched.contains(first))
+    }
+
     @Test("missing local files and unmapped shares report failure for the Glass fallback")
     func unavailableDownload() async {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path

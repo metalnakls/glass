@@ -1337,7 +1337,7 @@ public final class RemoteAppModel {
 
     private func watchIncompleteTorrents(_ torrents: [TorrentSummary], sourceID: UUID) {
         guard completionNotifier != nil else { return }
-        for torrent in torrents where !torrent.hashString.isEmpty && torrent.percentDone < 1 {
+        for torrent in torrents where !torrent.hashString.isEmpty && !torrent.isCompleted {
             let watch = WatchedTorrent(sourceID: sourceID, hashString: torrent.hashString)
             guard !notifiedTorrents.contains(watch) else { continue }
             watchTorrent(watch, name: torrent.name)
@@ -1347,6 +1347,7 @@ public final class RemoteAppModel {
     private func watchAddedTorrent(_ result: TorrentAddResult?, sourceID: UUID) {
         guard let result, !result.wasDuplicate, !result.hashString.isEmpty else { return }
         let watch = WatchedTorrent(sourceID: sourceID, hashString: result.hashString)
+        completionNotifier?.prepareForNewDownload(sourceID: sourceID, hashString: result.hashString)
         notifiedTorrents.remove(watch)
         watchTorrent(watch, name: result.name)
     }

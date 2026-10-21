@@ -634,6 +634,20 @@ struct RemoteAppModelTests {
         #expect(notifier.authorizationRequestCount == 0)
     }
 
+    @Test("completed local baselines with partial overall progress do not notify on repeated launches", arguments: [false, true])
+    func partialCompletedLocalBaseline(hasDoneDate: Bool) async {
+        let local = StubLocalTransmissionSession(), notifier = RecordingTorrentCompletionNotifier()
+        await local.setCompletionProgress(0.5, doneDate: hasDoneDate ? 1_700_000_000 : nil,
+            leftUntilDone: hasDoneDate ? 50 : 0)
+        for _ in 0..<2 {
+            let model = makeModel(profiles: [], factory: StubRPCClientFactory(), localSession: local, completionNotifier: notifier)
+            await model.refresh(sourceID: model.localSourceID)
+            #expect(!model.isCompletionWatcherRunning)
+            await model.checkWatchedTorrentCompletions()
+        }
+        #expect(notifier.completedTorrentNames.isEmpty)
+    }
+
     @Test("removing a local download retires its watch and allows a fresh download")
     func removedLocalDownloadRetiresWatch() async throws {
         let local = StubLocalTransmissionSession(), notifier = RecordingTorrentCompletionNotifier()
@@ -1560,9 +1574,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private var completionProgress: Double?
     private var completionDate: Int?
-    func setCompletionProgress(_ value: Double, doneDate: Int? = nil) {
+    private var completionRemaining: UInt64?
+    func setCompletionProgress(_ value: Double, doneDate: Int? = nil, leftUntilDone: UInt64? = nil) {
         completionProgress = value
         completionDate = doneDate
+        completionRemaining = leftUntilDone
     }
     private var metadata = Data()
     private var holdsMetadata = false
@@ -1626,7 +1642,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     func setSessionSettings(_ patch: TransmissionSessionSettingsPatch) async throws {}
 
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails {
-        TorrentDetails(id: 7, hashString: hashString, name: "Local", percentDone: completionProgress, doneDate: completionDate)
+        TorrentDetails(id: 7, hashString: hashString, name: "Local", percentDone: completionProgress, sizeWhenDone: 100, leftUntilDone: completionRemaining, doneDate: completionDate)
     }
 
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? {
@@ -1671,12 +1687,13 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
             rateDownload: 3,
             rateUpload: 4,
             sizeWhenDone: 100,
-            leftUntilDone: completionProgress.map { UInt64(100 * (1 - $0)) } ?? 90,
+            leftUntilDone: completionRemaining ?? completionProgress.map { UInt64(100 * (1 - $0)) } ?? 90,
             eta: 60,
             uploadRatio: 0,
             peersConnected: 2,
             downloadDir: "/Users/me/Downloads",
-            queuePosition: 0
+            queuePosition: 0,
+            doneDate: completionDate
         )
     }
 }
