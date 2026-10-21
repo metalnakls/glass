@@ -31,7 +31,7 @@ Add variants only for real callers.
 | Floating controls | `GlassFloatingDock`, `glassFloatingChrome` | top, bottom, both | Outer placement, safe areas, input pass-through, scroll indicators |
 | Add presentation | `GlassAddCard`, `GlassAddHeader`, `GlassModalMetrics` | resolving, ready, failure; one or multiple imports | Stable dimensions, title/location/dock structure across states |
 | File browser | `TorrentFilesBrowser`, `TorrentFileRowLabel`, file-list layout support | inspector, add selection | Columns, insets, separators, file interaction, context-specific progress |
-| Torrent rows | `TorrentListView`, `TorrentRowView`, `TorrentListLayout` | existing densities; single/group, selected/unselected, pending/active/completed | Shared row geometry and native separator policy |
+| Torrent rows | `TorrentListView`, `TorrentRowView`, `TorrentDraftRow`, `TorrentListRowChrome`, `TorrentListLayout` | existing densities; single/group, selected/unselected, pending/active/completed | Shared row geometry and native separator policy |
 | Section titles | `TorrentStickyHeaders`, `StickyTitleLabel`, header appearance | inline, pinned, outgoing; short/long section | Measured position, pin inset, two-item release gap, continuous handoff |
 | Scroll effect | `glassScrollEdges`, native top bar | main list, inspector, add | Native top blur, sharp foreground titles, no duplicate fade |
 | Settings | `AppearancePreferences`, `GlassAppearanceDefaults`, Tune | saved override or default | One setting definition: key, type, meaning, units, range, default, owner |
@@ -102,6 +102,10 @@ arbitrary delay or unrelated state toggle is not a permanent invalidation fix.
   text-file stand-in. Torrent files retain a document icon with the app mark
   inside; record the asset's source before updating it. Wide artwork stays
   centered within its established box.
+- Drafts remain selectable native list entries with shared row chrome, separator
+  neighbors, swipe removal, and focused Delete/Command-Delete actions. Resolve
+  their stable list identity through the draft store; removal discards saved Add
+  state without touching a transfer provider or source/downloaded files.
 - Preserve confirmed Smart Rename and location fallback behavior. Metadata and
   renaming stay responsive in services with pending/error states. A visual fix
   must not change paths, filesystem data, or these lifecycles.

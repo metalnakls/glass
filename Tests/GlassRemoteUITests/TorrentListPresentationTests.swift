@@ -96,9 +96,23 @@ struct TorrentListPresentationTests {
         #expect(layout.rowIndices[complete.id] == 3)
         let entries = layout.entries(lowercase: false)
         #expect(entries.count == layout.nativeRowIDs.count)
-        #expect(entries[1].selectionTag == nil)
+        #expect(entries[1].selectionTag == "draft:\(draft.id.uuidString)")
         #expect(entries[3].selectionTag == complete.id)
         #expect(layout.showsSeparator(after: complete.id, selection: nil) == false)
+    }
+
+    @Test("draft separators and selection use the same native row neighbors")
+    func draftNeighbors() throws {
+        let first = TorrentAddDraft(id: UUID(), magnet: "magnet:?dn=First")
+        let second = TorrentAddDraft(id: UUID(), magnet: "magnet:?dn=Second")
+        let record = filterRecord(UUID(), season: 1, complete: false)
+        let rows = TorrentListRowPresentation.rows(records: [record], pendingRenameNames: [:], expandedGroupIDs: [])
+        let layout = TorrentListLayout(rows: rows, drafts: [first, second])
+        #expect(layout.nextRowIDs[first.listID] == second.listID)
+        #expect(layout.nextRowIDs[second.listID] == record.id)
+        #expect(layout.showsSeparator(after: first.listID, selection: nil))
+        #expect(!layout.showsSeparator(after: first.listID, selection: second.listID))
+        #expect(layout.entries(lowercase: false)[1].selectionTag == first.listID)
     }
 
     @Test("server queue telemetry cannot reorder the visible library")

@@ -14,6 +14,7 @@ struct TorrentDraftRow: View {
     let columns: TorrentRowColumns
     let resume: () -> Void
     let discard: () -> Void
+    var select: () -> Void = {}
     @AppearanceStorage("GlassList.funMode") private var funMode = false
 
     private var name: String { draft.displayName ?? glassText("New Torrent") }
@@ -26,7 +27,7 @@ struct TorrentDraftRow: View {
         .opacity(0.45)
         .background(TorrentArtworkOverflow(enabled: funMode && !grid))
         .contentShape(Rectangle())
-        .contextMenu {
+        .glassContextMenu(select: select) {
             Button(glassText("Resume Draft")) { resume() }
             Button(glassText("Discard Draft"), role: .destructive) { discard() }
         }

@@ -148,17 +148,7 @@ struct TorrentListView: View {
                             Section {
                                 LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
                                     ForEach(section.drafts) { draft in
-                                        TorrentDraftRow(
-                                            model: model,
-                                            draft: draft,
-                                            grid: true,
-                                            rowHeight: 164,
-                                            leadingPadding: 0,
-                                            trailingPadding: 0,
-                                            columns: columns,
-                                            resume: { resumeDraft(draft) },
-                                            discard: { discardDraft(draft) }
-                                        )
+                                        draftRow(for: draft, columns: columns)
                                     }
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
@@ -214,21 +204,11 @@ struct TorrentListView: View {
                             .modifier(TorrentInlineHeaderSpacing(isFirst: (headerPositions[section.id] ?? 0) == 0,
                                 beforeFirst: initialPadding, betweenSections: sectionSpacing, belowHeader: headerBottomPadding))
                     case let .draft(draft):
-                        TorrentDraftRow(
-                            model: model,
-                            draft: draft,
-                            rowHeight: listRowHeight,
-                            leadingPadding: leftPadding + TorrentRowColumns.horizontalInset,
-                            trailingPadding: rightPadding + TorrentRowColumns.horizontalInset,
-                            columns: columns,
-                            resume: { resumeDraft(draft) },
-                            discard: { discardDraft(draft) }
-                        )
-                        .listRowBackground(Color.clear)
-                        .focusEffectDisabled()
-                        .accessibilityElement(children: .contain)
-                        .selectionDisabled(true)
-                        .moveDisabled(true)
+                        draftRow(for: draft, columns: columns)
+                            .listRowBackground(Color.clear)
+                            .focusEffectDisabled()
+                            .accessibilityElement(children: .contain)
+                            .moveDisabled(true)
                     case let .torrent(row):
                         liveRow(for: row)
                             .listRowBackground(Color.clear)
@@ -241,7 +221,7 @@ struct TorrentListView: View {
                     }
                     }
                     .tag(entry.selectionTag)
-                    .selectionDisabled({ if case .header = entry { return true }; if case .draft = entry { return true }; return false }())
+                    .selectionDisabled({ if case .header = entry { return true }; return false }())
                     .moveDisabled({
                         if case let .torrent(row) = entry { return rowIsAdding(row) }
                         return true
@@ -256,8 +236,8 @@ struct TorrentListView: View {
                     // an AppKit-backed header label cannot inherit a default rule.
                     .modifier(GlassListRowSeparator(
                         visible: {
-                            if case let .torrent(row) = entry { return layout.showsSeparator(after: row.id, selection: selection) }
-                            return false
+                            if case .header = entry { return false }
+                            return layout.showsSeparator(after: entry.id, selection: selection)
                         }(),
                         leading: separatorLeading, trailing: separatorTrailing))
                 }
@@ -346,6 +326,7 @@ struct TorrentListView: View {
             presentation.setDrafts(drafts, animated: true, reduceMotion: accessibilityReduceMotion)
             elevationController.setRows(presentation.layout.nativeRowIDs)
             stickyHeaders.configure(presentation.layout, lowercase: lowercaseTitles, inset: leftPadding + 16)
+            reconcileSelection()
         }
         .onChange(of: leftPadding) { _, _ in stickyHeaders.configure(layout, lowercase: lowercaseTitles, inset: leftPadding + 16) }
         .onChange(of: headerAppearance, initial: true) { _, appearance in stickyHeaders.configureAppearance(appearance) }
@@ -420,7 +401,7 @@ struct TorrentListView: View {
             )
         }
         .onKeyPress(.delete, phases: [.down]) { keyPress in
-            guard selection != nil, presentation.rows.contains(where: { $0.id == selection }) else { return .ignored }
+            guard let selection, layout.rowIndices[selection] != nil else { return .ignored }
             removeSelected(keyPress.modifiers.contains(.command))
             return .handled
         }
@@ -470,6 +451,24 @@ struct TorrentListView: View {
                 if unfinished { loadingSort = "transmission" } else { completedSort = "transmission" }
             }
             await model.reorder(plan.hashes, before: plan.beforeHashes, sourceID: plan.sourceID)
+        }
+    }
+
+    private func draftRow(for draft: TorrentAddDraft, columns: TorrentRowColumns) -> some View {
+        TorrentNativeSwipeRow(enabled: !grid, kind: .draft, remove: { _ in discardDraft(draft) },
+            presentationChanged: { shown in
+                let update = { swipingRowID = shown ? draft.listID : (swipingRowID == draft.listID ? nil : swipingRowID) }
+                if accessibilityReduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.20), update) }
+            }) {
+            TorrentDraftRow(model: model, draft: draft, grid: grid, rowHeight: listRowHeight,
+                leadingPadding: 0, trailingPadding: 0, columns: columns,
+                resume: { resumeDraft(draft) }, discard: { discardDraft(draft) }, select: { selection = draft.listID })
+                .modifier(TorrentListRowChrome(rowID: draft.listID, isSelected: selection == draft.listID,
+                    isReordering: false, isSwiping: swipingRowID == draft.listID, grid: grid,
+                    rowHeight: listRowHeight, artworkOverflow: columns.showsArtwork && !grid ? TorrentIconPose.leadingOverflow : 0,
+                    elevationController: elevationController, select: { selection = draft.listID }))
+                .padding(.leading, grid ? 0 : leftPadding + TorrentRowColumns.horizontalInset)
+                .padding(.trailing, grid ? 0 : rightPadding + TorrentRowColumns.horizontalInset)
         }
     }
 
@@ -568,7 +567,7 @@ struct TorrentListView: View {
                 expanding: row.groupIsExpanded != true, inset: leftPadding + 16,
                 indices: presentation.layout.rowIndices, reduceMotion: accessibilityReduceMotion)
         }
-        let updatedRows = presentation.toggleGroup(
+        _ = presentation.toggleGroup(
             row.id,
             records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
@@ -576,36 +575,34 @@ struct TorrentListView: View {
         )
         folderMotion.animateAfterLayout(indices: presentation.layout.rowIndices,
             expectedRows: presentation.layout.nativeRowIDs.count)
-        reconcileSelection(with: updatedRows)
+        reconcileSelection()
     }
 
     private func synchronizePresentation(animated: Bool) {
-        let updatedRows = presentation.synchronize(
+        _ = presentation.synchronize(
             records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
             animated: animated,
             reduceMotion: accessibilityReduceMotion,
             sorting: sorting
         )
-        reconcileSelection(with: updatedRows)
+        reconcileSelection()
     }
 
-    private func reconcileSelection(with rows: [TorrentListRowPresentation]) {
+    private func reconcileSelection() {
         guard let selection else { return }
-        if !rows.contains(where: { $0.id == selection }) {
-            self.selection = nil
-        }
+        if presentation.layout.rowIndices[selection] == nil { self.selection = nil }
     }
 
     private func revealAndScrollToTorrent(_ selectedID: String?, using scrollProxy: ScrollViewProxy) {
         guard let selectedID else { return }
-        let rows = presentation.revealTorrent(
+        _ = presentation.revealTorrent(
             selectedID,
             records: visibleRecords,
             pendingRenameNames: pendingRenameNames,
             reduceMotion: accessibilityReduceMotion
         )
-        reconcileSelection(with: rows)
+        reconcileSelection()
         guard selection == selectedID else { return }
 
         Task { @MainActor in
@@ -744,30 +741,12 @@ private struct TorrentListLiveRow: View {
         )
         .equatable()
         .allowsHitTesting(!isAdding || row.torrentRecord?.additionPhase == .failed)
-        // Native List can reuse the tuned height without measuring this whole
-        // swipe/glass/icon hierarchy for each row entering the viewport.
-        .frame(height: grid ? 164 : rowHeight, alignment: .center)
-        .background {
-            if isReordering || (isSelected && isSwiping) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .padding(.leading, -14 - artworkOverflow).padding(.trailing, -14)
-                    .shadow(color: .black.opacity(0.1), radius: 8, y: 3)
-            }
-            // The card extends 14 points beyond the content on each side, and
-            // follows the actual foreground view when native swipe actions move it.
-            if !grid { TorrentListElevationAnchor(controller: elevationController, rowID: row.id, selected: isSelected)
-                .padding(.leading, -14 - artworkOverflow)
-                .padding(.trailing, -14)
-                .padding(.vertical, TorrentCardGeometry.verticalInset) }
-        }
-        .contentShape(.dragPreview, RoundedRectangle(cornerRadius: 12))
-        .opacity(isReordering ? 0.45 : 1)
-        .simultaneousGesture(TapGesture().onEnded { select() })
+        .modifier(TorrentListRowChrome(rowID: row.id, isSelected: isSelected, isReordering: isReordering,
+            isSwiping: isSwiping, grid: grid, rowHeight: rowHeight, artworkOverflow: artworkOverflow,
+            elevationController: elevationController, select: select))
         .glassContextMenu(select: select) { contextMenuContent }
         .padding(.leading, grid ? 0 : leftPadding + TorrentRowColumns.horizontalInset)
         .padding(.trailing, grid ? 0 : rightPadding + TorrentRowColumns.horizontalInset)
-        .background { if grid && isSelected { RoundedRectangle(cornerRadius: 16).fill(Color(nsColor: .controlBackgroundColor)).shadow(color: .black.opacity(0.15), radius: 8, y: 4) } }
         }
     }
 

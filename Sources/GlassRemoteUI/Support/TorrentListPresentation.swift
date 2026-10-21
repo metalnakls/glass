@@ -79,14 +79,11 @@ struct TorrentListSection: Identifiable {
     nonisolated var id: String {
         switch self {
         case let .header(section): "section:" + section.id
-        case let .draft(draft): "draft:" + draft.id.uuidString
+        case let .draft(draft): draft.listID
         case let .torrent(row): row.id
         }
     }
-    var selectionTag: String? {
-        if case .draft = self { return nil }
-        return id
-    }
+    var selectionTag: String? { id }
     static func entries(for rows: [TorrentListRowPresentation], lowercase: Bool) -> [Self] {
         TorrentListLayout(rows: rows).entries(lowercase: lowercase)
     }
@@ -131,14 +128,11 @@ struct TorrentListLayout {
         for section in sections {
             headers[section.id] = ids.count
             ids.append(nil)
-            for draft in section.drafts {
-                indices[TorrentListEntry.draft(draft).id] = ids.count
-                ids.append(TorrentListEntry.draft(draft).id)
-            }
-            for (offset, row) in section.rows.enumerated() {
-                indices[row.id] = ids.count
-                ids.append(row.id)
-                if offset + 1 < section.rows.count { neighbors[row.id] = section.rows[offset + 1].id }
+            let sectionIDs = section.drafts.map(\.listID) + section.rows.map(\.id)
+            for (offset, id) in sectionIDs.enumerated() {
+                indices[id] = ids.count
+                ids.append(id)
+                if offset + 1 < sectionIDs.count { neighbors[id] = sectionIDs[offset + 1] }
             }
         }
         nativeRowIDs = ids

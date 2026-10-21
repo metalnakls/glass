@@ -5,6 +5,7 @@ import SwiftUI
 /// The passive release observer preserves Glass's short/long swipe semantics.
 struct TorrentNativeSwipeRow<Content: View>: View {
     let enabled: Bool
+    var kind: TorrentSwipeRowKind = .torrent
     let remove: (Bool) -> Void
     let presentationChanged: (Bool) -> Void
     @ViewBuilder let content: () -> Content
@@ -29,7 +30,7 @@ struct TorrentNativeSwipeRow<Content: View>: View {
                 .symbolRenderingMode(.palette)
                 .foregroundStyle(deleteData ? Color.white : Color.black)
         }
-        .accessibilityLabel(glassText(deleteData ? "Delete Torrent + Data" : "Remove Torrent"))
+        .accessibilityLabel(glassText(kind.removalLabel(deleteData: deleteData)))
         .tint(deleteData ? .red : .yellow)
         .labelStyle(.iconOnly)
         .font(.system(size: 13, weight: .semibold))
@@ -57,4 +58,16 @@ struct TorrentNativeSwipeRow<Content: View>: View {
 private struct TorrentSwipeContent<Content: View>: View {
     let content: () -> Content
     var body: some View { content() }
+}
+
+/// Draft removal discards editor state; it never deletes downloaded files.
+enum TorrentSwipeRowKind {
+    case torrent, draft
+
+    func removalLabel(deleteData: Bool) -> String {
+        switch self {
+        case .draft: "Discard Draft"
+        case .torrent: deleteData ? "Delete Torrent + Data" : "Remove Torrent"
+        }
+    }
 }

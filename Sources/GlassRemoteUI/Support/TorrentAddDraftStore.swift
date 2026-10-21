@@ -21,6 +21,8 @@ struct TorrentAddDraft: Codable, Sendable, Identifiable, Equatable {
     var frontItemID: UUID?
     var items: [TorrentAddDraftItem] = []
 
+    var listID: String { "draft:" + id.uuidString }
+
     var isEmpty: Bool {
         items.isEmpty && pendingURLs.isEmpty && (magnet?.isEmpty ?? true)
     }
@@ -93,6 +95,11 @@ final class TorrentAddDraftStore {
 
     var mostRecentFirst: [TorrentAddDraft] {
         drafts.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    func draft(selectionID: String?) -> TorrentAddDraft? {
+        guard let selectionID else { return nil }
+        return drafts.first { $0.listID == selectionID }
     }
 
     func draft(id: UUID) -> TorrentAddDraft? {

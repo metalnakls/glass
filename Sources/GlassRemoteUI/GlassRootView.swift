@@ -74,7 +74,7 @@ public struct GlassRootView: View {
                 pendingRemovalDuration: pendingRemovalDuration,
                 drafts: addDrafts.mostRecentFirst,
                 resumeDraft: restoreDraft,
-                discardDraft: { addDrafts.discard($0.id) },
+                discardDraft: discardDraft,
                 commitRename: { torrent, sourceID, name in submitRename(torrent, sourceID: sourceID, newName: name) },
                 remove: scheduleRemoval,
                 removeSelected: removeSelectedTorrent,
@@ -294,6 +294,15 @@ public struct GlassRootView: View {
         }
     }
 
+    private var selectedDraft: TorrentAddDraft? { addDrafts.draft(selectionID: selectedTorrentID) }
+
+    private func discardDraft(_ draft: TorrentAddDraft) {
+        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
+            addDrafts.discard(draft.id)
+            if selectedTorrentID == draft.listID { selectedTorrentID = nil }
+        }
+    }
+
     private var selectedRecord: TorrentRecord? {
         guard let selectedTorrentID else { return nil }
         return model.allTorrentRecords.first { $0.id == selectedTorrentID && !$0.isAdding }
@@ -315,7 +324,7 @@ public struct GlassRootView: View {
             openMagnet: { presentMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
-            canRemoveSelectedTorrent: (selectedRecord != nil || presentation.rows.contains { $0.id == selectedTorrentID && !$0.isTorrent }) && activeSheet == nil && activeAlert == nil,
+            canRemoveSelectedTorrent: (selectedDraft != nil || selectedRecord != nil || presentation.rows.contains { $0.id == selectedTorrentID && !$0.isTorrent }) && activeSheet == nil && activeAlert == nil,
             removeSelectedTorrent: removeSelectedTorrent
         )
     }
@@ -545,6 +554,10 @@ public struct GlassRootView: View {
     }
 
     private func removeSelectedTorrent(deleteData: Bool) {
+        if let draft = selectedDraft {
+            discardDraft(draft)
+            return
+        }
         if let id = model.allTorrentRecords.first(where: { $0.id == selectedTorrentID })?.additionID {
             model.cancelTorrentAddition(id)
         } else if let record = selectedRecord {

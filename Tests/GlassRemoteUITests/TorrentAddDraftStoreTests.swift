@@ -20,6 +20,27 @@ struct TorrentAddDraftStoreTests {
         )
     }
 
+    @Test("native list selection resolves only its own draft for removal")
+    func selectedDraftRemoval() throws {
+        let file = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+        let store = TorrentAddDraftStore(fileURL: file)
+        let first = TorrentAddDraft(id: UUID(), items: [item(name: "First")])
+        let second = TorrentAddDraft(id: UUID(), items: [item(name: "Second")])
+        store.capture(first)
+        store.capture(second)
+        #expect(store.draft(selectionID: nil) == nil)
+        #expect(store.draft(selectionID: "torrent:another") == nil)
+        let selected = try #require(store.draft(selectionID: first.listID))
+        store.discard(selected.id)
+        store.flush()
+        let restored = TorrentAddDraftStore(fileURL: file)
+        #expect(restored.draft(selectionID: first.listID) == nil)
+        #expect(restored.draft(selectionID: second.listID)?.id == second.id)
+        #expect(TorrentSwipeRowKind.draft.removalLabel(deleteData: false) == "Discard Draft")
+        #expect(TorrentSwipeRowKind.draft.removalLabel(deleteData: true) == "Discard Draft")
+    }
+
     @Test("A captured Add survives a relaunch")
     func reloadsCapturedDraft() {
         let fileURL = temporaryFile()
