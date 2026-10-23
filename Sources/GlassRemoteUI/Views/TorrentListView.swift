@@ -779,6 +779,7 @@ private struct TorrentListLiveRow: View {
 
     private func removeRow(deleteData: Bool) {
         guard !isAdding else { return }
+        if case let .group(records, _, _) = row.kind, records.contains(where: { $0.isAdding }) { return }
         switch row.kind {
         case let .torrent(record, _): remove(record.summary, record.sourceID, deleteData)
         case let .group(records, _, _):
@@ -794,7 +795,7 @@ private struct TorrentListLiveRow: View {
             return TorrentNameSequenceGroup(
                 id: row.id,
                 displayName: displayName,
-                torrents: records.map(\.summary)
+                torrents: records.filter { !$0.isAdding }.map(\.summary)
             ).summary
         }
     }
@@ -802,7 +803,7 @@ private struct TorrentListLiveRow: View {
     private var isAdding: Bool {
         switch row.kind {
         case let .torrent(record, _): return record.isAdding
-        case let .group(records, _, _): return records.contains { $0.isAdding }
+        case .group: return false
         }
     }
 

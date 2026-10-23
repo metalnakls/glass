@@ -7,21 +7,49 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
-    @Test("queued seasons stay visible outside collapsed groups and completed filters")
-    func queuedSeasonsStayVisible() throws {
+    @Test("queued and failed seasons retain their group and actionable child identity")
+    func queuedSeasonsStayGrouped() throws {
         let source = UUID()
         let existing = [filterRecord(source, season: 1, complete: true), filterRecord(source, season: 2, complete: true)]
-        let pending = TorrentRecord(filterRecord(source, season: 3, complete: false).summary,
-            sourceID: source, isAdding: true, additionID: UUID())
-        pending.updateAddition(phase: .failed, error: "RPC unavailable")
+        let pending = TorrentRecord(filterRecord(source, season: 3, complete: false, rawName: "Fargo").summary,
+            sourceID: source, displayName: "Fargo", season: TorrentSeasonDescriptor(title: "Fargo", season: 3),
+            isAdding: true, additionID: UUID())
         let records = existing + [pending]
-        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
-        #expect(rows.filter { $0.id == pending.id }.count == 1)
-        #expect(rows.first?.id == pending.id)
-        #expect(rows.count == 2)
-        for filter in [TorrentGroup.all, .downloading, .completed] {
-            #expect(TorrentLibraryFilter.records(records, group: filter).contains { $0 === pending })
+        var stableGroupID: String?
+        for phase in [TorrentAdditionPhase.queued, .failed] {
+            pending.updateAddition(phase: phase, error: phase == .failed ? "RPC unavailable" : nil)
+            let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+            let group = try #require(rows.first)
+            #expect(rows.count == 1)
+            #expect(group.groupMemberIDs == records.map(\.id))
+            if let stableGroupID { #expect(group.id == stableGroupID) }
+            stableGroupID = group.id
+            #expect(group.selectedGroup?.torrents.map(\.hashString) == existing.map(\.hashString))
+            let expanded = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [group.id])
+            #expect(expanded.map(\.id) == [group.id] + records.map(\.id))
+            let child = try #require(expanded.first { $0.id == pending.id })
+            if case let .torrent(record, name) = child.kind {
+                #expect(record === pending)
+                #expect(name == "Season 3")
+                #expect(record.additionPhase == phase)
+            } else { Issue.record("Pending season must remain a child row") }
+            for filter in [TorrentGroup.all, .downloading, .completed] {
+                #expect(TorrentLibraryFilter.records(records, group: filter).map(\.id) == records.map(\.id))
+            }
         }
+    }
+
+    @Test("pending-only groups have no provider selection")
+    func queuedOnlyGroupHasNoProviderSelection() {
+        let source = UUID()
+        let records = (1...2).map { season in
+            TorrentRecord(filterRecord(source, season: season, complete: false).summary,
+                sourceID: source, isAdding: true, additionID: UUID())
+        }
+        let rows = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+        #expect(rows.count == 1)
+        #expect(rows.first?.groupMemberIDs?.count == 2)
+        #expect(rows.first?.selectedGroup == nil)
     }
 
     @Test("one snapshot supplies native indices, section boundaries and selection neighbors")

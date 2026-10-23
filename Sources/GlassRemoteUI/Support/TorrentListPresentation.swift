@@ -29,7 +29,7 @@ enum TorrentLibraryFilter {
             let matches = group == .downloading
                 ? members.contains { $0.isUnfinished }
                 : members.allSatisfy { !$0.isUnfinished }
-            if matches { included.formUnion(members.map(\.id)) }
+            if matches || members.contains(where: { $0.isAdding }) { included.formUnion(members.map(\.id)) }
         }
         return records.filter { $0.isAdding || included.contains($0.id) }
     }
@@ -325,7 +325,9 @@ struct TorrentListRowPresentation: Identifiable {
 
     var selectedGroup: TorrentNameSequenceGroup? {
         guard case let .group(records, displayName, _) = kind else { return nil }
-        return TorrentNameSequenceGroup(id: id, displayName: displayName, torrents: records.map(\.summary))
+        let live = records.filter { !$0.isAdding }
+        guard !live.isEmpty else { return nil }
+        return TorrentNameSequenceGroup(id: id, displayName: displayName, torrents: live.map(\.summary))
     }
 
     var isTorrent: Bool {
@@ -374,10 +376,7 @@ struct TorrentListRowPresentation: Identifiable {
         pendingRenameNames: [String: String],
         expandedGroupIDs: Set<String>
     ) -> [TorrentListRowPresentation] {
-        let queuedRows = allRecords.filter(\.isAdding).map { record in
-            TorrentListRowPresentation(id: record.id, kind: .torrent(record: record, displayName: record.displayName))
-        }
-        let records = allRecords.filter { !$0.isAdding }
+        let records = allRecords
         let summaries = records.map { record in
             if pendingRenameNames[record.id] == nil, let season = record.season {
                 return record.summary.renamedForPresentation(to: "\(season.title) \(season.season)")
@@ -421,7 +420,7 @@ struct TorrentListRowPresentation: Identifiable {
                 }
             }
         }
-        return queuedRows + rows
+        return rows
     }
 
     static func groupMemberDisplayName(_ record: TorrentRecord, groupName: String) -> String {

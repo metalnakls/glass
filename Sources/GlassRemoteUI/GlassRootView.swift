@@ -801,7 +801,7 @@ private struct TorrentSelectionInspector: View {
             model: model,
             platformIntegration: platformIntegration,
             sourceID: row?.sourceID ?? model.selectedSourceID,
-            selectedTorrentHash: row?.torrentRecord?.hashString ?? row?.id,
+            selectedTorrentHash: row?.torrentRecord.flatMap { $0.isAdding ? nil : $0.hashString },
             selectedTorrentGroup: row?.selectedGroup,
             isVisible: isVisible
         )
