@@ -164,7 +164,7 @@ struct TorrentRowView: View, Equatable {
                         .frame(width: 36, height: 48)
                         .offset(x: !grid ? TorrentIconPose.forRole(.fan, position: iconPosition).x : 0)
                         .opacity(groupIsExpanded ? 1 : 0)
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.24), value: groupIsExpanded)
+                        .glassMotion(.replacement, value: groupIsExpanded)
                         .accessibilityHidden(!groupIsExpanded)
                 }
                 .frame(width: 36, height: 48)
@@ -222,7 +222,7 @@ struct TorrentRowView: View, Equatable {
 
             sizeLabel
         }
-        .animation(.easeInOut(duration: 0.2), value: pendingOldName)
+        .glassMotion(.replacement, value: pendingOldName)
     }
 
     @ViewBuilder
@@ -289,7 +289,7 @@ struct TorrentRowView: View, Equatable {
             configuration.label
                 .opacity(configuration.isPressed ? 0.72 : 1)
                 .scaleEffect(configuration.isPressed && !reduceMotion ? 0.985 : 1)
-                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .glassMotion(.feedback, value: configuration.isPressed)
         }
     }
 
@@ -387,7 +387,7 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityValue("\(formatPercent(progress)) downloaded")
         }
         .modifier(TorrentRowStateSlot(compact: density == .compact && !grid))
-        .animation(reduceMotion ? nil : .linear(duration: 0.2), value: progress)
+        .glassMotion(.progress, value: progress)
     }
 
     @ViewBuilder
@@ -450,8 +450,8 @@ struct TorrentRowView: View, Equatable {
         .frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28)
         .phaseAnimator([false, true], trigger: clickRevision) { view, pressed in
             view.scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
-        } animation: { _ in .easeOut(duration: 0.12) }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: stateSymbol)
+        } animation: { _ in GlassMotion.feedback }
+        .glassMotion(.control, value: stateSymbol)
     }
 
     private var stateGlyph: some View {

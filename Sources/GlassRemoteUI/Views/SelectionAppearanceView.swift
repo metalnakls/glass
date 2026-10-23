@@ -111,7 +111,7 @@ public struct SelectionAppearanceView: View {
                 controls
             }
             .id(section.rawValue)
-            .transition(.blurReplace)
+            .glassTransition()
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal)
         }
@@ -127,7 +127,7 @@ public struct SelectionAppearanceView: View {
                         ForEach(TuningSection.allCases) { item in
                             GlassPickerChoice {
                                 sectionPickerPresented = false
-                                withAnimation(reduceMotion ? nil : .smooth) { selectSection(item) }
+                                withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { selectSection(item) }
                             } label: {
                                 Label(glassText(item.title), systemImage: item.symbol)
                             }
@@ -138,7 +138,7 @@ public struct SelectionAppearanceView: View {
                 Spacer()
             }
         }, bottom: { footer })
-        .animation(reduceMotion ? nil : .smooth, value: section)
+        .glassMotion(.control, value: section)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .glassTextStyle()

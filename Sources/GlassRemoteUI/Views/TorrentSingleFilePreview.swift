@@ -29,7 +29,7 @@ struct TorrentSingleFilePreview: View {
                             .modifier(InspectorGlassPill(interactive: true, iconOnly: true))
                             .opacity(hovering ? 1 : 0)
                             .blur(radius: hovering || reduceMotion ? 0 : 22)
-                            .animation(reduceMotion ? nil : .easeInOut(duration: hovering ? 0.25 : 0.30), value: hovering)
+                            .glassMotion(.hover, value: hovering)
                     }
                 }
                     .buttonStyle(TorrentPreviewPressStyle())
@@ -69,6 +69,6 @@ private struct TorrentPreviewPressStyle: ButtonStyle {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: configuration.isPressed)
+            .glassMotion(.feedback, value: configuration.isPressed)
     }
 }

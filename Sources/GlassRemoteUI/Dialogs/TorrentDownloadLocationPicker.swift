@@ -14,6 +14,7 @@ struct TorrentDownloadLocationPicker: View {
     var isDisabled = false
     var prefersMacDownloads = false
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isEditingServer = false
     @State private var previousProfileIDs = Set<UUID>()
     @State private var isChoosingFolder = false
@@ -32,7 +33,7 @@ struct TorrentDownloadLocationPicker: View {
                     NativeLocationIcon(path: nativeLocationPath,
                         sourceID: sourceID == model.localSourceID ? nil : sourceID,
                         serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
-                    Text(locationName).textCase(nil).lineLimit(1).truncationMode(.middle)
+                    BlurReplacementContent(identity: locationName) { Text(locationName).textCase(nil).lineLimit(1).truncationMode(.middle) }
                     Image(systemName: "chevron.down").font(.caption)
                 }
             } choices: { locationChoices }
@@ -68,7 +69,7 @@ struct TorrentDownloadLocationPicker: View {
                 HStack {
                     Text(glassText("Choose location")).font(.headline)
                     Spacer()
-                    Button { withAnimation(.smooth) { isPresented = false } } label: {
+                    Button { withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { isPresented = false } } label: {
                         Image(systemName: "xmark")
                     }.buttonStyle(.plain).accessibilityLabel(glassText("Close"))
                 }
@@ -102,7 +103,7 @@ struct TorrentDownloadLocationPicker: View {
                             }
                         }
                         .rotationEffect(.degrees(optionHeld ? 1.5 : 0))
-                        .animation(optionHeld ? .easeInOut(duration: 0.14).repeatForever(autoreverses: true) : .smooth, value: optionHeld)
+                        .animation(GlassMotion.attention(active: optionHeld, reduceMotion: reduceMotion), value: optionHeld)
                     }
                 }
                 let recents = model.downloadDirectories(for: model.localSourceID).filter {

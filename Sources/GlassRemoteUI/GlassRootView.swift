@@ -59,7 +59,7 @@ public struct GlassRootView: View {
                     .frame(maxWidth: 300, maxHeight: .infinity)
                     .padding(.horizontal, 38)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity.combined(with: .blurReplace))
+                    .glassTransition()
             } else {
             TorrentWorkspaceView(
                 model: model,
@@ -90,7 +90,7 @@ public struct GlassRootView: View {
             }
             }
         }
-        .animation(accessibilityReduceMotion ? nil : .smooth(duration: 0.25), value: tuneOnLeft)
+        .glassMotion(.control, value: tuneOnLeft)
         .environment(\.glassSampleArtwork, usesTestModel)
         .environment(\.locale, GlassFormatting.shared.locale)
         .inspector(isPresented: inspectorPresentation) {
@@ -110,10 +110,10 @@ public struct GlassRootView: View {
                 .accessibilityHidden(showsTune && !tuneOnLeft)
                 if showsTune && !tuneOnLeft {
                     SelectionAppearanceView(testSession: testSession, section: $tuningSection)
-                        .transition(.blurReplace)
+                        .glassTransition()
                 }
             }
-            .animation(accessibilityReduceMotion ? nil : .smooth, value: showsTune)
+            .glassMotion(.control, value: showsTune)
             .inspectorColumnWidth(min: 260, ideal: 300, max: 340)
         }
         .blur(radius: isTorrentDropTargeted ? dropBlurRadius : 0)
@@ -297,7 +297,7 @@ public struct GlassRootView: View {
     private var selectedDraft: TorrentAddDraft? { addDrafts.draft(selectionID: selectedTorrentID) }
 
     private func discardDraft(_ draft: TorrentAddDraft) {
-        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
+        withAnimation(GlassMotion.animation(.selection, reduceMotion: accessibilityReduceMotion)) {
             addDrafts.discard(draft.id)
             if selectedTorrentID == draft.listID { selectedTorrentID = nil }
         }
@@ -380,7 +380,7 @@ public struct GlassRootView: View {
             oldName: torrent.name,
             newName: newName
         )
-        withAnimation(motionAnimation(.snappy(duration: 0.22))) {
+        withAnimation(GlassMotion.animation(.undo, reduceMotion: accessibilityReduceMotion)) {
             pendingRenames[key] = pendingRename
         }
 
@@ -388,7 +388,7 @@ public struct GlassRootView: View {
             _ = await model.rename(torrent, to: newName, sourceID: sourceID)
             await MainActor.run {
                 guard pendingRenames[key]?.id == pendingRename.id else { return }
-                withAnimation(motionAnimation(.snappy(duration: 0.22))) {
+                withAnimation(GlassMotion.animation(.undo, reduceMotion: accessibilityReduceMotion)) {
                     pendingRenames[key] = nil
                 }
             }
@@ -571,7 +571,7 @@ public struct GlassRootView: View {
 
     private func scheduleRemoval(_ torrent: TorrentSummary, sourceID: UUID, deleteData: Bool) {
         let key = PendingRemovalKey(sourceID: sourceID, hashString: torrent.hashString)
-        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
+        withAnimation(GlassMotion.animation(.selection, reduceMotion: accessibilityReduceMotion)) {
             pendingRemovals.removeAll { $0.key == key }
             pendingRemovals.append(PendingTorrentRemoval(sourceID: sourceID, torrent: torrent, deleteData: deleteData))
             pendingRemovalResetToken = UUID()
@@ -598,7 +598,7 @@ public struct GlassRootView: View {
 
         pendingRemovalTask?.cancel()
         pendingRemovalTask = nil
-        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
+        withAnimation(GlassMotion.animation(.selection, reduceMotion: accessibilityReduceMotion)) {
             pendingRemovals = []
             if selectedTorrentID == nil {
                 selectedTorrentID = restoredSelection
@@ -619,7 +619,7 @@ public struct GlassRootView: View {
         guard !removals.isEmpty else { return }
 
         let keys = removals.map(\.key)
-        withAnimation(motionAnimation(.snappy(duration: 0.28))) {
+        withAnimation(GlassMotion.animation(.selection, reduceMotion: accessibilityReduceMotion)) {
             committingRemovalKeys.formUnion(keys)
             pendingRemovals = []
         }
@@ -657,19 +657,16 @@ public struct GlassRootView: View {
     private func updateInspectorWidth(_ width: CGFloat) {
         let visible = TorrentInspectorLayout.isVisible(width: width, wasVisible: isInspectorPresented)
         guard visible != isInspectorPresented else { return }
-        withAnimation(motionAnimation(.easeInOut(duration: 0.25))) {
+        withAnimation(GlassMotion.animation(.control, reduceMotion: accessibilityReduceMotion)) {
             isInspectorPresented = visible
         }
     }
 
     private var dropAnimation: Animation? {
-        accessibilityReduceMotion ? nil : .timingCurve(1.0 / 3, 0, 2.0 / 3, 1,
-            duration: isTorrentDropTargeted ? 0.25 : 0.30)
+        GlassMotion.drop(isTargeted: isTorrentDropTargeted, reduceMotion: accessibilityReduceMotion)
     }
 
-    private func motionAnimation(_ animation: Animation) -> Animation? {
-        accessibilityReduceMotion ? nil : animation
-    }
+
 }
 
 private struct TorrentWorkspaceView: View {
@@ -721,11 +718,7 @@ private struct TorrentWorkspaceView: View {
                     dismiss: dismissRemovals
                 )
                 .padding(.horizontal, 16)
-                .transition(
-                    accessibilityReduceMotion
-                        ? .opacity
-                        : .move(edge: .bottom).combined(with: .opacity)
-                )
+                .glassTransition(.bottom)
             }
         }
     }

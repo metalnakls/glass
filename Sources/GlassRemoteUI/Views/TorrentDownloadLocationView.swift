@@ -83,7 +83,7 @@ struct TorrentDownloadLocationView: View {
                 }
                 .glassEffectID("location", in: locationGlass)
                 .glassEffectTransition(.matchedGeometry)
-                .animation(reduceMotion ? nil : .spring(response: 0.35, dampingFraction: 0.9), value: location.sourceName)
+                .glassMotion(.control, value: location.sourceName)
                 .disabled(isOpening)
                 .help(glassText("Reveal in Finder") + (isLocal ? "" : "\n" + glassText("⌘-click to reconnect the share")))
                 .accessibilityLabel(location.sourceName)

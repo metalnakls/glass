@@ -13,10 +13,6 @@ enum GlassControlMetrics {
     }
 }
 
-enum GlassMotion {
-    static let control: Animation = .smooth(duration: 0.35)
-}
-
 enum GlassListMetrics {
     // Established breathing room for pinned titles, independent of document spacing.
     static let pinnedTitleInset: CGFloat = 20

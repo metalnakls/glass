@@ -53,18 +53,18 @@ struct GlassAddActionControl: View {
                 stackedControl
             }
         }
-        .animation(reduceMotion ? nil : .smooth(duration: 0.22), value: layout)
+        .glassMotion(.control, value: layout)
     }
 
     private var besideControl: some View {
         HStack(spacing: 8) {
             locationPicker
             GlassPillButton(action: action) {
-                Text(glassText(title)).id(title).transition(.blurReplace)
+                BlurReplacementContent(identity: title) { Text(glassText(title)) }
             }
             .keyboardShortcut(.defaultAction)
             .disabled(!isEnabled)
-            .animation(reduceMotion ? nil : .smooth, value: title)
+            .glassMotion(.control, value: title)
         }
     }
 
@@ -72,8 +72,8 @@ struct GlassAddActionControl: View {
         HStack(spacing: 0) {
             Button(action: action) {
                 HStack(spacing: 4) {
-                    Text(widePrefix).fixedSize()
-                    Text(locationName).textCase(nil)
+                    BlurReplacementContent(identity: widePrefix) { Text(widePrefix) }.fixedSize()
+                    BlurReplacementContent(identity: locationName) { Text(locationName).textCase(nil) }
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -101,8 +101,8 @@ struct GlassAddActionControl: View {
         HStack(spacing: 0) {
             Button(action: action) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(glassText(title)).font(.subheadline.weight(.semibold))
-                    Text(locationName).textCase(nil).font(.caption2)
+                    BlurReplacementContent(identity: title) { Text(glassText(title)) }.font(.subheadline.weight(.semibold))
+                    BlurReplacementContent(identity: locationName) { Text(locationName).textCase(nil) }.font(.caption2)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -168,6 +168,6 @@ private struct GlassAddActionPressStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .opacity(configuration.isPressed ? 0.7 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+            .glassMotion(.feedback, value: configuration.isPressed)
     }
 }

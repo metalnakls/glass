@@ -27,6 +27,8 @@ case "$CONFIGURATION" in
         ;;
 esac
 
+python3 "$ROOT_DIR/Scripts/check-motion-policy.py"
+
 # Remembers the chosen identity in .signing-identity so later builds do not ask
 # again. The file is machine-local and gitignored.
 remember_sign_identity() {

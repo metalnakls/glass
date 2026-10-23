@@ -19,20 +19,20 @@ struct GlassSearchPill: View {
         Group {
         if !expanded {
             GlassPillButton(iconOnly: true) {
-                withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = true }
+                withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { isPresented = true }
                 focused = true
             } label: { Image(systemName: "magnifyingglass") }
                 .accessibilityLabel(glassText(prompt))
         } else {
         HStack {
-            Button { focused = true; withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
+            Button { focused = true; withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { isPresented = true } } label: { Image(systemName: "magnifyingglass").frame(width: expanded ? nil : InspectorGlassPill.height, height: InspectorGlassPill.height) }
                 .buttonStyle(.plain).accessibilityLabel(glassText(prompt))
             if expanded {
                 TextField(glassText(prompt), text: $text)
                     .textFieldStyle(.plain).focused($focused)
                     .focusedValue(\.glassInspectorFileFilterFocused, inspectorFocus)
                     .onExitCommand { isPresented = false; focused = false; text = "" }
-                if !permanentlyExpanded { Button { withAnimation(reduceMotion ? nil : GlassMotion.control) { isPresented = false } } label: { Image(systemName: "xmark").frame(width: 28, height: 28).contentShape(Rectangle()) }
+                if !permanentlyExpanded { Button { withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { isPresented = false } } label: { Image(systemName: "xmark").frame(width: 28, height: 28).contentShape(Rectangle()) }
                     .buttonStyle(.plain).accessibilityLabel(glassText("Close search")) }
             }
         }
@@ -42,6 +42,7 @@ struct GlassSearchPill: View {
         .modifier(InspectorGlassPill(interactive: true, iconOnly: !expanded))
         }
         }
+        .glassMotion(.control, value: expanded)
         .font(.body)
         .controlSize(GlassControlMetrics.size)
         .glassEffectID(transitionID, in: transitionNamespace ?? glassNamespace)

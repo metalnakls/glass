@@ -132,12 +132,11 @@ struct AddTorrentBatchView: View {
                     .padding(.trailing, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
                     .padding(.bottom, groups.count > 1 ? GlassModalMetrics.cardReveal * 2 : 0)
                     .id(group.id)
-                    .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity),
-                        removal: .move(edge: .top).combined(with: .opacity)))
+                    .glassTransition(.cardAdvance)
             }
         }
         .clipped()
-        .animation(reduceMotion ? nil : .smooth, value: selectedGroupID)
+        .glassMotion(.control, value: selectedGroupID)
         .overlay(alignment: .bottomLeading) {
             if let addErrorMessage {
                 Label(addErrorMessage, systemImage: "exclamationmark.triangle")
@@ -147,7 +146,7 @@ struct AddTorrentBatchView: View {
             }
         }
         .background(ModifierKeyObserver { optionHeld = $0 })
-        .background(AddCommandKeyObserver { held in withAnimation(.smooth) { commandHeld = held } })
+        .background(AddCommandKeyObserver { held in withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { commandHeld = held } })
         .onExitCommand { if searchPresented { searchPresented = false; fileSearchText = "" } else if !isAdding { cancelImport() } }
         .task(id: drafts.map(\.id)) {
             let known = Set(items.map { $0.draft.id })
@@ -292,7 +291,7 @@ struct AddTorrentBatchView: View {
     private func prepareNames() async {
         let result = await AddNamingPreparation.prepare(drafts)
         guard !Task.isCancelled else { return }
-        withAnimation(reduceMotion ? nil : .smooth) {
+        withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) {
             groups = result.groups.filter { group in
                 group.itemIndices.contains { !consumedDraftIDs.contains(items[$0].draft.id) }
             }
@@ -416,7 +415,7 @@ struct AddTorrentBatchView: View {
         let remaining = groups.filter { $0.id != selectedGroupID }
         if remaining.isEmpty { dismiss() }
         else {
-            withAnimation(reduceMotion ? nil : .smooth) { groups = remaining; selectedGroupID = remaining[0].id }
+            withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) { groups = remaining; selectedGroupID = remaining[0].id }
         }
 
         isAdding = false

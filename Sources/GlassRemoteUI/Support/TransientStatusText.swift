@@ -26,12 +26,8 @@ struct BlurReplacementContent<Content: View>: View {
 
     var body: some View {
         ZStack(alignment: .leading) {
-            if reduceMotion {
-                content.id(identity).transition(.opacity)
-            } else {
-                content.id(identity).transition(.blurReplace)
-            }
+            content.id(identity).glassTransition()
         }
-        .animation(.easeInOut(duration: reduceMotion ? 0.2 : 0.35), value: identity)
+        .glassMotion(.replacement, value: identity)
     }
 }

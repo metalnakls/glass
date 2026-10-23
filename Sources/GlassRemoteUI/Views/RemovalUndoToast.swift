@@ -55,7 +55,7 @@ struct RemovalUndoToast: View {
             .background {
                 ToastTrackpadSwipe(resetToken: resetToken) { offset, ended, shouldDismiss in
                     if ended {
-                        withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
+                        withAnimation(GlassMotion.animation(.undo, reduceMotion: accessibilityReduceMotion)) {
                             if shouldDismiss {
                                 trackpadTranslation = offset
                                 GlassHaptics.perform(.swipe)
@@ -153,7 +153,7 @@ struct RemovalUndoToast: View {
             .onEnded { value in
                 if shouldDismiss(with: value) {
                     GlassHaptics.perform(.swipe)
-                    withAnimation(accessibilityReduceMotion ? nil : .snappy(duration: 0.22)) {
+                    withAnimation(GlassMotion.animation(.undo, reduceMotion: accessibilityReduceMotion)) {
                         finishGesture(dismiss)
                     }
                 }
@@ -191,7 +191,7 @@ struct RemovalUndoToast: View {
         countdownTask = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(40))
             guard !Task.isCancelled else { return }
-            withAnimation(.linear(duration: duration)) {
+            withAnimation(GlassMotion.countdown(duration: duration)) {
                 countdownProgress = 0
             }
         }

@@ -309,12 +309,12 @@ struct TorrentListView: View {
         .task {
             try? await Task.sleep(for: .milliseconds(180))
             guard !Task.isCancelled else { return }
-            withAnimation(accessibilityReduceMotion ? nil : .smooth(duration: 0.28)) {
+            withAnimation(GlassMotion.animation(.control, reduceMotion: accessibilityReduceMotion)) {
                 updateButtonVisible = GlassUpdateAvailability.shared.isAvailable
             }
         }
         .onChange(of: GlassUpdateAvailability.shared.isAvailable) { _, available in
-            withAnimation(accessibilityReduceMotion ? nil : .smooth(duration: 0.28)) {
+            withAnimation(GlassMotion.animation(.control, reduceMotion: accessibilityReduceMotion)) {
                 updateButtonVisible = available
             }
         }
@@ -356,13 +356,13 @@ struct TorrentListView: View {
                 GlassFloatingDock {
                     GlassSearchPill(text: $searchText, isPresented: $searchPresented,
                         expandedWidth: 260, prompt: "Search Torrents", inspectorFocus: false)
-                }.transition(.blurReplace.combined(with: .move(edge: .bottom)))
+                }.glassTransition(.notification)
             }
         }
         .onChange(of: sampleArtwork) { _, isSample in
             if isSample { searchPresented = false; searchText = "" }
         }
-        .animation(.smooth(duration: 0.25), value: searchPresented)
+        .glassMotion(.control, value: searchPresented)
         .onKeyPress(.escape) { guard searchPresented else { return .ignored }; searchPresented = false; searchText = ""; return .handled }
         .onDragSessionUpdated { session in
             switch session.phase {
@@ -458,7 +458,7 @@ struct TorrentListView: View {
         TorrentNativeSwipeRow(enabled: !grid, kind: .draft, remove: { _ in discardDraft(draft) },
             presentationChanged: { shown in
                 let update = { swipingRowID = shown ? draft.listID : (swipingRowID == draft.listID ? nil : swipingRowID) }
-                if accessibilityReduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.20), update) }
+                if accessibilityReduceMotion { update() } else { withAnimation(GlassMotion.replacement, update) }
             }) {
             TorrentDraftRow(model: model, draft: draft, grid: grid, rowHeight: listRowHeight,
                 leadingPadding: 0, trailingPadding: 0, columns: columns,
@@ -494,7 +494,7 @@ struct TorrentListView: View {
             select: { selection = row.id },
             swipePresentationChanged: { visible in
                 let update = { swipingRowID = visible ? row.id : (swipingRowID == row.id ? nil : swipingRowID) }
-                if accessibilityReduceMotion { update() } else { withAnimation(.easeInOut(duration: 0.20), update) }
+                if accessibilityReduceMotion { update() } else { withAnimation(GlassMotion.replacement, update) }
             },
             toggleGroupExpansion: { toggleAutoGroup(row) },
             commitRename: commitRename,
@@ -610,7 +610,7 @@ struct TorrentListView: View {
             if accessibilityReduceMotion {
                 scrollProxy.scrollTo(selectedID, anchor: .center)
             } else {
-                withAnimation(.easeOut(duration: 0.22)) {
+                withAnimation(GlassMotion.control) {
                     scrollProxy.scrollTo(selectedID, anchor: .center)
                 }
             }

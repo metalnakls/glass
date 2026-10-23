@@ -116,3 +116,26 @@ Each declared owner has a small interface, migrated real callers, documented
 variants, and evidence for affected behavior. Values have one source; obsolete
 caller styles are removed. Both production policy and native rendering are
 checked. Until then, report the migration as partial.
+
+## Motion ownership
+
+`GlassMotion` owns fixed SwiftUI timing, named transition variants, and Reduce
+Motion policy. Views use `glassMotion(_:value:)` on the specific changed state
+and `glassTransition(_:)` for insertion/removal. Explicit state mutations use
+`GlassMotion.animation(_:reduceMotion:)`. Do not attach a global animation to
+live torrent summaries or change row identity to force a transition.
+
+`BlurReplacementContent` owns semantic label replacement. Add/Stall and location
+labels use it in all three Add action layouts and the location picker. Search
+owns expansion for buttons, Escape, and external presentation changes. Shared
+callers include Inspector docks, Add cards, Tune navigation, list controls,
+row state feedback, file preview, location feedback, and undo presentation.
+
+Native popovers/sheets own their presentation. `TorrentFolderMotion` and
+`TorrentListElevation` retain gesture geometry and saved Tune timing. Inspector
+blur also preserves its saved timing. Countdown animation represents elapsed
+time rather than a fixed transition. These are intentional named exceptions.
+
+`python3 Scripts/check-motion-policy.py` rejects new fixed SwiftUI timing outside
+the shared owner; the local build/install script runs it before building.
+Compilation and policy tests do not establish visual quality in every variant.

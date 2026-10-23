@@ -50,7 +50,7 @@ struct TorrentInspectorView: View {
             }
         }
         .blur(radius: blurEnabled && waitingForSelection && !reduceMotion ? max(0, blurRadius) : 0)
-        .animation(!blurEnabled || reduceMotion ? nil : .easeInOut(duration: waitingForSelection ? max(0, blurEaseIn) : max(0, blurEaseOut)), value: waitingForSelection)
+        .animation(GlassMotion.inspectorBlur(enabled: blurEnabled, waiting: waitingForSelection, easeIn: blurEaseIn, easeOut: blurEaseOut, reduceMotion: reduceMotion), value: waitingForSelection)
         .overlay(alignment: .topTrailing) {
             if waitingForSelection && waitingExpired {
                 HStack(spacing: 8) {
@@ -263,8 +263,8 @@ private struct TorrentInspectorContent: View {
             }
         }
         .glassFloatingChrome(top: { topDock }, bottom: { bottomDock })
-        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: snapshot.selectionKey)
-        .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: allCompleted)
+        .glassMotion(.control, value: snapshot.selectionKey)
+        .glassMotion(.control, value: allCompleted)
         .focusedSceneValue(\.glassInspectorSearchPresented, commandsEnabled ? $searchPresented : nil)
         .onChange(of: supportsSearch) { _, supported in
             if !supported { searchPresented = false; fileSearchText = "" }
@@ -314,7 +314,7 @@ private struct TorrentInspectorContent: View {
             .padding(.bottom, 20)
         }
         .onChange(of: snapshot.selectionKey) { _, _ in
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) {
+            withAnimation(GlassMotion.animation(.control, reduceMotion: reduceMotion)) {
                 scroll.scrollTo("inspector-top", anchor: .top)
             }
         }
@@ -339,7 +339,7 @@ private struct TorrentInspectorContent: View {
                 if permanentSearch && supportsSearch && !allCompleted {
                     TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                         .modifier(InspectorGlassPill())
-                        .transition(.opacity.combined(with: .blurReplace))
+                        .glassTransition()
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -369,20 +369,20 @@ private struct TorrentInspectorContent: View {
                             .modifier(InspectorGlassPill())
                             .glassEffectID("primary", in: footerGlassNamespace)
                             .glassEffectTransition(.matchedGeometry)
-                            .transition(.move(edge: .leading).combined(with: .opacity))
+                            .glassTransition(.leading)
                     }
                     if supportsSearch {
                         GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, transitionNamespace: footerGlassNamespace, transitionID: searchPresented || permanentSearch ? "primary" : "secondary", permanentlyExpanded: permanentSearch || allCompleted)
-                            .transition(.move(edge: .trailing).combined(with: .opacity))
+                            .glassTransition(.trailing)
                     }
                 }
             }
             .controlSize(.large)
 
-            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: searchPresented)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.35), value: editSession.hasSelection)
-            .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: editSession.hasChanges)
-            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: allCompleted)
+            .glassMotion(.control, value: searchPresented)
+            .glassMotion(.control, value: editSession.hasSelection)
+            .glassMotion(.replacement, value: editSession.hasChanges)
+            .glassMotion(.control, value: allCompleted)
     }
 
     private func selectAllFiles() {

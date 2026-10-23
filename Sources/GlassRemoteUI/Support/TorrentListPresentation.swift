@@ -293,7 +293,7 @@ final class TorrentListPresentationModel {
         reduceMotion: Bool
     ) {
         if animated, !reduceMotion {
-            withAnimation(.smooth(duration: 0.26, extraBounce: 0)) {
+            withAnimation(GlassMotion.structure) {
                 layout = TorrentListLayout(rows: updatedRows, sorting: sorting, drafts: drafts)
             }
         } else {
