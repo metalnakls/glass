@@ -80,6 +80,13 @@ struct GlassApp: App {
             GlassCommands(updaterController: updaterController)
         }
 
+
+        Window("Motion Comparison", id: "motion-comparison") {
+            MotionComparisonView()
+        }
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        .defaultSize(width: 920, height: 640)
     }
 
     private static func makeModel() -> RemoteAppModel {
