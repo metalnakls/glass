@@ -42,7 +42,7 @@ struct TorrentInspectorView: View {
                     .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                     .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
             } else if selectionKey == nil {
-                ContentUnavailableView(glassText("No Torrent Selected"), systemImage: "info.circle", description: Text(glassText("Select a torrent to show details.")))
+                Color.clear.background { if isVisible { InspectorPup() } }.accessibilityHidden(true)
             } else if waitingExpired, let error = selectionError {
                 ContentUnavailableView(glassText("Couldn’t Load Details"), systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
