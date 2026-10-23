@@ -89,12 +89,3 @@ extension View {
         modifier(GlassTransitionModifier(change: change))
     }
 }
-
-/// Proposed values used exclusively by Motion Comparison; never applied to production.
-enum GlassMotionCandidate {
-    static let control: Animation = .timingCurve(0.23, 1, 0.32, 1, duration: 0.2)
-    static let crossfade: Animation = .linear(duration: 0.2)
-    static func press(down: Bool) -> Animation {
-        .easeOut(duration: down ? 0.16 : 0.1)
-    }
-}
