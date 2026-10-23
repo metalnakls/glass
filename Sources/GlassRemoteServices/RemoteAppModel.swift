@@ -101,6 +101,8 @@ public final class RemoteAppModel {
     public static let activeAutoRefreshInterval: Duration = .seconds(2)
     public static let quietAutoRefreshInterval: Duration = .seconds(10)
     private static let torrentCachePersistenceDelay: Duration = .seconds(30)
+    @ObservationIgnored private var refreshFailures: [UUID: Int] = [:]
+
     private static let commandRefreshDebounce: Duration = .milliseconds(200)
     public static let completionWatchInterval: Duration = .seconds(10)
 
@@ -559,6 +561,7 @@ public final class RemoteAppModel {
         do {
             let snapshot = try await provider.fetchSnapshot()
             guard !Task.isCancelled, sources.contains(where: { $0 === state }) else { return }
+            refreshFailures[sourceID] = nil
             let previouslyPresentHashes = Set(state.records.filter { !$0.isAdding }.map(\.hashString))
             let mergedTorrents: [TorrentSummary]
             switch snapshot.torrentUpdate {
@@ -582,6 +585,7 @@ public final class RemoteAppModel {
             await refreshVisibleTorrentDetailsAfterListRefresh(sourceID: sourceID, provider: provider)
         } catch {
             guard !(error is CancellationError), sources.contains(where: { $0 === state }) else { return }
+            refreshFailures[sourceID] = min(6, (refreshFailures[sourceID] ?? 0) + 1)
             let stale = !state.records.isEmpty
             if state.isSessionStale != stale { state.isSessionStale = stale }
             let message = error.localizedDescription
@@ -604,11 +608,17 @@ public final class RemoteAppModel {
             guard isApplicationActive, !Task.isCancelled, sources.contains(where: { $0.id == sourceID }) else { return }
             do {
                 let state = sourceState(for: sourceID)
-                let interval = state.records.contains { $0.summary.isActive }
-                    ? Self.activeAutoRefreshInterval : Self.quietAutoRefreshInterval
+                let interval = Self.autoRefreshInterval(
+                    isActive: state.records.contains { $0.summary.isActive },
+                    failures: refreshFailures[sourceID] ?? 0)
                 try await Task.sleep(for: interval)
             } catch { break }
         }
+    }
+
+    static func autoRefreshInterval(isActive: Bool, failures: Int) -> Duration {
+        guard failures > 0 else { return isActive ? activeAutoRefreshInterval : quietAutoRefreshInterval }
+        return .seconds(min(60, 2 << min(5, max(0, failures - 1))))
     }
 
     public var currentAutoRefreshInterval: Duration {
@@ -1312,22 +1322,40 @@ public final class RemoteAppModel {
 
     func checkWatchedTorrentCompletions() async {
         let watches = watchedTorrents
-        for (watch, fallbackName) in watches {
-            guard watchedTorrents[watch] != nil else { continue }
+        for (sourceID, entries) in Dictionary(grouping: watches.keys, by: \.sourceID) {
+            guard !Task.isCancelled else { break }
             do {
-                let details = try await provider(for: watch.sourceID)
-                    .fetchTorrentDetails(hashString: watch.hashString)
-                // The source or torrent may have been removed while details were loading.
-                guard watchedTorrents[watch] != nil, !Task.isCancelled, Self.isCompleted(details) else { continue }
-                watchedTorrents[watch] = nil
-                notifiedTorrents.insert(watch)
-                let name = details.name.isEmpty ? fallbackName : details.name
-                let stored = torrentDisplayNames[TorrentRecord.identity(sourceID: watch.sourceID, hashString: watch.hashString)]
-                completionNotifier?.notifyTorrentCompleted(name: name,
-                    displayName: stored.flatMap { $0.rootName == name ? $0.displayName : nil } ?? name,
-                    fileCount: details.files.count,
-                    filePath: details.files.first?.name.split(separator: "/").first.map(String.init), sourceID: watch.sourceID,
-                    hashString: watch.hashString, downloadDirectory: details.downloadDir, completionDate: details.doneDate)
+                let sourceProvider = try provider(for: sourceID)
+                let detailsList: [TorrentDetails]
+                do {
+                    detailsList = try await sourceProvider.fetchTorrentDetails(
+                        hashStrings: entries.map(\.hashString), including: [])
+                } catch {
+                    // A removed member must not prevent the other downloads from notifying.
+                    guard !Task.isCancelled else { break }
+                    var surviving: [TorrentDetails] = []
+                    for watch in entries {
+                        guard !Task.isCancelled else { break }
+                        if let details = try? await sourceProvider.fetchTorrentDetails(hashString: watch.hashString) {
+                            surviving.append(details)
+                        }
+                    }
+                    detailsList = surviving
+                }
+                for details in detailsList {
+                    let watch = WatchedTorrent(sourceID: sourceID, hashString: details.hashString)
+                    guard let fallbackName = watchedTorrents[watch], !Task.isCancelled,
+                          Self.isCompleted(details) else { continue }
+                    watchedTorrents[watch] = nil
+                    notifiedTorrents.insert(watch)
+                    let name = details.name.isEmpty ? fallbackName : details.name
+                    let stored = torrentDisplayNames[TorrentRecord.identity(sourceID: sourceID, hashString: watch.hashString)]
+                    completionNotifier?.notifyTorrentCompleted(name: name,
+                        displayName: stored.flatMap { $0.rootName == name ? $0.displayName : nil } ?? name,
+                        fileCount: details.files.count,
+                        filePath: details.files.first?.name.split(separator: "/").first.map(String.init), sourceID: sourceID,
+                        hashString: watch.hashString, downloadDirectory: details.downloadDir, completionDate: details.doneDate)
+                }
             } catch {
                 // Keep watching through transient server and network failures.
             }
@@ -1899,6 +1927,9 @@ public final class RemoteAppModel {
     }
 
     private func updateTorrentCache(_ torrents: [TorrentSummary], for profileID: UUID) {
+        // Refresh an unchanged cache at most hourly so its expiry still reflects use.
+        if let cached = torrentCache[profileID], cached.torrents == torrents,
+           Date().timeIntervalSince(cached.refreshedAt) < 3600 { return }
         torrentCache[profileID] = CachedTorrentList(profileID: profileID, torrents: torrents)
         trimTorrentCache()
         scheduleTorrentCachePersistence()
@@ -1938,6 +1969,7 @@ public final class RemoteAppModel {
     private func applyTorrentDelta(changed: [TorrentSummary], removedIDs: [Int], sourceID: UUID) -> [TorrentSummary] {
         defer { reconcilePendingAdditions() }
         let state = sourceState(for: sourceID)
+        guard !changed.isEmpty || !removedIDs.isEmpty else { return state.records.map(\.summary) }
         let removedIDSet = Set(removedIDs)
         var records = state.records.filter { !removedIDSet.contains($0.summary.id) }
         var recordsByIdentity = Dictionary(

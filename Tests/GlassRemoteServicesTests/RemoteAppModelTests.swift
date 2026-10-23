@@ -7,6 +7,30 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("failed polling backs off to a cap and healthy polling keeps its cadence")
+    func refreshBackoffIntervals() {
+        #expect(RemoteAppModel.autoRefreshInterval(isActive: true, failures: 0) == .seconds(2))
+        #expect(RemoteAppModel.autoRefreshInterval(isActive: false, failures: 0) == .seconds(10))
+        #expect((1...7).map { RemoteAppModel.autoRefreshInterval(isActive: true, failures: $0) }
+            == [2, 4, 8, 16, 32, 60, 60].map { Duration.seconds($0) })
+    }
+
+    @Test("unchanged refresh preserves the cache checkpoint")
+    func unchangedCacheCheckpoint() async throws {
+        let profile = makeProfile()
+        let store = MemoryProfileStore(profiles: [profile])
+        let model = RemoteAppModel(profileStore: store,
+            credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory().make(config:))
+        await model.refresh()
+        model.setApplicationActive(false)
+        let initial = try store.loadTorrentCache()
+        await model.refresh()
+        model.setApplicationActive(false)
+        #expect(try store.loadTorrentCache() == initial)
+        #expect(store.torrentCacheSaveCount == 1)
+    }
+
     @Test("magnet previews share metadata without submitting a download", .timeLimit(.minutes(1)))
     func magnetPreviewDoesNotAdd() async throws {
         let local = StubLocalTransmissionSession(), client = StubRPCClient()

@@ -412,6 +412,7 @@ struct AddTorrentBatchView: View {
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
         consumedDraftIDs.formUnion(jobs.map { $0.0.draft.id })
+        captureDraft()
         let remaining = groups.filter { $0.id != selectedGroupID }
         if remaining.isEmpty { dismiss() }
         else {
