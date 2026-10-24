@@ -614,6 +614,34 @@ struct RemoteAppModelTests {
         #expect(model.currentAutoRefreshInterval == RemoteAppModel.quietAutoRefreshInterval)
     }
 
+    @Test("completion identifies the season only when the series has siblings", arguments: [false, true])
+    func seasonCompletionTitle(hasSibling: Bool) async throws {
+        let profile = makeProfile(), store = MemoryProfileStore(profiles: [makeProfile()])
+        let client = StubRPCClient(), notifier = RecordingTorrentCompletionNotifier()
+        try store.saveTorrentDisplayNames([
+            TorrentRecord.identity(sourceID: profile.id, hashString: "hash-1"):
+                TorrentStoredDisplayName(rootName: "Spider-Noir", displayName: "Walking Dead", season: .init(title: "Walking Dead", season: 3))
+        ])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory { _ in client }.make(config:), completionNotifier: notifier,
+            completionPollingInterval: .seconds(60))
+        await model.refresh()
+        #expect(model.prepareTorrentAddition(id: UUID(), sourceID: UUID(), name: "Walking Dead", size: 1,
+            fileCount: 2, downloadDirectory: nil,
+            namingPlan: .init(rootName: "Walking Dead", pathRenames: [], displayName: "Walking Dead", season: .init(title: "Walking Dead", season: 2))))
+        if hasSibling {
+            #expect(model.prepareTorrentAddition(id: UUID(), sourceID: profile.id, name: "Walking Dead", size: 1,
+                fileCount: 2, downloadDirectory: nil,
+                namingPlan: .init(rootName: "Walking Dead", pathRenames: [], displayName: "Walking Dead", season: .init(title: "Walking Dead", season: 4))))
+        }
+        await client.setInspectorProgress(percentDone: 1, fileBytesCompleted: 100)
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedDisplayNames == [hasSibling ? "Walking Dead 3" : "Walking Dead"])
+        #expect(notifier.completedTorrentNames == ["Spider-Noir"])
+        await model.checkWatchedTorrentCompletions()
+        #expect(notifier.completedDisplayNames.count == 1)
+    }
+
     @Test("newly added torrents notify once and stop watching after completion")
     func watchesAddedTorrentUntilCompletion() async throws {
         let profile = makeProfile()
@@ -1283,6 +1311,7 @@ private enum TestError: Error {
 private final class RecordingTorrentCompletionNotifier: TorrentCompletionNotifying {
     private(set) var authorizationRequestCount = 0
     private(set) var completedTorrentNames: [String] = []
+    private(set) var completedDisplayNames: [String] = []
     private(set) var completionDates: [Int?] = []
     private(set) var badgeClearCount = 0
 
@@ -1296,6 +1325,7 @@ private final class RecordingTorrentCompletionNotifier: TorrentCompletionNotifyi
 
     func notifyTorrentCompleted(name: String, displayName: String, fileCount: Int?, filePath: String?, sourceID: UUID, hashString: String, downloadDirectory: String?, completionDate: Int?) {
         completedTorrentNames.append(name)
+        completedDisplayNames.append(displayName)
         completionDates.append(completionDate)
     }
 

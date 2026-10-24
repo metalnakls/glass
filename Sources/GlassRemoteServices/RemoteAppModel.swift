@@ -1397,6 +1397,11 @@ public final class RemoteAppModel {
                     }
                     detailsList = surviving
                 }
+                let siblingTitles = allTorrentRecords.filter { $0.sourceID == sourceID }.map { record in
+                    TorrentCompletionTitle(name: record.name,
+                        storedName: TorrentStoredDisplayName(rootName: record.name, displayName: record.displayName ?? record.name, season: record.season),
+                        downloadDirectory: record.summary.downloadDir)
+                }
                 for details in detailsList {
                     let watch = WatchedTorrent(sourceID: sourceID, hashString: details.hashString)
                     guard let fallbackName = watchedTorrents[watch], !Task.isCancelled,
@@ -1405,8 +1410,10 @@ public final class RemoteAppModel {
                     notifiedTorrents.insert(watch)
                     let name = details.name.isEmpty ? fallbackName : details.name
                     let stored = torrentDisplayNames[TorrentRecord.identity(sourceID: sourceID, hashString: watch.hashString)]
+                    let title = TorrentCompletionTitle(name: name, storedName: stored,
+                        downloadDirectory: details.downloadDir, files: details.files).resolved(among: siblingTitles)
                     completionNotifier?.notifyTorrentCompleted(name: name,
-                        displayName: stored.flatMap { $0.rootName == name ? $0.displayName : nil } ?? name,
+                        displayName: title,
                         fileCount: details.files.count,
                         filePath: details.files.first?.name.split(separator: "/").first.map(String.init), sourceID: sourceID,
                         hashString: watch.hashString, downloadDirectory: details.downloadDir, completionDate: details.doneDate)

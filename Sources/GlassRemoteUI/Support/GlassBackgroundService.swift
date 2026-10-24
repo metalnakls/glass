@@ -2,6 +2,7 @@ import AppKit
 import Foundation
 import OSLog
 import GlassRemoteCore
+import GlassRemoteServices
 import ServiceManagement
 import UserNotifications
 
@@ -363,14 +364,20 @@ private actor GlassBackgroundWorker {
             guard let password = try? credentials.password(for: profile.id) else { continue }
             let rpc = TransmissionRPCClient(config: .init(profile: profile, password: password, timeout: 8))
             guard let torrents = try? await rpc.fetchTorrents() else { continue }
+            let displayNames = (try? store.loadTorrentDisplayNames()) ?? [:]
+            let siblingTitles = torrents.map { torrent in
+                TorrentCompletionTitle(name: torrent.name, storedName: displayNames["\(profile.id.uuidString):\(torrent.hashString)"],
+                    downloadDirectory: torrent.downloadDir)
+            }
             for torrent in torrents {
                 let key = "\(profile.id.uuidString):\(torrent.hashString)"
                 seen.insert(key)
                 if notify, let previous = observed[key], previous < 1, torrent.percentDone >= 1 {
                     let details = try? await rpc.fetchTorrentDetails(hashString: torrent.hashString)
-                    let stored = (try? store.loadTorrentDisplayNames())?["\(profile.id.uuidString):\(torrent.hashString)"]
+                    let title = TorrentCompletionTitle(name: torrent.name, storedName: displayNames[key],
+                        downloadDirectory: torrent.downloadDir, files: details?.files ?? []).resolved(among: siblingTitles)
                     await GlassCompletionNotificationCenter.shared.notifyTorrentCompleted(name: torrent.name,
-                        displayName: stored.flatMap { $0.rootName == torrent.name ? $0.displayName : nil } ?? torrent.name,
+                        displayName: title,
                         fileCount: torrent.fileCount,
                         filePath: details?.files.first?.name.split(separator: "/").first.map(String.init), sourceID: profile.id, hashString: torrent.hashString,
                         downloadDirectory: torrent.downloadDir, completionDate: details?.doneDate ?? torrent.doneDate)
