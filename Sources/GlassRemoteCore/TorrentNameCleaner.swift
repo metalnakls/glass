@@ -1,5 +1,15 @@
 import Foundation
 
+/// Shared series matching for presentation. Original titles remain untouched.
+public enum TorrentSeriesIdentity {
+    public static func key(for title: String) -> String {
+        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .replacingOccurrences(of: #"[\s._-]+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: #"^the\s+"#, with: "", options: .regularExpression)
+    }
+}
+
 public struct TorrentBatchNamingInput: Sendable, Hashable {
     public let rootName: String
     public let files: [TorrentFile]

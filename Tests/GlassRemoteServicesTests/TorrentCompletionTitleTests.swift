@@ -18,6 +18,7 @@ struct TorrentCompletionTitleTests {
         }
         #expect(title(3).resolved(among: [title(3), title(3)]) == "Walking Dead")
         #expect(title(3).resolved(among: [title(3), title(4, series: "Other Series")]) == "Walking Dead")
+        #expect(title(3).resolved(among: [title(4, series: "The Walking Dead")]) == "Walking Dead 3")
     }
 
     @Test("native season folders and older numbered display names supply context")

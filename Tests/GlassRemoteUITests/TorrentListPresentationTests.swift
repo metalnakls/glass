@@ -7,7 +7,7 @@ import Testing
 @MainActor
 @Suite("Torrent library presentation")
 struct TorrentListPresentationTests {
-    @Test("a standalone season retains its number outside a matching group", arguments: [false, true])
+    @Test("a lone season keeps the series title until a group supplies season labels", arguments: [false, true])
     func standaloneSeasonTitle(pending: Bool) throws {
         let source = UUID()
         let files = [TorrentFile(name: "S04E01.mkv", length: 1, bytesCompleted: 0)]
@@ -17,7 +17,7 @@ struct TorrentListPresentationTests {
             isAdding: pending, additionID: pending ? UUID() : nil)
         let rows = TorrentListRowPresentation.rows(records: [record], pendingRenameNames: [:], expandedGroupIDs: [])
         if case let .torrent(_, title) = try #require(rows.first).kind {
-            #expect(title == "Walking Dead 4")
+            #expect(title == "Walking Dead")
         } else { Issue.record("One season must remain a standalone row") }
         let renamed = TorrentListRowPresentation.rows(records: [record], pendingRenameNames: [record.id: "Custom Title"], expandedGroupIDs: [])
         if case let .torrent(_, title) = try #require(renamed.first).kind {

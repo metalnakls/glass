@@ -88,7 +88,20 @@ enum TorrentNameSequenceGrouper {
             grouped[parsed.key, default: []].append(parsed)
         }
 
-        let qualifyingKeys = Set(grouped.compactMap { key, candidates -> String? in
+        // Reuse the first series' existing key, so adding an alternate spelling
+        // does not replace its row identity or lose the saved expansion state.
+        var groupKeys: [String: String] = [:]
+        var matchedGroups: [String: [ParsedTorrent]] = [:]
+        for aliases in Dictionary(grouping: grouped.keys, by: { TorrentSeriesIdentity.key(for: $0) }).values {
+            guard let primary = aliases.min(by: {
+                (grouped[$0]?.first?.originalIndex ?? Int.max) < (grouped[$1]?.first?.originalIndex ?? Int.max)
+            }) else { continue }
+            for alias in aliases {
+                groupKeys[alias] = primary
+                matchedGroups[primary, default: []].append(contentsOf: grouped[alias] ?? [])
+            }
+        }
+        let qualifyingKeys = Set(matchedGroups.compactMap { key, candidates -> String? in
             let numbers = Set(candidates.map(\.number))
             return candidates.count >= 2 && numbers.count >= 2 ? key : nil
         })
@@ -97,15 +110,16 @@ enum TorrentNameSequenceGrouper {
         var items: [TorrentListItem] = []
 
         for torrent in torrents {
-            guard let parsed = parsedByHash[torrent.hashString], qualifyingKeys.contains(parsed.key) else {
+            guard let parsed = parsedByHash[torrent.hashString],
+                  let groupKey = groupKeys[parsed.key], qualifyingKeys.contains(groupKey) else {
                 items.append(.torrent(torrent))
                 continue
             }
 
-            guard !emittedGroupKeys.contains(parsed.key) else { continue }
-            emittedGroupKeys.insert(parsed.key)
+            guard !emittedGroupKeys.contains(groupKey) else { continue }
+            emittedGroupKeys.insert(groupKey)
 
-            let members = (grouped[parsed.key] ?? []).sorted {
+            let members = (matchedGroups[groupKey] ?? []).sorted {
                 if $0.number != $1.number {
                     return $0.number < $1.number
                 }
@@ -113,13 +127,17 @@ enum TorrentNameSequenceGrouper {
             }
 
             items.append(.group(TorrentNameSequenceGroup(
-                id: "auto-group:\(parsed.key)",
-                displayName: members.first?.displayName ?? parsed.displayName,
+                id: "auto-group:\(groupKey)",
+                displayName: grouped[groupKey]?.first?.displayName ?? parsed.displayName,
                 torrents: members.map(\.torrent)
             )))
         }
 
         return items
+    }
+
+    static func memberNumber(for torrent: TorrentSummary) -> Int? {
+        parsedTorrent(torrent, originalIndex: 0)?.number
     }
 
     static func updating(_ items: [TorrentListItem], with torrents: [TorrentSummary]) -> [TorrentListItem] {

@@ -398,7 +398,7 @@ struct TorrentListRowPresentation: Identifiable {
                 guard let record = recordsByHash[torrent.hashString] else { continue }
                 rows.append(TorrentListRowPresentation(
                     id: record.id,
-                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? record.season?.numberedTitle ?? record.displayName ?? seasonDisplayName(record.summary))
+                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? record.displayName ?? seasonDisplayName(record.summary))
                 ))
             case let .group(group):
                 let memberRecords = group.torrents.compactMap { recordsByHash[$0.hashString] }
@@ -426,6 +426,9 @@ struct TorrentListRowPresentation: Identifiable {
     static func groupMemberDisplayName(_ record: TorrentRecord, groupName: String) -> String {
         if let season = record.season { return "Season \(season.season)" }
         let name = record.displayName ?? record.summary.name
+        if let number = TorrentNameSequenceGrouper.memberNumber(for: record.summary.renamedForPresentation(to: name)) {
+            return "Season \(number)"
+        }
         let suffix = name.hasPrefix(groupName) ? String(name.dropFirst(groupName.count)) : name
         let cleaned = suffix.replacingOccurrences(of: #"(?i)^\s*(?:season|s)[\s._-]*"#, with: "", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)

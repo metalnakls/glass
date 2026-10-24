@@ -39,8 +39,6 @@ public struct TorrentCompletionTitle: Sendable {
     }
 
     private static func key(_ title: String) -> String {
-        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-            .replacingOccurrences(of: #"[\s._-]+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
+        TorrentSeriesIdentity.key(for: title)
     }
 }

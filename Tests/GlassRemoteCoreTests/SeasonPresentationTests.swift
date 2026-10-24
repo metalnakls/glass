@@ -4,6 +4,14 @@ import Testing
 
 @Suite("Presentation-only season naming")
 struct SeasonPresentationTests {
+    @Test("series matching tolerates articles and release separators without changing titles")
+    func seriesIdentity() {
+        #expect(TorrentSeriesIdentity.key(for: "THE.Expanse") == TorrentSeriesIdentity.key(for: "Expanse"))
+        #expect(TorrentSeriesIdentity.key(for: "The Walking Dead") == TorrentSeriesIdentity.key(for: "Walking Dead"))
+        #expect(TorrentSeriesIdentity.key(for: "Thelma") != TorrentSeriesIdentity.key(for: "Lma"))
+        #expect(TorrentSeriesIdentity.key(for: "Other Series") != TorrentSeriesIdentity.key(for: "Walking Dead"))
+    }
+
     @Test("actual Santa Clarita release cleans its shared disk root")
     func actualRelease() throws {
         let root = "Santa.Clarita.Diet.s01.WEB-DL.1080p.2xRus.Eng"
