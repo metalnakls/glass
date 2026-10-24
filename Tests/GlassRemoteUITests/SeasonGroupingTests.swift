@@ -19,7 +19,7 @@ struct SeasonGroupingTests {
         }
         let first = record(seasons[0])
         let lone = TorrentListRowPresentation.rows(records: [first], pendingRenameNames: [:], expandedGroupIDs: [])
-        if case let .torrent(_, displayName) = try #require(lone.first).kind { #expect(displayName == "Santa Clarita Diet") }
+        if case let .torrent(_, displayName) = try #require(lone.first).kind { #expect(displayName == "Santa Clarita Diet \(seasons[0])") }
         else { Issue.record("Lone season should be a torrent") }
         let second = record(seasons[1])
         let grouped = TorrentListRowPresentation.rows(records: [first, second], pendingRenameNames: [:], expandedGroupIDs: [])

@@ -379,7 +379,7 @@ struct TorrentListRowPresentation: Identifiable {
         let records = allRecords
         let summaries = records.map { record in
             if pendingRenameNames[record.id] == nil, let season = record.season {
-                return record.summary.renamedForPresentation(to: "\(season.title) \(season.season)")
+                return record.summary.renamedForPresentation(to: season.numberedTitle)
             }
             return (pendingRenameNames[record.id] ?? record.displayName).map { record.summary.renamedForPresentation(to: $0) }
                 ?? record.summary
@@ -398,7 +398,7 @@ struct TorrentListRowPresentation: Identifiable {
                 guard let record = recordsByHash[torrent.hashString] else { continue }
                 rows.append(TorrentListRowPresentation(
                     id: record.id,
-                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? record.displayName ?? seasonDisplayName(record.summary))
+                    kind: .torrent(record: record, displayName: pendingRenameNames[record.id] ?? record.season?.numberedTitle ?? record.displayName ?? seasonDisplayName(record.summary))
                 ))
             case let .group(group):
                 let memberRecords = group.torrents.compactMap { recordsByHash[$0.hashString] }

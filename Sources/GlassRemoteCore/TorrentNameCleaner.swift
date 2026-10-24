@@ -14,6 +14,9 @@ public struct TorrentSeasonDescriptor: Sendable, Hashable, Codable {
     public let title: String
     public let season: Int
 
+    /// Full identity when the series heading is not supplying context.
+    public var numberedTitle: String { "\(title) \(season)" }
+
     public init(title: String, season: Int) {
         self.title = title
         self.season = season
