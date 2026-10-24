@@ -121,6 +121,7 @@ public final class RemoteAppModel {
         var id: UUID { entry.id }
     }
     private var pendingAdditions: [PendingAddition] = []
+    @ObservationIgnored private var discardedAdditionIDs: Set<UUID> = []
     private var pendingAdditionRevision = 0
     @ObservationIgnored private var additionTasks: [UUID: Task<Bool, Never>] = [:]
     private struct MagnetResolution {
@@ -151,6 +152,7 @@ public final class RemoteAppModel {
                                       fileSelection: TorrentAddFileSelection? = nil,
                                       sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
                                       renameDuplicateRoot: Bool = false, startPaused: Bool = false) -> Bool {
+        guard !discardedAdditionIDs.contains(id) else { return false }
         guard !pendingAdditions.contains(where: { $0.id == id }) else { return true }
         var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: size,
             fileCount: fileCount, data: data, downloadDirectory: downloadDirectory,
@@ -254,8 +256,59 @@ public final class RemoteAppModel {
 
     public func cancelTorrentAddition(_ id: UUID) {
         guard additionTasks[id] == nil else { return }
+        discardedAdditionIDs.insert(id)
         do { try retireAdditionWithoutDisposal(id) }
-        catch { failAddition(id, error: error) }
+        catch { discardedAdditionIDs.remove(id); failAddition(id, error: error) }
+    }
+
+    /// Removal is available throughout Add. If submission is already in flight,
+    /// wait for its receipt before removing any accepted transfer.
+    @discardableResult
+    public func removeTorrentAddition(_ id: UUID, deleteData: Bool) async -> Bool {
+        guard let original = pendingAdditions.first(where: { $0.id == id }) else { return true }
+        let sourceID = original.entry.sourceID
+        // A still-open batch must not recreate a removed submission with the same ID.
+        discardedAdditionIDs.insert(id)
+        if original.entry.receipt == nil && (original.entry.phase == .queued || original.entry.phase == .resolvingMetadata) {
+            additionTasks[id]?.cancel()
+            if let magnet = original.entry.magnet,
+               !pendingAdditions.contains(where: { $0.id != id && $0.entry.magnet == magnet }) {
+                magnetResolutions.removeValue(forKey: magnetKey(magnet))?.task.cancel()
+            }
+            do { try retireAdditionWithoutDisposal(id); return true }
+            catch { discardedAdditionIDs.remove(id); failAddition(id, error: error); return false }
+        }
+        if let running = additionTasks[id] { _ = await running.value }
+        let current = pendingAdditions.first { $0.id == id }
+        let receiptHash = current?.entry.receipt?.hashString ?? original.entry.receipt?.hashString
+        let wasSubmitted = (current?.entry.attempts ?? original.entry.attempts) > 0
+        let transfer = sourceState(for: sourceID).records.first {
+            $0.hashString == receiptHash || (wasSubmitted && original.expectedHashes.contains($0.hashString.lowercased()))
+        }
+        if let hash = receiptHash ?? transfer?.hashString {
+            let provider: any TorrentProvider
+            do {
+                provider = try self.provider(for: sourceID)
+                try await provider.remove(ids: [hash], deleteLocalData: deleteData)
+            } catch {
+                discardedAdditionIDs.remove(id)
+                errorMessage = error.localizedDescription
+                return false
+            }
+            stopWatching(sourceID: sourceID, hashStrings: [hash])
+            sourceState(for: sourceID).records.removeAll { $0.hashString == hash }
+            sourceState(for: sourceID).structureRevision &+= 1
+        }
+        do {
+            try retireAdditionWithoutDisposal(id)
+            additionResults[id] = nil
+            if receiptHash != nil || transfer != nil { await refresh(sourceID: sourceID) }
+            return true
+        } catch {
+            discardedAdditionIDs.remove(id)
+            failAddition(id, error: error)
+            return false
+        }
     }
 
     private func retireAdditionWithoutDisposal(_ id: UUID) throws {
@@ -790,6 +843,7 @@ public final class RemoteAppModel {
     /// Model-owned, serialized work survives modal dismissal and duplicate clicks.
     @discardableResult
     public func retryTorrentAddition(_ id: UUID) async -> Bool {
+        guard !discardedAdditionIDs.contains(id) else { return false }
         if let running = additionTasks[id] { return await running.value }
         guard pendingAdditions.contains(where: { $0.id == id }) else { return true }
         updateAddition(id) { $0.phase = .queued; $0.error = nil }
@@ -839,6 +893,7 @@ public final class RemoteAppModel {
     }
 
     private func performQueuedAddition(_ id: UUID) async -> Bool {
+        guard !discardedAdditionIDs.contains(id) else { return false }
         guard let pending = pendingAdditions.first(where: { $0.id == id }) else { return true }
         let sourceID = pending.entry.sourceID
         do {

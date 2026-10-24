@@ -7,6 +7,42 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("queued and failed Add removal leaves siblings alone and never sends placeholder IDs")
+    func removeQueuedAndFailedAdds() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let queued = UUID(), failed = UUID(), sibling = UUID()
+        for id in [queued, failed, sibling] {
+            #expect(model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Season", size: 100,
+                fileCount: 1, downloadDirectory: nil, namingPlan: nil, data: Data([1])))
+        }
+        await client.setAddTorrentError(TestError.failed)
+        #expect(!(await model.retryTorrentAddition(failed)))
+        #expect(await model.removeTorrentAddition(queued, deleteData: false))
+        #expect(await model.removeTorrentAddition(failed, deleteData: true))
+        #expect(model.allTorrentRecords.compactMap(\.additionID) == [sibling])
+        #expect(await client.removedIDs.isEmpty)
+        #expect(!(await model.retryTorrentAddition(queued)))
+        #expect(!model.prepareTorrentAddition(id: queued, sourceID: profile.id, name: "Stale batch callback", size: 100,
+            fileCount: 1, downloadDirectory: nil, namingPlan: nil, data: Data([1])))
+    }
+
+    @Test("removing an accepted Add with failed setup addresses its real transfer")
+    func removeAcceptedFailedAdd() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID()
+        await client.setRenameFailurePath("Spider-Noir/Old.mkv")
+        #expect(model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Season", size: 100,
+            fileCount: 1, downloadDirectory: nil,
+            namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [TorrentPathRename(path: "Spider-Noir/Old.mkv", name: "New.mkv")]), data: Data([1])))
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(await model.removeTorrentAddition(id, deleteData: true))
+        #expect(await client.removedIDs == ["hash-1"])
+        #expect(await client.removalDataFlags == [true])
+        #expect(!model.allTorrentRecords.contains { $0.additionID == id })
+    }
+
     @Test("failed polling backs off to a cap and healthy polling keeps its cadence")
     func refreshBackoffIntervals() {
         #expect(RemoteAppModel.autoRefreshInterval(isActive: true, failures: 0) == .seconds(2))
@@ -1293,6 +1329,8 @@ private final class StubRPCClientFactory: @unchecked Sendable {
 }
 
 private actor StubRPCClient: TransmissionRPCServicing {
+    private(set) var removedIDs: [String] = []
+    private(set) var removalDataFlags: [Bool] = []
     private let fetchDelay: Duration?
     private let detailDelay: Duration?
     private var fetchTorrentsError: (any Error)?
@@ -1565,7 +1603,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
         stopRequests.append(ids)
         stoppedIDs.append(contentsOf: ids)
     }
-    func remove(ids: [String], deleteLocalData: Bool) async throws {}
+    func remove(ids: [String], deleteLocalData: Bool) async throws { removedIDs += ids; removalDataFlags.append(deleteLocalData) }
     func verify(ids: [String]) async throws {}
     func reannounce(ids: [String]) async throws {}
     func queueMoveTop(ids: [String]) async throws {}

@@ -28,8 +28,8 @@ struct TorrentDraftRow: View {
         .background(TorrentArtworkOverflow(enabled: funMode && !grid))
         .contentShape(Rectangle())
         .glassContextMenu(select: select) {
-            Button(glassText("Resume Draft")) { resume() }
-            Button(glassText("Discard Draft"), role: .destructive) { discard() }
+            Button { resume() } label: { Label(glassText("Resume Draft"), systemImage: "arrow.clockwise") }
+            TorrentRemovalActions(kind: .draft) { _ in discard() }
         }
         .help(helpText)
     }

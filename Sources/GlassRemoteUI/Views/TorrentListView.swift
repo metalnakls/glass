@@ -708,7 +708,7 @@ private struct TorrentListLiveRow: View {
     private var artworkOverflow: CGFloat { density.showsIcon && !grid ? TorrentIconPose.leadingOverflow : 0 }
 
     var body: some View {
-        TorrentNativeSwipeRow(enabled: !grid && !isAdding, remove: removeRow, presentationChanged: { shown in
+        TorrentNativeSwipeRow(enabled: !grid, kind: row.torrentRecord?.isAdding == true ? .draft : .torrent, remove: removeRow, presentationChanged: { shown in
             isSwiping = shown
             swipePresentationChanged(shown)
         }) {
@@ -740,7 +740,6 @@ private struct TorrentListLiveRow: View {
             toggleTransfer: toggleTransfers
         )
         .equatable()
-        .allowsHitTesting(!isAdding || row.torrentRecord?.additionPhase == .failed)
         .modifier(TorrentListRowChrome(rowID: row.id, isSelected: isSelected, isReordering: isReordering,
             isSwiping: isSwiping, grid: grid, rowHeight: rowHeight, artworkOverflow: artworkOverflow,
             elevationController: elevationController, select: select))
@@ -753,14 +752,14 @@ private struct TorrentListLiveRow: View {
 
     @ViewBuilder
     var contextMenuContent: some View {
-        if let record = row.torrentRecord, let id = record.additionID {
+        if let record = row.torrentRecord, record.additionID != nil {
             if record.additionPhase == .failed {
                 Button(glassText("Retry")) { Task { _ = await toggleTransfers() } }
             }
-            Button(glassText("Remove from Queue"), role: .destructive) { model.cancelTorrentAddition(id) }
-                .disabled(record.additionPhase == .adding || record.additionPhase == .queued)
+            TorrentRemovalActions(kind: record.additionAccepted ? .torrent : .draft, remove: removeRow)
         } else {
             TorrentInfoMenuRow(title: "Added", value: addedDateValue)
+            TorrentRemovalActions(remove: removeRow)
         }
     }
 
@@ -778,8 +777,6 @@ private struct TorrentListLiveRow: View {
     }
 
     private func removeRow(deleteData: Bool) {
-        guard !isAdding else { return }
-        if case let .group(records, _, _) = row.kind, records.contains(where: { $0.isAdding }) { return }
         switch row.kind {
         case let .torrent(record, _): remove(record.summary, record.sourceID, deleteData)
         case let .group(records, _, _):

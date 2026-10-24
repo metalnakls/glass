@@ -76,7 +76,7 @@ public struct GlassRootView: View {
                 resumeDraft: restoreDraft,
                 discardDraft: discardDraft,
                 commitRename: { torrent, sourceID, name in submitRename(torrent, sourceID: sourceID, newName: name) },
-                remove: scheduleRemoval,
+                remove: removeTorrentItem,
                 removeSelected: removeSelectedTorrent,
                 undoRemovals: cancelPendingRemovals,
                 dismissRemovals: dismissPendingRemovals
@@ -324,7 +324,7 @@ public struct GlassRootView: View {
             openMagnet: { presentMagnet($0) },
             toggleDownloadingFilter: toggleDownloadingFilter,
             isDownloadingFilterActive: model.selectedTorrentGroup == .downloading,
-            canRemoveSelectedTorrent: (selectedDraft != nil || selectedRecord != nil || presentation.rows.contains { $0.id == selectedTorrentID && !$0.isTorrent }) && activeSheet == nil && activeAlert == nil,
+            canRemoveSelectedTorrent: !selectedRemovalActions.isEmpty && activeSheet == nil && activeAlert == nil,
             removeSelectedTorrent: removeSelectedTorrent
         )
     }
@@ -553,19 +553,29 @@ public struct GlassRootView: View {
         await model.loadDetails(for: row.torrentRecord.flatMap { $0.isAdding ? nil : $0.summary }, sourceID: row.sourceID)
     }
 
+    private var selectedRemovalActions: [TorrentItemActions.Removal] {
+        TorrentItemActions.removals(selection: selectedTorrentID, records: model.allTorrentRecords,
+            rows: presentation.rows, drafts: addDrafts.mostRecentFirst)
+    }
+
     private func removeSelectedTorrent(deleteData: Bool) {
-        if let draft = selectedDraft {
-            discardDraft(draft)
-            return
-        }
-        if let id = model.allTorrentRecords.first(where: { $0.id == selectedTorrentID })?.additionID {
-            model.cancelTorrentAddition(id)
-        } else if let record = selectedRecord {
-            scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData)
-        } else if let row = presentation.rows.first(where: { $0.id == selectedTorrentID }),
-                  case let .group(records, _, _) = row.kind {
-            selectedTorrentID = nil
-            for record in records where !record.isAdding { scheduleRemoval(record.summary, sourceID: record.sourceID, deleteData: deleteData) }
+        performRemoval(selectedRemovalActions, deleteData: deleteData)
+    }
+
+    private func removeTorrentItem(_ torrent: TorrentSummary, sourceID: UUID, deleteData: Bool) {
+        guard let record = model.allTorrentRecords.first(where: {
+            $0.sourceID == sourceID && $0.hashString == torrent.hashString
+        }) else { return }
+        performRemoval(TorrentItemActions.removals(for: [record]), deleteData: deleteData)
+    }
+
+    private func performRemoval(_ actions: [TorrentItemActions.Removal], deleteData: Bool) {
+        for action in actions {
+            switch action {
+            case let .draft(draft): discardDraft(draft)
+            case let .addition(id): Task { _ = await model.removeTorrentAddition(id, deleteData: deleteData) }
+            case let .transfer(torrent, sourceID): scheduleRemoval(torrent, sourceID: sourceID, deleteData: deleteData)
+            }
         }
     }
 
