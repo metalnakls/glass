@@ -11,35 +11,39 @@ import GlassRemoteCore
     private var previewScope: URL?
     private var revision = 0
 
+    /// Space-key Quick Look is available only for a completed, readable file at its mapped location.
+    /// Both bookmark resolution and filesystem checks run on the file-actions queue.
+    func previewIfAvailable(sourceID: UUID, directory: String, path: String, isLocal: Bool,
+                            expectedSize: UInt64, originatingWindow: NSWindow,
+                            isStillEligible: @MainActor () -> Bool) async {
+        guard expectedSize > 0, TorrentThumbnailInput.isPreviewableVideo(path) else { return }
+        revision += 1
+        let token = revision
+        let resolved: (URL, URL?)
+        do {
+            resolved = try await resolveFile(sourceID: sourceID, directory: directory, path: path,
+                isLocal: isLocal, expectedSize: expectedSize)
+        } catch {
+            return
+        }
+        guard token == revision, isStillEligible(),
+              TorrentKeyboardQuickLookPolicy.requestStillBelongs(
+                to: originatingWindow, currentKeyWindow: NSApp.keyWindow,
+                applicationIsActive: NSApp.isActive
+              ),
+              !TorrentKeyboardQuickLookPolicy.isTextInputFirstResponder(NSApp.keyWindow?.firstResponder) else {
+            resolved.1?.stopAccessingSecurityScopedResource()
+            return
+        }
+        showPreview(resolved.0, scope: resolved.1)
+    }
+
     func perform(_ action: Action, sourceID: UUID, directory: String, path: String, isLocal: Bool) async throws {
         revision += 1
         let token = revision
-        let link = isLocal ? nil : TorrentThumbnailService.shared.link(for: sourceID)
         let resolved: (URL, URL?)
         do {
-        resolved = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<(URL, URL?), Error>) in
-            queue.async {
-                var scope: URL?
-                do {
-                    let root: URL
-                    let remoteRoot: String
-                    if isLocal { root = URL(fileURLWithPath: directory, isDirectory: true); remoteRoot = directory }
-                    else {
-                        guard let link else { throw CocoaError(.fileNoSuchFile) }
-                        var stale = false
-                        root = try URL(resolvingBookmarkData: link.bookmark,
-                            options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
-                        remoteRoot = link.remoteRoot
-                        if root.startAccessingSecurityScopedResource() { scope = root }
-                    }
-                    guard let url = path == "."
-                        ? TorrentThumbnailFolderLink.directoryURL(remoteRoot: remoteRoot, localRoot: root, directory: directory)
-                        : TorrentThumbnailFolderLink.fileURL(remoteRoot: remoteRoot, localRoot: root, directory: directory, filePath: path),
-                          FileManager.default.fileExists(atPath: url.path) else { throw CocoaError(.fileNoSuchFile) }
-                    continuation.resume(returning: (url, scope))
-                } catch { scope?.stopAccessingSecurityScopedResource(); continuation.resume(throwing: error) }
-            }
-        }
+            resolved = try await resolveFile(sourceID: sourceID, directory: directory, path: path, isLocal: isLocal)
         } catch let error as CocoaError where error.code == .fileNoSuchFile || error.code == .fileReadNoSuchFile {
             guard token == revision else { return }
             if action == .preview { showEmptyPreview(); return }
@@ -54,18 +58,60 @@ import GlassRemoteCore
             defer { resolved.1?.stopAccessingSecurityScopedResource() }
             NSWorkspace.shared.activateFileViewerSelecting([resolved.0])
         case .preview:
-            guard let panel = QLPreviewPanel.shared() else { resolved.1?.stopAccessingSecurityScopedResource(); return }
-            if panel.isVisible, previewURL == resolved.0 {
-                panel.orderOut(nil)
-                previewScope?.stopAccessingSecurityScopedResource(); previewScope = nil; previewURL = nil
-                resolved.1?.stopAccessingSecurityScopedResource()
-                return
-            }
-            previewScope?.stopAccessingSecurityScopedResource()
-            previewScope = resolved.1; previewURL = resolved.0
-            panel.dataSource = self
-            panel.reloadData(); panel.makeKeyAndOrderFront(nil)
+            showPreview(resolved.0, scope: resolved.1)
         }
+    }
+
+    private func resolveFile(sourceID: UUID, directory: String, path: String, isLocal: Bool,
+                             expectedSize: UInt64? = nil) async throws -> (URL, URL?) {
+        let link = isLocal ? nil : TorrentThumbnailService.shared.link(for: sourceID)
+        return try await withCheckedThrowingContinuation { continuation in
+            queue.async {
+                var scope: URL?
+                do {
+                    let root: URL
+                    let remoteRoot: String
+                    if isLocal {
+                        root = URL(fileURLWithPath: directory, isDirectory: true)
+                        remoteRoot = directory
+                    } else {
+                        guard let link else { throw CocoaError(.fileNoSuchFile) }
+                        var stale = false
+                        root = try URL(resolvingBookmarkData: link.bookmark,
+                            options: [.withSecurityScope, .withoutUI, .withoutMounting], relativeTo: nil, bookmarkDataIsStale: &stale)
+                        remoteRoot = link.remoteRoot
+                        if root.startAccessingSecurityScopedResource() { scope = root }
+                    }
+                    let url = path == "."
+                        ? TorrentThumbnailFolderLink.directoryURL(remoteRoot: remoteRoot, localRoot: root, directory: directory)
+                        : TorrentThumbnailFolderLink.fileURL(remoteRoot: remoteRoot, localRoot: root, directory: directory, filePath: path)
+                    guard let url, FileManager.default.fileExists(atPath: url.path) else {
+                        throw CocoaError(.fileNoSuchFile)
+                    }
+                    if let expectedSize, !TorrentKeyboardQuickLookPolicy.fileIsAvailable(at: url, expectedSize: expectedSize) {
+                        throw CocoaError(.fileNoSuchFile)
+                    }
+                    continuation.resume(returning: (url, scope))
+                } catch {
+                    scope?.stopAccessingSecurityScopedResource()
+                    continuation.resume(throwing: error)
+                }
+            }
+        }
+    }
+
+    private func showPreview(_ url: URL, scope: URL?) {
+        guard let panel = QLPreviewPanel.shared() else { scope?.stopAccessingSecurityScopedResource(); return }
+        if panel.isVisible, previewURL == url {
+            panel.orderOut(nil)
+            previewScope?.stopAccessingSecurityScopedResource(); previewScope = nil; previewURL = nil
+            scope?.stopAccessingSecurityScopedResource()
+            return
+        }
+        previewScope?.stopAccessingSecurityScopedResource()
+        previewScope = scope; previewURL = url
+        panel.dataSource = self
+        panel.reloadData(); panel.makeKeyAndOrderFront(nil)
     }
     func showEmptyPreview() {
         previewScope?.stopAccessingSecurityScopedResource()

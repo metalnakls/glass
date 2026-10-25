@@ -270,6 +270,7 @@ private struct TorrentInspectorContent: View {
     let onApply: (Bool?) -> Void
     @AppearanceStorage("GlassInspector.permanentSearch") private var permanentSearch = true
     @State private var searchPresented = false
+    @State private var keyboardPreviewGeneration = 0
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let fileLayout = TorrentFileListLayout.inspector
@@ -303,6 +304,7 @@ private struct TorrentInspectorContent: View {
                         let row = TorrentFileTreeRow(id: entry.originalPath, name: entry.displayName, depth: 0, indices: [entry.index], size: entry.size, entry: entry)
                         performFileAction(row, details: details, action: .open)
                     } : nil)
+                .focusedSceneValue(\.glassInspectorQuickLookAction, singleFileQuickLookAction(entry, details: details))
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 filesScrollView
@@ -315,6 +317,9 @@ private struct TorrentInspectorContent: View {
         .onChange(of: supportsSearch) { _, supported in
             if !supported { searchPresented = false; fileSearchText = "" }
         }
+        .onChange(of: snapshot.selectionKey) { _, _ in keyboardPreviewGeneration += 1 }
+        .onChange(of: commandsEnabled) { _, _ in keyboardPreviewGeneration += 1 }
+        .onDisappear { keyboardPreviewGeneration += 1 }
         .onChange(of: searchPresented) { _, presented in
             searchFocused = presented
             if !presented { fileSearchText = "" }
@@ -447,6 +452,13 @@ private struct TorrentInspectorContent: View {
             onSetPriority: { index, priority in setFilePriority(in: details, index: index, priority: priority) },
             onSetAllWanted: { wanted in setAllFiles(in: details, wanted: wanted) },
             onFileAction: { row, action in performFileAction(row, details: details, action: action) },
+            onKeyboardQuickLook: { row, originatingWindow, browserEligibility in
+                guard let entry = row.entry else { return }
+                previewFileFromKeyboard(entry, details: details, originatingWindow: originatingWindow,
+                    browserEligibility: browserEligibility)
+            },
+            keyboardContext: .inspectorQuickLook,
+            keyboardCommandsEnabled: commandsEnabled,
             showsControls: showsControls,
             isCompact: true,
             shortEpisodeNames: true,
@@ -499,6 +511,46 @@ private struct TorrentInspectorContent: View {
         Task {
             do { try await TorrentFileActions.shared.perform(action, sourceID: sourceID, directory: directory, path: path, isLocal: sourceID == model.localSourceID) }
             catch { model.errorMessage = error.localizedDescription }
+        }
+    }
+
+    private func singleFileQuickLookAction(_ entry: TorrentFileBrowserEntry, details: TorrentDetails) -> (@MainActor (NSWindow) -> Void)? {
+        guard commandsEnabled, snapshot.group == nil,
+              TorrentKeyboardQuickLookPolicy.acceptsSpace(context: .inspectorQuickLook,
+                callbackAvailable: true, commandsEnabled: commandsEnabled, selectionCount: 1,
+                path: entry.originalPath, isComplete: entry.isComplete, expectedSize: entry.size,
+                firstResponder: nil) else { return nil }
+        let generation = keyboardPreviewGeneration
+        let selectionKey = snapshot.selectionKey
+        return { originatingWindow in
+            guard TorrentKeyboardQuickLookPolicy.acceptsSpace(context: .inspectorQuickLook,
+                callbackAvailable: true, commandsEnabled: self.commandsEnabled, selectionCount: 1,
+                path: entry.originalPath, isComplete: entry.isComplete, expectedSize: entry.size,
+                firstResponder: originatingWindow.firstResponder) else { return }
+            self.previewFileFromKeyboard(entry, details: details, originatingWindow: originatingWindow) {
+                generation == self.keyboardPreviewGeneration
+                    && self.commandsEnabled
+                    && self.snapshot.selectionKey == selectionKey
+            }
+        }
+    }
+
+    private func previewFileFromKeyboard(_ entry: TorrentFileBrowserEntry, details: TorrentDetails,
+                                        originatingWindow: NSWindow,
+                                        browserEligibility: @escaping @MainActor () -> Bool = { true }) {
+        guard entry.isComplete, TorrentThumbnailInput.isPreviewableVideo(entry.originalPath),
+              let directory = details.downloadDir else { return }
+        let generation = keyboardPreviewGeneration
+        let selectionKey = snapshot.selectionKey
+        Task {
+            await TorrentFileActions.shared.previewIfAvailable(sourceID: sourceID,
+                directory: directory, path: entry.originalPath, isLocal: sourceID == model.localSourceID,
+                expectedSize: entry.size, originatingWindow: originatingWindow) {
+                    generation == keyboardPreviewGeneration
+                        && commandsEnabled
+                        && snapshot.selectionKey == selectionKey
+                        && browserEligibility()
+                }
         }
     }
 

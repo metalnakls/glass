@@ -406,11 +406,6 @@ struct TorrentListView: View {
             removeSelected(keyPress.modifiers.contains(.command))
             return .handled
         }
-        .onKeyPress(.space, phases: [.down]) { _ in
-            guard let row = presentation.rows.first(where: { $0.id == selection }) else { return .ignored }
-            performFileAction(for: row, action: .preview)
-            return .handled
-        }
         .overlay {
             if records.isEmpty, drafts.isEmpty {
                 emptyState

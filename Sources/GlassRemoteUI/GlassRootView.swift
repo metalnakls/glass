@@ -19,6 +19,7 @@ public struct GlassRootView: View {
 
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @Environment(\.scenePhase) private var scenePhase
+    @FocusedValue(\.glassInspectorQuickLookAction) private var inspectorQuickLookAction
     @SceneStorage("GlassRoot.inspectorPresented") private var isInspectorPresented = true
     @AppStorage("GlassRoot.selectedSourceID") private var storedSelectedSourceID = ""
     @AppearanceStorage("GlassList.dropBlurRadius") private var dropBlurRadius = 8.0
@@ -281,6 +282,18 @@ public struct GlassRootView: View {
             await loadSelectedTorrentDetails()
         }
         .glassTextStyle()
+        .onKeyPress(.space, phases: [.down]) { _ in
+            guard let window = NSApp.keyWindow,
+                  TorrentKeyboardQuickLookPolicy.mayForwardFromRoot(
+                    actionAvailable: inspectorQuickLookAction != nil,
+                    firstResponder: window.firstResponder,
+                    keyWindow: window,
+                    applicationIsActive: NSApp.isActive
+                  ),
+                  let inspectorQuickLookAction else { return .ignored }
+            inspectorQuickLookAction(window)
+            return .handled
+        }
         .focusedSceneValue(\.glassTuningPresented, tuningPresentation)
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)
     }

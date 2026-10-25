@@ -10,6 +10,9 @@ struct TorrentFilesBrowser: View {
     let onSetPriority: (Int, Int) -> Void
     let onSetAllWanted: (Bool) -> Void
     var onFileAction: ((TorrentFileTreeRow, TorrentFileActions.Action) -> Void)?
+    var onKeyboardQuickLook: ((TorrentFileTreeRow, NSWindow, @escaping @MainActor () -> Bool) -> Void)?
+    var keyboardContext: TorrentKeyboardQuickLookPolicy.Context = .selectionOnly
+    var keyboardCommandsEnabled = false
     var showsControls = true
     var isCompact = false
     var showsCompletion = true
@@ -40,6 +43,7 @@ struct TorrentFilesBrowser: View {
         let requestID: UUID
     }
     @State private var nativeSelection = Set<String>()
+    @State private var keyboardPreviewGeneration = 0
     @State private var localSelection = Set<Int>()
     @State private var localWanted: [Int: Bool] = [:]
     private var selection: Set<Int> {
@@ -216,10 +220,12 @@ struct TorrentFilesBrowser: View {
             } primaryAction: { ids in
                 if let row = rows.first(where: { ids.contains($0.id) }) { onFileAction?(row, .open) }
             }
-            .onKeyPress(.space, phases: [.down]) { _ in
-                guard let onFileAction, let row = rows.first(where: { nativeSelection.contains($0.id) }) else { return .ignored }
-                onFileAction(row, .preview); return .handled
-            }
+            .focusedSceneValue(\.glassInspectorQuickLookAction, keyboardQuickLookAction(rows: rows))
+            .onChange(of: nativeSelection) { _, _ in keyboardPreviewGeneration += 1 }
+            .onChange(of: entries) { _, _ in keyboardPreviewGeneration += 1 }
+            .onChange(of: searchText) { _, _ in keyboardPreviewGeneration += 1 }
+            .onChange(of: keyboardCommandsEnabled) { _, _ in keyboardPreviewGeneration += 1 }
+            .onChange(of: keyboardContext) { _, _ in keyboardPreviewGeneration += 1 }
             .onChange(of: selection) { _, selected in
                 guard stagesChanges else { return }
                 nativeSelection = Set(rows.filter { row in
@@ -260,6 +266,42 @@ struct TorrentFilesBrowser: View {
                 }
                 .controlSize(.small).padding(8)
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+            }
+        }
+    }
+
+    private func keyboardQuickLookAction(rows: [TorrentFileTreeRow]) -> (@MainActor (NSWindow) -> Void)? {
+        let selectedRows = rows.filter { nativeSelection.contains($0.id) }
+        guard selectedRows.count == 1,
+              let callback = onKeyboardQuickLook,
+              let entry = selectedRows[0].entry,
+              TorrentKeyboardQuickLookPolicy.acceptsSpace(
+                context: keyboardContext, callbackAvailable: true,
+                commandsEnabled: keyboardCommandsEnabled, selectionCount: nativeSelection.count,
+                path: entry.originalPath, isComplete: entry.isComplete,
+                expectedSize: entry.size, firstResponder: nil
+              ) else { return nil }
+        let row = selectedRows[0]
+        let generation = keyboardPreviewGeneration
+        return { originatingWindow in
+            guard TorrentKeyboardQuickLookPolicy.acceptsSpace(
+                context: self.keyboardContext, callbackAvailable: self.onKeyboardQuickLook != nil,
+                commandsEnabled: self.keyboardCommandsEnabled, selectionCount: self.nativeSelection.count,
+                path: row.entry?.originalPath, isComplete: row.entry?.isComplete ?? false,
+                expectedSize: row.entry?.size ?? 0, firstResponder: originatingWindow.firstResponder
+            ) else { return }
+            callback(row, originatingWindow) {
+                generation == self.keyboardPreviewGeneration
+                    && self.keyboardContext == .inspectorQuickLook
+                    && self.keyboardCommandsEnabled
+                    && self.nativeSelection.count == 1
+                    && self.nativeSelection.contains(row.id)
+                    && rows.contains(where: { $0.id == row.id })
+                    && TorrentKeyboardQuickLookPolicy.requestStillBelongs(
+                        to: originatingWindow, currentKeyWindow: NSApp.keyWindow,
+                        applicationIsActive: NSApp.isActive
+                    )
+                    && !TorrentKeyboardQuickLookPolicy.isTextInputFirstResponder(originatingWindow.firstResponder)
             }
         }
     }
