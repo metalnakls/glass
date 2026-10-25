@@ -102,6 +102,7 @@ public final class RemoteAppModel {
     public static let quietAutoRefreshInterval: Duration = .seconds(10)
     private static let torrentCachePersistenceDelay: Duration = .seconds(30)
     @ObservationIgnored private var refreshFailures: [UUID: Int] = [:]
+    @ObservationIgnored private var yinaEpisodePublisher: (@MainActor (UUID, [TorrentRecord]?, Bool, String?) -> Void)?
 
     private static let commandRefreshDebounce: Duration = .milliseconds(200)
     public static let completionWatchInterval: Duration = .seconds(10)
@@ -535,6 +536,7 @@ public final class RemoteAppModel {
     }
 
     public func deleteProfile(_ profile: RemoteProfile) {
+        yinaEpisodePublisher?(profile.id, nil, false, nil)
         invalidateProvider(for: profile.id)
         cancelRefresh(for: profile.id)
         stopWatching(sourceID: profile.id)
@@ -558,6 +560,19 @@ public final class RemoteAppModel {
 
     public func sourceName(for sourceID: UUID) -> String {
         sourceID == localSourceID ? localSourceName : profiles.first { $0.id == sourceID }?.name ?? "Server"
+    }
+
+    /// UI-level sidecar publishing observes complete source refreshes without borrowing Inspector state.
+    public func setYinaEpisodePublisher(_ handler: (@MainActor (UUID, [TorrentRecord]?, Bool, String?) -> Void)?) {
+        yinaEpisodePublisher = handler
+        guard let handler else { return }
+        for source in sources {
+            handler(source.id, source.records, source.id == localSourceID, nil)
+        }
+    }
+
+    private func invalidateYinaEpisodeIndex(sourceID: UUID, hashString: String) {
+        yinaEpisodePublisher?(sourceID, sourceState(for: sourceID).records, sourceID == localSourceID, hashString)
     }
 
     private func sourceState(for sourceID: UUID) -> TorrentSourceState {
@@ -656,6 +671,7 @@ public final class RemoteAppModel {
             // `mergedTorrents` retains full-poll server order. Cache the
             // reconciled source records so a stale poll cannot undo local order.
             updateTorrentCache(state.records.map(\.summary), for: sourceID)
+            yinaEpisodePublisher?(sourceID, state.records, sourceID == localSourceID, nil)
             await refreshVisibleTorrentDetailsAfterListRefresh(sourceID: sourceID, provider: provider)
         } catch {
             guard !(error is CancellationError), sources.contains(where: { $0 === state }) else { return }
@@ -1244,6 +1260,7 @@ public final class RemoteAppModel {
             try await provider.setFileWanted(ids: [torrent.hashString], fileIndices: fileIndices, wanted: wanted)
         }
         fileMutationRevision &+= 1
+        if succeeded { invalidateYinaEpisodeIndex(sourceID: sourceID, hashString: torrent.hashString) }
         return succeeded
     }
 
@@ -1314,6 +1331,7 @@ public final class RemoteAppModel {
                 }
             } catch { errorMessage = error.localizedDescription }
         }
+        if didRename { invalidateYinaEpisodeIndex(sourceID: sourceID, hashString: details.hashString) }
         fileMutationRevision &+= 1
     }
 
@@ -1662,6 +1680,7 @@ public final class RemoteAppModel {
         }
         if didMove {
             rememberDownloadDirectory(trimmedDirectory, for: sourceID)
+            invalidateYinaEpisodeIndex(sourceID: sourceID, hashString: torrent.hashString)
         }
         return didMove
     }
@@ -1682,6 +1701,7 @@ public final class RemoteAppModel {
                 try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
                 _ = record.apply(record.summary, displayName: trimmedName)
                 sourceState(for: sourceID).structureRevision &+= 1
+                invalidateYinaEpisodeIndex(sourceID: sourceID, hashString: torrent.hashString)
                 errorMessage = nil
                 return true
             } catch {

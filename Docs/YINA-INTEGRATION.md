@@ -1,10 +1,9 @@
 # Glass and YINA: shared shows
 
-Status: design proposal plus episode-index serialization and export foundations.
-The manual Inspector export control was withdrawn at the user's request; automatic
-publication needs the shared ownership protocol below. This is not
-authorization to enable automatic downloading, deletion, or shared watch-state
-changes. The user owns UX decisions. Coding is delegated to Luna agents.
+Status: shared-show protocol and automatic Glass publisher implemented; validation
+and the separate YINA consumer are tracked independently. The Inspector export
+control was removed. Automatic cache deletion and adaptive prefetch remain design
+work. The user owns UX decisions. Coding is delegated to Luna agents.
 
 ## Starting point
 
@@ -39,50 +38,64 @@ the coordinator cannot prevent them deleting files outside this protocol.
 
 ## Portable format and first slice
 
-Use `.yina.json` at an explicitly established media root. The first protocol is a
-versioned **single-torrent snapshot**. Its export implementation is retained for
-integration work, with no dedicated Inspector control exposed to the user.
-It includes video files regardless of their wanted flag, original filename case,
-relative paths, torrent hash/file index identity, optional episode numbering,
-byte totals, selection and capture time. No torrent credentials, tracker
-passkeys, bookmarks, remote server URLs or absolute paths belong in it.
+A show folder has one `.yina.json` v2 identity descriptor:
+`{schemaVersion: 2, showID: UUID, createdAt: ISO8601}`. New shows receive a random
+UUID, created exclusively once so concurrent discovery converges on the winner.
+Show identity survives moving the folder and does not depend on a torrent hash.
+Unknown schemas and malformed existing descriptors are preserved, not overwritten.
 
-Envelope: `schemaVersion`, `hashString`, `capturedAt` (ISO-8601), `episodes`.
-Each episode: `id: {hashString, fileIndex}`, `relativePath`, optional `season`
-and `episode`, `bytesCompleted`, `totalBytes`, optional `wanted`.
-Numbering is descriptive; file identity remains authoritative. Ambiguous names
-must not silently map two episodes onto one catalog identity.
+Keep the old v1 single-torrent `.yina.json` unchanged. Read it through an adapter;
+its compatible show UUID is derived from the first 16 bytes of SHA-256 of UTF-8
+`glass-yina-show-v2:<lowercased-trimmed-hash>`, with version-4 and RFC-4122 variant
+bits set. This deterministic rule applies only to existing v1 metadata.
 
-Snapshots older than 15 minutes, or dated in the future, have unknown current
-transfer availability. Partial bytes do not prove an active download. A complete
-file remains complete even when deselected. A snapshot never alone establishes
-local playability: YINA must also establish a reachable contained regular file.
-Preallocation means existence and byte size alone cannot prove completion.
+Separate writers own separate current records beneath `.yina/`. A writer UUID is
+unique to an app run; participant UUIDs persist per YINA profile. Updates replace
+only that writer's record atomically, rather than overwriting another app's data
+or adding a file for every progress tick.
 
-The initial exporter must not replace another torrent's manifest, an unknown
-schema, or a manifest with fields it cannot preserve. It does not continuously
-write on refresh. Export through the mapped local/SMB filesystem, not through
-Transmission's remote path as if that path were local. Perform I/O off the UI
-thread, validate containment including symlinks, and replace atomically.
+| Path | Contents |
+| --- | --- |
+| `transfers/<writerUUID>/<hash>.json` | `schemaVersion: 1`, `showID`, `writerID`, `index` |
+| `progress/<participantUUID>/<writerUUID>.json` | `schemaVersion: 1`, show/participant/writer IDs, monotonic `revision`, ISO8601 `updatedAt`, `relativePath`, `position`, `duration`, `activity`, optional playback `coverage` |
+| `demand/<writerUUID>.json` | `schemaVersion: 1`, show/request/participant/writer IDs, monotonic `revision`, ISO8601 `updatedAt`, `relativePath`, optional paired `hashString`/`fileIndex`, `cancelled` |
 
-YINA's proposed first consumer adds an Unavailable Episodes section alongside
-the existing playable playlist. Dimmed rows retain accessible text/status and
-show snapshot age. Do not enqueue unavailable paths in mpv, change manual
-reorder, or pretend a disabled row can request a download yet. Completion of
-that consumer is tracked in the YINA chat.
+The transfer `index` retains v1: `schemaVersion`, `hashString`, ISO8601
+`capturedAt`, `episodes`. Each episode has `id: {hashString, fileIndex}`,
+`relativePath`, optional season/episode numbering, byte totals, and wanted state.
+Unselected videos remain in the inventory, preserving filename case. Metadata
+contains no credentials, passkeys, bookmarks, server URLs or absolute paths.
 
-Future live integration requires an explicit format upgrade: stable show and
-catalog episode IDs, multiple transfer/assets per episode, coordinator identity,
-generation, and expiring availability. Publish durable catalog updates to disk;
-subscribe to live progress while either app is viewing that show. Throttle
-checkpoint writes rather than writing every percentage tick over SMB.
+Glass publishes automatically from source refreshes, independently of Inspector
+selection. It uses mapped local/SMB folders and only an unambiguous existing show
+root containing the transfer's videos. It performs filesystem work off the UI
+thread, checks containment including existing symlinks, bounds work per pass, and
+retries unavailable shares without mounting them or displaying a dialog. Active
+updates use 15-second foreground and 30-second background cadences; completed
+inventories have a slower checkpoint cadence. Background Glass continues serving
+YINA while YINA is the active application.
 
-Playback cannot safely share a mutable JSON document with catalog publishing.
-Use separate per-participant records under `.yina/` for watch progress and
-immutable reset/events, preserving the old branch's observed-revision principle.
-Read old metadata through a compatibility adapter; never delete it on discovery.
-Explicit migration must retain identities and resets, with fixtures from the old
-schema. A move of the media root changes local mapping, not show identity.
+Transfer snapshots older than 15 minutes or dated in the future have unknown
+current availability. Partial bytes do not establish an active download. Complete
+bytes remain complete even when deselected. YINA must additionally establish a
+reachable, contained regular file before playback; preallocated size alone does
+not prove completion. Its unavailable section stays separate from mpv's playable
+playlist and preserves manual ordering.
+
+A fresh YINA request is resolved only against known inventories for the same
+show. Glass requires exactly one matching transfer/file identity, marks that file
+wanted, raises its priority and starts its existing torrent. It does not search
+for or add an unknown torrent. Ambiguous paths, foreign show IDs, stale requests
+and cancellation records do not trigger downloads. Request IDs deduplicate
+repeated polling within the Glass run. This initial channel does not provide
+coordinator election or persistent acknowledgement across restarts.
+
+Progress is per participant and writer. A seek or another person's furthest
+position cannot mark everyone watched. Coverage intervals support later watched
+policy; automatic retention, shared resume conflict controls and deletion are
+not enabled by storing these records. The separate YINA chat owns playback
+sampling, playlist presentation and request interactions, and must validate its
+side before the whole integration is called complete.
 
 ## Adaptive queue
 

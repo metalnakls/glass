@@ -51,6 +51,19 @@ public struct GlassRootView: View {
         self.platformIntegration = platformIntegration
     }
 
+    private func configureEpisodeIndexPublishing(for model: RemoteAppModel) {
+        let publisher = TorrentEpisodeIndexPublisher.shared
+        publisher.attach(model: model)
+        publisher.setApplicationActive(isTestWorkspace || scenePhase == .active)
+        model.setYinaEpisodePublisher { sourceID, records, isLocal, forceHash in
+            if let records {
+                publisher.sourceDidRefresh(sourceID: sourceID, records: records, isLocal: isLocal, forceHash: forceHash)
+            } else {
+                publisher.sourceWasRemoved(sourceID)
+            }
+        }
+    }
+
     public var body: some View {
         NavigationStack {
             HStack(spacing: 0) {
@@ -224,6 +237,7 @@ public struct GlassRootView: View {
             model.setApplicationActive(isTestWorkspace || scenePhase == .active)
             // Artwork previews resolve the file list for torrents whose name carries no media suffix.
             TorrentThumbnailService.shared.attach(model: model)
+            configureEpisodeIndexPublishing(for: model)
             if !isTestWorkspace, openURLRegistrationID == nil {
                 openURLRegistrationID = GlassOpenURLRouter.shared.register { urls in
                     openURLs(urls)
@@ -249,6 +263,7 @@ public struct GlassRootView: View {
             presentation = TorrentListPresentationModel()
             model.setApplicationActive(scenePhase == .active)
             TorrentThumbnailService.shared.attach(model: model)
+            configureEpisodeIndexPublishing(for: model)
             if enabled { Task { await model.refreshAllSources() } }
         }
         .onChange(of: model.selectedProfileID) { _, _ in
@@ -258,7 +273,9 @@ public struct GlassRootView: View {
             reconcileAcceptedDrafts()
         }
         .onChange(of: scenePhase) { _, phase in
-            model.setApplicationActive(isTestWorkspace || phase == .active)
+            let active = isTestWorkspace || phase == .active
+            model.setApplicationActive(active)
+            TorrentEpisodeIndexPublisher.shared.setApplicationActive(active)
         }
         .task(id: selectedTorrentID) {
             await loadSelectedTorrentDetails()
