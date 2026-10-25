@@ -121,6 +121,9 @@ public final class RemoteAppModel {
         var id: UUID { entry.id }
     }
     private var pendingAdditions: [PendingAddition] = []
+    /// Accepted Add queue identities remain available until the UI has removed
+    /// their matching recovery drafts. The UUID is the draft item's identity.
+    public private(set) var acceptedAdditionIDs: Set<UUID> = []
     @ObservationIgnored private var discardedAdditionIDs: Set<UUID> = []
     private var pendingAdditionRevision = 0
     @ObservationIgnored private var additionTasks: [UUID: Task<Bool, Never>] = [:]
@@ -191,6 +194,7 @@ public final class RemoteAppModel {
                     entry.phase = .failed
                     entry.error = "The previous add was interrupted. Retry to finish it."
                 }
+                if entry.receipt != nil { acceptedAdditionIDs.insert(entry.id) }
                 appendAddition(entry)
             }
         } catch {
@@ -207,9 +211,16 @@ public final class RemoteAppModel {
 
     private func updateAddition(_ id: UUID, _ change: (inout TorrentAddQueueEntry) -> Void) {
         guard let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return }
+        let hadReceipt = pendingAdditions[index].entry.receipt != nil
         change(&pendingAdditions[index].entry)
         let entry = pendingAdditions[index].entry
+        if !hadReceipt, entry.receipt != nil { acceptedAdditionIDs.insert(id) }
         pendingAdditions[index].record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil)
+    }
+
+    /// Called after the corresponding persisted Add draft item has been removed.
+    public func acknowledgeAcceptedAdditions(_ ids: Set<UUID>) {
+        acceptedAdditionIDs.subtract(ids)
     }
 
     private func failAddition(_ id: UUID, error: any Error, reportError: Bool = true) {
@@ -371,6 +382,11 @@ public final class RemoteAppModel {
     private let completionNotifier: (any TorrentCompletionNotifying)?
     private let completionPollingInterval: Duration
     @ObservationIgnored private var torrentCache: [UUID: CachedTorrentList] = [:]
+    @ObservationIgnored private var pendingQueueOrders: [UUID: [String]] = [:]
+    @ObservationIgnored private var queueOrderGenerations: [UUID: Int] = [:]
+    @ObservationIgnored private var queueOrderSyncTasks: [UUID: Task<Bool, Never>] = [:]
+    @ObservationIgnored private var queueOrderSyncTaskIDs: [UUID: UUID] = [:]
+    @ObservationIgnored private var queueOrderSyncFailures: [UUID: String] = [:]
     @ObservationIgnored private var torrentDisplayNames: [String: TorrentStoredDisplayName] = [:]
     @ObservationIgnored private var providersBySourceID: [UUID: any TorrentProvider] = [:]
     @ObservationIgnored private var refreshTasksBySourceID: [UUID: Task<Void, Never>] = [:]
@@ -634,7 +650,12 @@ public final class RemoteAppModel {
             if state.isShowingCachedTorrents { state.isShowingCachedTorrents = false }
             if state.isSessionStale { state.isSessionStale = false }
             if state.refreshErrorMessage != nil { state.refreshErrorMessage = nil }
-            updateTorrentCache(mergedTorrents, for: sourceID)
+            if pendingQueueOrders[sourceID] != nil {
+                startQueueOrderSync(sourceID: sourceID, provider: provider)
+            }
+            // `mergedTorrents` retains full-poll server order. Cache the
+            // reconciled source records so a stale poll cannot undo local order.
+            updateTorrentCache(state.records.map(\.summary), for: sourceID)
             await refreshVisibleTorrentDetailsAfterListRefresh(sourceID: sourceID, provider: provider)
         } catch {
             guard !(error is CancellationError), sources.contains(where: { $0 === state }) else { return }
@@ -1522,23 +1543,89 @@ public final class RemoteAppModel {
         guard optimistic.map(\.id) != ordered.map(\.id) else { return }
         let generation = (reorderGenerations[sourceID] ?? 0) &+ 1
         reorderGenerations[sourceID] = generation
+        queueOrderGenerations[sourceID] = generation
         state.records = optimistic
         state.structureRevision &+= 1
-        let placements = moving.enumerated().map { ($0.element.hashString, target + $0.offset) }
-        let movingDown = (ordered.firstIndex { hashes.contains($0.hashString) } ?? 0) < target
-        let succeeded = await performProviderAction(sourceID: sourceID, showsActivity: false) { provider in
-            for (hash, position) in movingDown ? Array(placements.reversed()) : placements {
-                try await provider.setQueuePosition(ids: [hash], position: position)
+        let desiredOrder = optimistic.map(\.hashString)
+        pendingQueueOrders[sourceID] = desiredOrder
+        persistQueueOrder(state, sourceID: sourceID)
+        do {
+            let provider = try self.provider(for: sourceID)
+            if !(await synchronizeQueueOrder(sourceID: sourceID, provider: provider)),
+               reorderGenerations[sourceID] == generation {
+                errorMessage = queueOrderSyncFailures[sourceID] ?? "Could not sync torrent queue order."
+            }
+        } catch {
+            if reorderGenerations[sourceID] == generation {
+                errorMessage = error.localizedDescription
             }
         }
-        guard reorderGenerations[sourceID] == generation else { return }
-        if !succeeded {
-            // Preserve incoming updates/additions/removals while restoring old order.
-            let current = Dictionary(uniqueKeysWithValues: state.records.map { ($0.id, $0) })
-            let oldIDs = Set(ordered.map(\.id))
-            state.records = ordered.compactMap { current[$0.id] } + state.records.filter { !oldIDs.contains($0.id) }
-            state.structureRevision &+= 1
-        } else { scheduleTorrentCachePersistence() }
+    }
+
+    private func startQueueOrderSync(sourceID: UUID, provider: any TorrentProvider) {
+        guard queueOrderSyncTasks[sourceID] == nil else { return }
+        queueOrderSyncFailures[sourceID] = nil
+        let workerID = UUID()
+        queueOrderSyncTaskIDs[sourceID] = workerID
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return false }
+            let succeeded = await self.drainQueueOrderSync(sourceID: sourceID, provider: provider)
+            if self.queueOrderSyncTaskIDs[sourceID] == workerID {
+                self.queueOrderSyncTasks[sourceID] = nil
+                self.queueOrderSyncTaskIDs[sourceID] = nil
+            }
+            return succeeded
+        }
+        queueOrderSyncTasks[sourceID] = task
+    }
+
+    @discardableResult
+    private func synchronizeQueueOrder(sourceID: UUID, provider: any TorrentProvider) async -> Bool {
+        if let task = queueOrderSyncTasks[sourceID] { return await task.value }
+        startQueueOrderSync(sourceID: sourceID, provider: provider)
+        return await queueOrderSyncTasks[sourceID]?.value ?? true
+    }
+
+    private func drainQueueOrderSync(sourceID: UUID, provider: any TorrentProvider) async -> Bool {
+        let state = sourceState(for: sourceID)
+        while let desiredOrder = pendingQueueOrders[sourceID], !desiredOrder.isEmpty {
+            let generation = queueOrderGenerations[sourceID] ?? 0
+            let present = Set(state.records.map(\.hashString))
+            let orderedHashes = desiredOrder.filter { present.contains($0) }
+                + state.records.map(\.hashString).filter { !desiredOrder.contains($0) }
+            do {
+                for (position, hash) in orderedHashes.enumerated() {
+                    guard (queueOrderGenerations[sourceID] ?? 0) == generation,
+                          pendingQueueOrders[sourceID] == desiredOrder else { break }
+                    try await provider.setQueuePosition(ids: [hash], position: position)
+                }
+            } catch {
+                if (queueOrderGenerations[sourceID] ?? 0) == generation,
+                   pendingQueueOrders[sourceID] == desiredOrder {
+                    queueOrderSyncFailures[sourceID] = error.localizedDescription
+                    return false
+                }
+                continue
+            }
+            guard (queueOrderGenerations[sourceID] ?? 0) == generation,
+                  pendingQueueOrders[sourceID] == desiredOrder else { continue }
+            pendingQueueOrders[sourceID] = nil
+            queueOrderGenerations[sourceID] = generation &+ 1
+            persistQueueOrder(state, sourceID: sourceID)
+            return true
+        }
+        return pendingQueueOrders[sourceID] == nil
+    }
+
+    private func persistQueueOrder(_ state: TorrentSourceState, sourceID: UUID) {
+        let summaries = state.records.map(\.summary)
+        var cached = torrentCache[sourceID] ?? CachedTorrentList(profileID: sourceID, torrents: summaries)
+        cached.torrents = summaries
+        cached.refreshedAt = Date()
+        cached.pendingQueueOrder = pendingQueueOrders[sourceID]
+        torrentCache[sourceID] = cached
+        trimTorrentCache()
+        persistTorrentCache()
     }
 
     public func moveInQueue(_ torrents: [TorrentSummary], direction: TorrentQueueMove, sourceID requestedSourceID: UUID? = nil) async {
@@ -1684,11 +1771,13 @@ public final class RemoteAppModel {
 
         do {
             torrentCache = Dictionary(uniqueKeysWithValues: try profileStore.loadTorrentCache().map { ($0.profileID, $0) })
+            pendingQueueOrders = torrentCache.compactMapValues(\.pendingQueueOrder)
             let storedCount = torrentCache.count
             trimTorrentCache()
             if torrentCache.count != storedCount { persistTorrentCache() }
         } catch {
             torrentCache = [:]
+            pendingQueueOrders = [:]
         }
 
         do {
@@ -1990,9 +2079,12 @@ public final class RemoteAppModel {
 
     private func updateTorrentCache(_ torrents: [TorrentSummary], for profileID: UUID) {
         // Refresh an unchanged cache at most hourly so its expiry still reflects use.
+        let pendingQueueOrder = pendingQueueOrders[profileID]
         if let cached = torrentCache[profileID], cached.torrents == torrents,
+           cached.pendingQueueOrder == pendingQueueOrder,
            Date().timeIntervalSince(cached.refreshedAt) < 3600 { return }
-        torrentCache[profileID] = CachedTorrentList(profileID: profileID, torrents: torrents)
+        torrentCache[profileID] = CachedTorrentList(
+            profileID: profileID, torrents: torrents, pendingQueueOrder: pendingQueueOrder)
         trimTorrentCache()
         scheduleTorrentCachePersistence()
     }

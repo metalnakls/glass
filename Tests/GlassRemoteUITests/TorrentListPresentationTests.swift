@@ -198,6 +198,108 @@ struct TorrentListPresentationTests {
         #expect(Set(sections.flatMap { $0.rows.map(\.id) }).count == rows.count)
     }
 
+    @Test("paused zero percent torrents have their own Queue section")
+    func pausedZeroPercentQueueSection() throws {
+        let source = UUID()
+        let pausedAtZero = TorrentRecord(TorrentSummary(
+            id: 1, hashString: "queued", name: "Queued", status: TransmissionTorrentStatus.stopped.rawValue,
+            percentDone: 0, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 100, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let pausedPartway = TorrentRecord(TorrentSummary(
+            id: 2, hashString: "paused-partway", name: "Paused partway", status: TransmissionTorrentStatus.stopped.rawValue,
+            percentDone: 0.25, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 75, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let downloadingAtZero = TorrentRecord(TorrentSummary(
+            id: 3, hashString: "downloading-zero", name: "Downloading", status: TransmissionTorrentStatus.downloading.rawValue,
+            percentDone: 0, rateDownload: 10, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 100, eta: 10, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let rows = TorrentListRowPresentation.rows(records: [pausedAtZero, pausedPartway, downloadingAtZero], pendingRenameNames: [:], expandedGroupIDs: [])
+        let sections = TorrentListSection.sections(for: rows)
+
+        #expect(sections.map(\.id) == ["queued", "unfinished"])
+        #expect(sections.map(\.title) == ["Queue", "Loading"])
+        #expect(sections.first?.rows.map(\.id) == [pausedAtZero.id])
+        #expect(sections.last?.rows.map(\.id) == [pausedPartway.id, downloadingAtZero.id])
+        #expect(TorrentListSection.sections(for: rows, lowercase: true).first?.title == "queue")
+    }
+
+    @Test("a grouped series stays in one section when expanded")
+    func queueSectionKeepsMixedGroupsTogether() throws {
+        let source = UUID()
+        let queued = TorrentRecord(TorrentSummary(
+            id: 1, hashString: "fargo-1", name: "Fargo 1", status: TransmissionTorrentStatus.stopped.rawValue,
+            percentDone: 0, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 100, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let active = TorrentRecord(TorrentSummary(
+            id: 2, hashString: "fargo-2", name: "Fargo 2", status: TransmissionTorrentStatus.downloading.rawValue,
+            percentDone: 0.25, rateDownload: 10, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 75, eta: 10, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let records = [queued, active]
+        let collapsed = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [])
+        let groupID = try #require(collapsed.first?.groupMemberIDs != nil ? collapsed.first?.id : nil)
+        #expect(TorrentListSection.sections(for: collapsed).map(\.id) == ["unfinished"])
+
+        let expanded = TorrentListRowPresentation.rows(records: records, pendingRenameNames: [:], expandedGroupIDs: [groupID])
+        let sections = TorrentListSection.sections(for: expanded)
+        #expect(sections.map(\.id) == ["unfinished"])
+        #expect(sections.first?.rows.map(\.id) == expanded.map(\.id))
+
+        let complete = TorrentRecord(TorrentSummary(
+            id: 3, hashString: "fargo-3", name: "Fargo 3", status: TransmissionTorrentStatus.stopped.rawValue,
+            percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 0, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil
+        ), sourceID: source)
+        let withCompletedSibling = [queued, complete]
+        let completedSiblingRows = TorrentListRowPresentation.rows(records: withCompletedSibling, pendingRenameNames: [:], expandedGroupIDs: [])
+        let completedSiblingGroupID = try #require(completedSiblingRows.first?.groupMemberIDs != nil ? completedSiblingRows.first?.id : nil)
+        #expect(TorrentListSection.sections(for: completedSiblingRows).map(\.id) == ["unfinished"])
+        let expandedCompletedSiblingRows = TorrentListRowPresentation.rows(
+            records: withCompletedSibling, pendingRenameNames: [:], expandedGroupIDs: [completedSiblingGroupID])
+        #expect(TorrentListSection.sections(for: expandedCompletedSiblingRows).map(\.id) == ["unfinished"])
+        #expect(TorrentListSection.sections(for: expandedCompletedSiblingRows).first?.rows.map(\.id) == expandedCompletedSiblingRows.map(\.id))
+    }
+
+    @Test("live queue membership changes invalidate list structure without identity changes")
+    func liveQueueMembershipInvalidatesStructure() {
+        let source = UUID()
+        func summary(status: Int, progress: Double) -> TorrentSummary {
+            TorrentSummary(id: 1, hashString: "live-queue", name: "Live queue", status: status,
+                percentDone: progress, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: progress == 1 ? 0 : 100, eta: -1, uploadRatio: 0,
+                peersConnected: nil, downloadDir: nil)
+        }
+        let record = TorrentRecord(summary(status: TransmissionTorrentStatus.stopped.rawValue, progress: 0), sourceID: source)
+        func input() -> TorrentListStructureInput {
+            return TorrentListStructureInput(
+                revision: 1, recordIDs: [record.id], pendingRenameNames: [:],
+                unfinishedIDs: record.isUnfinished ? [record.id] : [],
+                queuedIDs: TorrentListSection.queueCandidateIDs(in: [record])
+            )
+        }
+
+        let pausedAtZero = input()
+        #expect(pausedAtZero.queuedIDs == [record.id])
+        _ = record.apply(summary(status: TransmissionTorrentStatus.downloading.rawValue, progress: 0), displayName: nil)
+        let runningAtZero = input()
+        #expect(runningAtZero.recordIDs == pausedAtZero.recordIDs)
+        #expect(runningAtZero.unfinishedIDs == pausedAtZero.unfinishedIDs)
+        #expect(runningAtZero.queuedIDs.isEmpty)
+        #expect(runningAtZero != pausedAtZero)
+
+        _ = record.apply(summary(status: TransmissionTorrentStatus.stopped.rawValue, progress: 0.25), displayName: nil)
+        let pausedPartway = input()
+        #expect(pausedPartway.recordIDs == pausedAtZero.recordIDs)
+        #expect(pausedPartway.unfinishedIDs == pausedAtZero.unfinishedIDs)
+        #expect(pausedPartway.queuedIDs.isEmpty)
+        #expect(pausedPartway != pausedAtZero)
+        #expect(pausedPartway == runningAtZero)
+    }
+
     @Test("completion keeps torrent identities in one list and removes the loading title")
     func completionPreservesFlatIdentity() throws {
         let source = UUID()

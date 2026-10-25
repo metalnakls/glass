@@ -30,4 +30,20 @@ struct TorrentInspectorLayoutTests {
         #expect(TorrentInspectorLayout.isVisible(width: 740, wasVisible: true))
         #expect(!TorrentInspectorLayout.isVisible(width: 740, wasVisible: false))
     }
+
+    @Test("inspector waiting resolves to one connection failure message")
+    func waitingPresentation() {
+        #expect(TorrentInspectorWaitingPresentation.resolve(
+            isWaiting: true, didWait: false, hasError: true, shareName: "Media"
+        ) == .hidden)
+        #expect(TorrentInspectorWaitingPresentation.resolve(
+            isWaiting: true, didWait: true, hasError: false, shareName: "Media"
+        ) == .loading)
+        #expect(TorrentInspectorWaitingPresentation.resolve(
+            isWaiting: true, didWait: true, hasError: true, shareName: "Media"
+        ) == .connectionFailure(shareName: "Media"))
+        #expect(TorrentInspectorWaitingPresentation.resolve(
+            isWaiting: false, didWait: true, hasError: true, shareName: "Media"
+        ) == .hidden)
+    }
 }

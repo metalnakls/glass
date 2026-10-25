@@ -663,11 +663,14 @@ public struct CachedTorrentList: Sendable, Hashable, Codable {
     public let profileID: UUID
     public var torrents: [TorrentSummary]
     public var refreshedAt: Date
+    /// Local queue order waiting to be accepted by the provider.
+    public var pendingQueueOrder: [String]?
 
-    public init(profileID: UUID, torrents: [TorrentSummary], refreshedAt: Date = Date()) {
+    public init(profileID: UUID, torrents: [TorrentSummary], refreshedAt: Date = Date(), pendingQueueOrder: [String]? = nil) {
         self.profileID = profileID
         self.torrents = torrents
         self.refreshedAt = refreshedAt
+        self.pendingQueueOrder = pendingQueueOrder
     }
 }
 

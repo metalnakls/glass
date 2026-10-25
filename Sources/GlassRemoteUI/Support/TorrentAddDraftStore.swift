@@ -136,6 +136,25 @@ final class TorrentAddDraftStore {
         saveNow()
     }
 
+    /// Remove only file items whose model-owned Add queue has a saved receipt.
+    /// Other items and still-pending imports in the same session remain recoverable.
+    @discardableResult
+    func completeAdditions(_ ids: Set<UUID>) -> Bool {
+        if !ids.isEmpty {
+            var changed = false
+            drafts = drafts.compactMap { existing in
+                var draft = existing
+                let previousCount = draft.items.count
+                draft.items.removeAll { ids.contains($0.id) }
+                let removedItem = draft.items.count != previousCount
+                changed = changed || removedItem
+                return removedItem && draft.isEmpty ? nil : draft
+            }
+            if changed { needsSave = true }
+        }
+        return saveNow()
+    }
+
     func flush() {
         saveNow()
     }
@@ -149,23 +168,26 @@ final class TorrentAddDraftStore {
         }
     }
 
-    private func saveNow() {
+    @discardableResult
+    private func saveNow() -> Bool {
         saveTask?.cancel()
         saveTask = nil
         guard needsSave, let fileURL else {
             needsSave = false
-            return
+            return true
         }
-        needsSave = false
         do {
             let data = try JSONEncoder().encode(drafts)
             try FileManager.default.createDirectory(
                 at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
             )
             try data.write(to: fileURL, options: .atomic)
+            needsSave = false
+            return true
         } catch {
             // Keep the in-memory drafts; the next edit retries the write.
             needsSave = true
+            return false
         }
     }
 

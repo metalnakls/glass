@@ -41,7 +41,7 @@ struct TorrentListSorting: Equatable {
     }
 
     @MainActor func sort(_ rows: [TorrentListRowPresentation], section: String) -> [TorrentListRowPresentation] {
-        let rule = section == "unfinished" ? loading : completed
+        let rule = section == "unfinished" || section == "queued" ? loading : completed
         guard rule != .transmission else { return rows }
         let childIDs = Set(rows.flatMap { $0.groupMemberIDs ?? [] })
         let children = Dictionary(uniqueKeysWithValues: rows.filter { childIDs.contains($0.id) }.map { ($0.id, $0) })

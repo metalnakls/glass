@@ -9,6 +9,7 @@ struct TorrentListStructureInput: Equatable {
     let recordIDs: [String]
     let pendingRenameNames: [String: String]
     var unfinishedIDs: [String] = []
+    var queuedIDs: [String] = []
     var sorting = TorrentListSorting.transmission
     var sortInputs: [TorrentListSorting.Input] = []
 }
@@ -49,25 +50,77 @@ struct TorrentListSection: Identifiable {
     }
 
     static func sections(for rows: [TorrentListRowPresentation], lowercase: Bool = false) -> [Self] {
-        let unfinishedMembers = Set(rows.flatMap { row -> [String] in
+        let queuedGroupMembers = Set(rows.flatMap { row -> [String] in
+            guard case let .group(members, _, _) = row.kind,
+                  Self.isQueuedGroup(members) else { return [] }
+            return members.map(\.id)
+        })
+        let unfinishedGroupMembers = Set(rows.flatMap { row -> [String] in
             guard case let .group(members, _, _) = row.kind,
                   members.contains(where: { $0.isUnfinished }) else { return [] }
             return members.map(\.id)
         })
+        var queued: [TorrentListRowPresentation] = []
         var unfinished: [TorrentListRowPresentation] = []
         var finished: [TorrentListRowPresentation] = []
         for row in rows {
-            let isUnfinished: Bool
+            let members: [TorrentRecord]
             switch row.kind {
             case let .torrent(record, _):
-                isUnfinished = record.isUnfinished || unfinishedMembers.contains(record.id)
+                members = [record]
             case let .group(members, _, _):
-                isUnfinished = members.contains { $0.isUnfinished }
+                if Self.isQueuedGroup(members) {
+                    queued.append(row)
+                    continue
+                }
+                if members.contains(where: { $0.isUnfinished }) {
+                    unfinished.append(row)
+                    continue
+                }
+                finished.append(row)
+                continue
             }
-            if isUnfinished { unfinished.append(row) } else { finished.append(row) }
+            let record = members[0]
+            if unfinishedGroupMembers.contains(record.id) {
+                if queuedGroupMembers.contains(record.id) {
+                    queued.append(row)
+                } else {
+                    unfinished.append(row)
+                }
+            } else if Self.isPausedAtZero(record) {
+                queued.append(row)
+            } else if record.isUnfinished {
+                unfinished.append(row)
+            } else {
+                finished.append(row)
+            }
         }
-        return [Self(id: "unfinished", title: lowercase ? "loading" : "Loading", rows: unfinished),
+        return [Self(id: "queued", title: lowercase ? "queue" : "Queue", rows: queued),
+                Self(id: "unfinished", title: lowercase ? "loading" : "Loading", rows: unfinished),
                 Self(id: "finished", title: lowercase ? "completed" : "Completed", rows: finished)].filter { !$0.rows.isEmpty }
+    }
+
+    static func queuedRecordIDs(in rows: [TorrentListRowPresentation]) -> [String] {
+        rows.flatMap { row in
+            switch row.kind {
+            case let .torrent(record, _):
+                return isPausedAtZero(record) ? [record.id] : []
+            case let .group(members, _, _):
+                return isQueuedGroup(members) ? members.map(\.id) : []
+            }
+        }
+    }
+
+    static func queueCandidateIDs(in records: [TorrentRecord]) -> [String] {
+        records.filter(isPausedAtZero).map(\.id)
+    }
+
+    private static func isQueuedGroup(_ members: [TorrentRecord]) -> Bool {
+        !members.isEmpty && members.allSatisfy(isPausedAtZero)
+    }
+
+    private static func isPausedAtZero(_ record: TorrentRecord) -> Bool {
+        !record.isAdding && record.isUnfinished && record.summary.percentDone == 0 && !record.summary.isRunningOrQueued
     }
 }
 
@@ -111,7 +164,8 @@ struct TorrentListLayout {
             if let position = sections.firstIndex(where: { $0.id == "unfinished" }) {
                 sections[position].drafts = drafts
             } else {
-                sections.insert(TorrentListSection(id: "unfinished", title: "Loading", rows: [], drafts: drafts), at: 0)
+                let position = sections.firstIndex(where: { $0.id == "finished" }) ?? sections.endIndex
+                sections.insert(TorrentListSection(id: "unfinished", title: "Loading", rows: [], drafts: drafts), at: position)
             }
         }
         self.sections = sections

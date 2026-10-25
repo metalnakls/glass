@@ -219,6 +219,7 @@ public struct GlassRootView: View {
         }
         .onAppear {
             model.selectedTorrentGroup = .all
+            reconcileAcceptedDrafts()
             persistSelectedSourceID()
             model.setApplicationActive(isTestWorkspace || scenePhase == .active)
             // Artwork previews resolve the file list for torrents whose name carries no media suffix.
@@ -252,6 +253,9 @@ public struct GlassRootView: View {
         }
         .onChange(of: model.selectedProfileID) { _, _ in
             persistSelectedSourceID()
+        }
+        .onChange(of: model.acceptedAdditionIDs) { _, _ in
+            reconcileAcceptedDrafts()
         }
         .onChange(of: scenePhase) { _, phase in
             model.setApplicationActive(isTestWorkspace || phase == .active)
@@ -295,6 +299,14 @@ public struct GlassRootView: View {
     }
 
     private var selectedDraft: TorrentAddDraft? { addDrafts.draft(selectionID: selectedTorrentID) }
+
+    private func reconcileAcceptedDrafts() {
+        let accepted = model.acceptedAdditionIDs
+        guard !accepted.isEmpty else { return }
+        if addDrafts.completeAdditions(accepted) {
+            model.acknowledgeAcceptedAdditions(accepted)
+        }
+    }
 
     private func discardDraft(_ draft: TorrentAddDraft) {
         withAnimation(GlassMotion.animation(.selection, reduceMotion: accessibilityReduceMotion)) {

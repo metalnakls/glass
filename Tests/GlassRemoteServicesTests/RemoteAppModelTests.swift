@@ -204,6 +204,7 @@ struct RemoteAppModelTests {
         let added = await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
             sourceID: profile.id, pendingAdditionID: id)
         #expect(added)
+        #expect(model.acceptedAdditionIDs == [id])
         #expect(!model.allTorrentRecords.contains { $0.isAdding })
         #expect(model.libraryStructureRevision > revision)
         #expect(model.allTorrentRecords.filter { $0.hashString == "hash-1" }.count == 1)
@@ -223,6 +224,7 @@ struct RemoteAppModelTests {
         let added = await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
             sourceID: profile.id, pendingAdditionID: first)
         #expect(!added)
+        #expect(model.acceptedAdditionIDs.isEmpty)
         #expect(model.allTorrentRecords.count == 2)
         #expect(model.allTorrentRecords.contains { $0.hashString == "adding:\(first.uuidString)" })
         #expect(model.allTorrentRecords.contains { $0.hashString == "adding:\(second.uuidString)" })
@@ -282,10 +284,12 @@ struct RemoteAppModelTests {
         model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Spider-Noir", size: 100, fileCount: 1,
             downloadDirectory: "/nas", namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: []), data: data)
         #expect(!(await model.retryTorrentAddition(id)))
+        #expect(model.acceptedAdditionIDs.isEmpty)
         #expect(model.allTorrentRecords.first?.additionPhase == .failed)
         await model.refresh(sourceID: profile.id)
         await client.waitForRename()
         #expect(await model.retryTorrentAddition(id))
+        #expect(model.acceptedAdditionIDs == [id])
         #expect(await client.addedFiles.count == 1)
         #expect(await client.renamedPaths == [TorrentPathRename(path: "Spider-Noir", name: "Spider Noir")])
         #expect(model.allTorrentRecords.filter { $0.hashString == expectedHash }.count == 1)
@@ -301,6 +305,7 @@ struct RemoteAppModelTests {
         model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Spider-Noir", size: 100, fileCount: 1,
             downloadDirectory: nil, namingPlan: TorrentAddNamingPlan(rootName: "Spider Noir", pathRenames: [child]), data: Data([1]))
         #expect(!(await model.retryTorrentAddition(id)))
+        #expect(model.acceptedAdditionIDs == [id])
         #expect(model.allTorrentRecords.first?.additionPhase == .failed)
         await client.setRenameFailurePath(nil)
         #expect(await model.retryTorrentAddition(id))
@@ -421,15 +426,109 @@ struct RemoteAppModelTests {
         await model.refresh(sourceID: profile.id)
         await client.holdQueuePosition(error: nil)
         let task = Task { await model.reorder(["hash-1"], before: [], sourceID: profile.id) }
-        await client.waitForQueuePositionCall()
+        #expect(await client.waitForQueuePositionCall())
         #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
         await client.releaseQueuePosition()
         await task.value
         #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
     }
 
-    @Test("a rejected native reorder restores the previous source order")
-    func rejectedReorder() async throws {
+    @Test("reordered source order survives stale polls and cache restoration")
+    func reorderedSourceOrderPersistsAcrossStalePolls() async throws {
+        let profile = makeProfile()
+        let store = MemoryProfileStore(profiles: [profile])
+        let client = StubRPCClient()
+        let factory = StubRPCClientFactory { _ in client }
+        func makeStoredModel() -> RemoteAppModel {
+            RemoteAppModel(profileStore: store,
+                credentialStore: MemoryCredentialStore(password: "secret"),
+                rpcClientFactory: factory.make(config:))
+        }
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        let staleServerOrder = [
+            TorrentSummary(id: 1, hashString: "hash-1", name: "Spider-Noir", status: 4,
+                percentDone: 0.5, rateDownload: 1024, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: 50, eta: 60, uploadRatio: 0, peersConnected: 1, downloadDir: "/downloads"),
+            second,
+        ]
+
+        let model = makeStoredModel()
+        await model.refresh(sourceID: profile.id)
+        await client.setRecentlyActiveUpdate(.full(staleServerOrder))
+        await model.refresh(sourceID: profile.id)
+        model.setApplicationActive(false)
+        #expect(try store.loadTorrentCache().first?.torrents.map(\.hashString) == ["hash-1", "hash-2"])
+        let task = Task { await model.reorder(["hash-1"], before: [], sourceID: profile.id) }
+        #expect(await client.waitForQueuePositionCall())
+        await client.releaseQueuePosition()
+        await task.value
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+
+        // The next poll still reports its old order; the current source order stays local.
+        await model.refresh(sourceID: profile.id)
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        model.setApplicationActive(false)
+        #expect(try store.loadTorrentCache().first?.torrents.map(\.hashString) == ["hash-2", "hash-1"])
+
+        let restored = makeStoredModel()
+        #expect(restored.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+    }
+
+    @Test("a rejected reorder stays local and retries its saved order after relaunch")
+    func rejectedReorderRetriesAfterRelaunch() async throws {
+        let profile = makeProfile()
+        let store = MemoryProfileStore(profiles: [profile])
+        let client = StubRPCClient()
+        let factory = StubRPCClientFactory { _ in client }
+        func makeStoredModel() -> RemoteAppModel {
+            RemoteAppModel(profileStore: store,
+                credentialStore: MemoryCredentialStore(password: "secret"),
+                rpcClientFactory: factory.make(config:))
+        }
+        let model = makeStoredModel()
+        await model.refresh(sourceID: profile.id)
+        let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        await client.setRecentlyActiveUpdate(.delta(changed: [second], removedIDs: []))
+        await model.refresh(sourceID: profile.id)
+        model.setApplicationActive(false)
+        await client.holdQueuePosition(error: TestError.failed)
+        let task = Task { await model.reorder(["hash-2"], before: ["hash-1"], sourceID: profile.id) }
+        #expect(await client.waitForQueuePositionCall())
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        await client.releaseQueuePosition()
+        await task.value
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        #expect(model.errorMessage != nil)
+        #expect(try store.loadTorrentCache().first?.pendingQueueOrder == ["hash-2", "hash-1"])
+
+        let restored = makeStoredModel()
+        #expect(restored.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        await client.setFetchTorrents([
+            TorrentSummary(id: 1, hashString: "hash-1", name: "Spider-Noir", status: 4,
+                percentDone: 0.5, rateDownload: 1024, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: 50, eta: 60, uploadRatio: 0, peersConnected: 1, downloadDir: "/downloads"),
+            second,
+        ])
+        await client.holdQueuePosition(error: nil)
+        let refresh = Task { await restored.refresh(sourceID: profile.id) }
+        #expect(await client.waitForQueuePositionCall())
+        await client.releaseQueuePosition()
+        await refresh.value
+        for _ in 0..<100 where (try? store.loadTorrentCache().first?.pendingQueueOrder) != nil {
+            await Task.yield()
+        }
+
+        #expect(restored.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+        #expect(await client.queuePositionMap == ["hash-2": 0, "hash-1": 1])
+        #expect(try store.loadTorrentCache().first?.pendingQueueOrder == nil)
+    }
+
+    @Test("an in-flight older reorder cannot overwrite a newer drag")
+    func newerReorderWinsAfterOlderRequestCompletes() async throws {
         let profile = makeProfile()
         let client = StubRPCClient()
         let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
@@ -437,16 +536,27 @@ struct RemoteAppModelTests {
         let second = TorrentSummary(id: 2, hashString: "hash-2", name: "Second", status: 0,
             percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
             leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
-        await client.setRecentlyActiveUpdate(.delta(changed: [second], removedIDs: []))
+        let third = TorrentSummary(id: 3, hashString: "hash-3", name: "Third", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+            leftUntilDone: 50, eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: nil)
+        await client.setRecentlyActiveUpdate(.delta(changed: [second, third], removedIDs: []))
         await model.refresh(sourceID: profile.id)
-        await client.holdQueuePosition(error: TestError.failed)
-        let task = Task { await model.reorder(["hash-2"], before: ["hash-1"], sourceID: profile.id) }
-        await client.waitForQueuePositionCall()
-        #expect(model.torrentRecords.map(\.hashString) == ["hash-2", "hash-1"])
+
+        await client.holdQueuePosition(error: nil)
+        let older = Task { await model.reorder(["hash-1"], before: [], sourceID: profile.id) }
+        #expect(await client.waitForQueuePositionCall())
+        let newer = Task { await model.reorder(["hash-3"], before: ["hash-2"], sourceID: profile.id) }
+        for _ in 0..<100 where model.torrentRecords.map(\.hashString) != ["hash-3", "hash-2", "hash-1"] {
+            await Task.yield()
+        }
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-3", "hash-2", "hash-1"])
+
         await client.releaseQueuePosition()
-        await task.value
-        #expect(model.torrentRecords.map(\.hashString) == ["hash-1", "hash-2"])
-        #expect(model.errorMessage != nil)
+        await older.value
+        await newer.value
+        #expect(model.torrentRecords.map(\.hashString) == ["hash-3", "hash-2", "hash-1"])
+        #expect(await client.queuePositionMap == ["hash-3": 0, "hash-2": 1, "hash-1": 2])
+        #expect(await client.maximumActiveQueuePositionCalls == 1)
     }
 
     @Test("all sources retain separate identities and source-scoped deltas")
@@ -1372,11 +1482,15 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var inspectorPercentDone = 0.5
     private var inspectorFileBytesCompleted: UInt64 = 50
     private var recentlyActiveUpdate: TorrentCollectionUpdate?
+    private var fetchTorrentsOverride: [TorrentSummary]?
     private var holdingQueuePosition = false
     private var queuePositionError: (any Error)?
     private var queuePositionContinuation: CheckedContinuation<Void, Never>?
-    private var queuePositionWaiter: CheckedContinuation<Void, Never>?
+    private var queuePositionWaiter: CheckedContinuation<Bool, Never>?
     private var didRequestQueuePosition = false
+    private(set) var queuePositionMap: [String: Int] = [:]
+    private var activeQueuePositionCalls = 0
+    private(set) var maximumActiveQueuePositionCalls = 0
     private var holdingFilePriority = false
     private var rejectFilePriority = false
     private var filePriorityContinuation: CheckedContinuation<Void, Never>?
@@ -1403,9 +1517,19 @@ private actor StubRPCClient: TransmissionRPCServicing {
         queuePositionError = error
         didRequestQueuePosition = false
     }
-    func waitForQueuePositionCall() async {
-        if didRequestQueuePosition { return }
-        await withCheckedContinuation { queuePositionWaiter = $0 }
+    func waitForQueuePositionCall() async -> Bool {
+        if didRequestQueuePosition { return true }
+        return await withCheckedContinuation { continuation in
+            queuePositionWaiter = continuation
+            Task {
+                try? await Task.sleep(for: .seconds(8))
+                self.timeoutQueuePositionWaiter()
+            }
+        }
+    }
+    private func timeoutQueuePositionWaiter() {
+        queuePositionWaiter?.resume(returning: false)
+        queuePositionWaiter = nil
     }
     func releaseQueuePosition() {
         holdingQueuePosition = false
@@ -1414,10 +1538,14 @@ private actor StubRPCClient: TransmissionRPCServicing {
     }
     func setQueuePosition(ids: [String], position: Int) async throws {
         didRequestQueuePosition = true
-        queuePositionWaiter?.resume()
+        activeQueuePositionCalls += 1
+        maximumActiveQueuePositionCalls = max(maximumActiveQueuePositionCalls, activeQueuePositionCalls)
+        defer { activeQueuePositionCalls -= 1 }
+        queuePositionWaiter?.resume(returning: true)
         queuePositionWaiter = nil
         if holdingQueuePosition { await withCheckedContinuation { queuePositionContinuation = $0 } }
         if let queuePositionError { throw queuePositionError }
+        for id in ids { queuePositionMap[id] = position }
     }
 
     private var torrentHash = "hash-1"
@@ -1496,6 +1624,9 @@ private actor StubRPCClient: TransmissionRPCServicing {
     func setRecentlyActiveUpdate(_ update: TorrentCollectionUpdate?) {
         recentlyActiveUpdate = update
     }
+    func setFetchTorrents(_ torrents: [TorrentSummary]?) {
+        fetchTorrentsOverride = torrents
+    }
 
     func testConnection() async throws {}
 
@@ -1537,6 +1668,7 @@ private actor StubRPCClient: TransmissionRPCServicing {
         if let fetchTorrentsError {
             throw fetchTorrentsError
         }
+        if let fetchTorrentsOverride { return fetchTorrentsOverride }
         guard torrentVisible else { return [] }
         return [
             TorrentSummary(

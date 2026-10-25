@@ -396,6 +396,7 @@ struct TorrentListView: View {
             let hasRowIdentityChanges = oldInput.recordIDs != newInput.recordIDs
                 || oldInput.pendingRenameNames != newInput.pendingRenameNames
                 || oldInput.unfinishedIDs != newInput.unfinishedIDs
+                || oldInput.queuedIDs != newInput.queuedIDs
             synchronizePresentation(
                 animated: hasRowIdentityChanges
             )
@@ -541,11 +542,12 @@ struct TorrentListView: View {
     }
 
     private var structureInput: TorrentListStructureInput {
-        TorrentListStructureInput(
+        return TorrentListStructureInput(
             revision: structureRevision,
             recordIDs: visibleRecords.map(\.id),
             pendingRenameNames: pendingRenameNames,
             unfinishedIDs: visibleRecords.filter { $0.isUnfinished }.map(\.id),
+            queuedIDs: TorrentListSection.queueCandidateIDs(in: visibleRecords),
             sorting: sorting, sortInputs: visibleRecords.map { sorting.input(for: $0) }
         )
     }

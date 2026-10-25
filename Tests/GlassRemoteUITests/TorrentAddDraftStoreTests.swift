@@ -92,6 +92,61 @@ struct TorrentAddDraftStoreTests {
         #expect(store.drafts.first?.items.first?.name == "Second")
     }
 
+    @Test("accepted restored items are removed by identity while other drafts stay recoverable")
+    func acceptedAdditionRemovesOnlyItsDraftItem() {
+        let fileURL = temporaryFile()
+        defer { try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent()) }
+        let acceptedID = UUID()
+        let remainingID = UUID()
+        let independentID = UUID()
+        let restoredSessionID = UUID()
+        let independentSessionID = UUID()
+        let pending = URL(fileURLWithPath: "/tmp/not-yet-loaded.torrent")
+        let store = TorrentAddDraftStore(fileURL: fileURL)
+        store.capture(TorrentAddDraft(
+            id: restoredSessionID,
+            sourceID: UUID(),
+            pendingURLs: [pending],
+            items: [item(id: acceptedID, name: "The Invite"), item(id: remainingID, name: "Other")]
+        ))
+        store.capture(TorrentAddDraft(
+            id: independentSessionID,
+            sourceID: UUID(),
+            items: [item(id: independentID, name: "The Invite")]
+        ))
+        store.flush()
+
+        let restoredStore = TorrentAddDraftStore(fileURL: fileURL)
+        #expect(restoredStore.completeAdditions([acceptedID]))
+
+        let remaining = restoredStore.draft(id: restoredSessionID)
+        #expect(remaining?.items.map(\.id) == [remainingID])
+        #expect(remaining?.pendingURLs == [pending])
+        #expect(restoredStore.draft(id: independentSessionID)?.items.map(\.id) == [independentID])
+        #expect(TorrentAddDraftStore(fileURL: fileURL).draft(id: restoredSessionID)?.items.map(\.id) == [remainingID])
+    }
+
+    @Test("accepted cleanup retries its disk write before the model receipt is acknowledged")
+    func acceptedCleanupRetriesFailedWrite() throws {
+        let fileURL = temporaryFile()
+        let blockedParent = fileURL.deletingLastPathComponent()
+        try Data("blocks directory creation".utf8).write(to: blockedParent)
+        defer { try? FileManager.default.removeItem(at: blockedParent) }
+
+        let itemID = UUID()
+        let store = TorrentAddDraftStore(fileURL: fileURL)
+        store.capture(TorrentAddDraft(id: UUID(), items: [item(id: itemID)]))
+        store.flush()
+        #expect(store.drafts.count == 1)
+
+        #expect(!store.completeAdditions([itemID]))
+        #expect(store.drafts.isEmpty)
+
+        try FileManager.default.removeItem(at: blockedParent)
+        #expect(store.completeAdditions([itemID]))
+        #expect(TorrentAddDraftStore(fileURL: fileURL).drafts.isEmpty)
+    }
+
     @Test("A magnet draft offers its display name and no parsed items")
     func magnetDraftSummary() {
         let magnet = "magnet:?xt=urn:btih:abc&dn=The%20Movie"

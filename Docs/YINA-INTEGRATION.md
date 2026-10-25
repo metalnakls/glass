@@ -1,6 +1,8 @@
 # Glass and YINA: shared shows
 
-Status: design proposal plus a first, explicit episode-index export. This is not
+Status: design proposal plus episode-index serialization and export foundations.
+The manual Inspector export control was withdrawn at the user's request; automatic
+publication needs the shared ownership protocol below. This is not
 authorization to enable automatic downloading, deletion, or shared watch-state
 changes. The user owns UX decisions. Coding is delegated to Luna agents.
 
@@ -37,8 +39,9 @@ the coordinator cannot prevent them deleting files outside this protocol.
 
 ## Portable format and first slice
 
-Use `.yina.json` at an explicitly established media root. First slice is a
-versioned **single-torrent snapshot**, exported by a deliberate Glass action.
+Use `.yina.json` at an explicitly established media root. The first protocol is a
+versioned **single-torrent snapshot**. Its export implementation is retained for
+integration work, with no dedicated Inspector control exposed to the user.
 It includes video files regardless of their wanted flag, original filename case,
 relative paths, torrent hash/file index identity, optional episode numbering,
 byte totals, selection and capture time. No torrent credentials, tracker
@@ -206,6 +209,12 @@ current Foundation Models documentation includes Private Cloud Compute; check
 entitlement, device/account availability and failure fallback when implementing.
 Cloud availability must never be required for playback, cleanup safety, or basic
 search. Do not send tracker secrets or shared watch histories with matching tasks.
+
+Trakt can be an optional per-person watch-history adapter. Deduplicate outbound
+watch events and queue them while offline. A remote watched flag is not evidence
+that every shared-library participant watched, and must never independently
+authorize cache deletion. Map explicit people/accounts rather than inheriting
+the account of whichever computer hosts a viewing session.
 
 ## iPhone and motion
 

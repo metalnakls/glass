@@ -26,6 +26,18 @@ struct TorrentInspectorView: View {
         selectionKey != nil && (snapshot?.sourceID != sourceID || snapshot?.selectionKey != selectionKey)
     }
 
+    private var waitingPresentation: TorrentInspectorWaitingPresentation {
+        TorrentInspectorWaitingPresentation.resolve(
+            isWaiting: waitingForSelection,
+            didWait: waitingExpired,
+            hasError: selectionError != nil,
+            shareName: TorrentDownloadLocation.shareName(
+                link: TorrentThumbnailService.shared.link(for: sourceID),
+                fallback: model.sourceName(for: sourceID)
+            )
+        )
+    }
+
     private var selectionKey: String? {
         selectedTorrentGroup.map { "group:" + $0.id } ?? selectedTorrentHash.map { "torrent:" + $0 }
     }
@@ -37,31 +49,40 @@ struct TorrentInspectorView: View {
 
     var body: some View {
         Group {
-            if let snapshot {
+            if case let .connectionFailure(shareName) = waitingPresentation {
+                connectionFailureView(shareName: shareName)
+            } else if let snapshot {
                 TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession, commandsEnabled: isVisible && !waitingForSelection, onApply: { wanted in Task { await applyFileEdits(selectionWanted: wanted) } })
                     .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                     .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
             } else if selectionKey == nil {
                 Color.clear.background { if isVisible { InspectorPup() } }.accessibilityHidden(true)
-            } else if waitingExpired, let error = selectionError {
-                ContentUnavailableView(glassText("Couldn’t Load Details"), systemImage: "exclamationmark.triangle", description: Text(error))
             } else {
-                Color.clear
+                switch waitingPresentation {
+                case .hidden:
+                    Color.clear
+                case .loading:
+                    GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case let .connectionFailure(shareName):
+                    connectionFailureView(shareName: shareName)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
         }
-        .blur(radius: blurEnabled && waitingForSelection && !reduceMotion ? max(0, blurRadius) : 0)
-        .animation(GlassMotion.inspectorBlur(enabled: blurEnabled, waiting: waitingForSelection, easeIn: blurEaseIn, easeOut: blurEaseOut, reduceMotion: reduceMotion), value: waitingForSelection)
-        .overlay(alignment: .topTrailing) {
-            if waitingForSelection && waitingExpired {
+        .overlay {
+            if snapshot != nil, waitingPresentation == .loading {
                 HStack(spacing: 8) {
                     GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")))
-                    if let error = selectionError { Text(glassText(error)).font(.caption).lineLimit(2) }
                 }
                 .foregroundStyle(.secondary)
                 .padding(18)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
                 .allowsHitTesting(false)
             }
         }
+        .blur(radius: blurEnabled && waitingForSelection && !waitingPresentation.isFailure && !reduceMotion ? max(0, blurRadius) : 0)
+        .animation(GlassMotion.inspectorBlur(enabled: blurEnabled, waiting: waitingForSelection, easeIn: blurEaseIn, easeOut: blurEaseOut, reduceMotion: reduceMotion), value: waitingForSelection)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .ignoresSafeArea(.container, edges: .top)
         .onChange(of: snapshot?.selectionKey) { _, _ in editSession.reset() }
@@ -190,6 +211,13 @@ struct TorrentInspectorView: View {
         selectedTorrentGroup == nil ? model.torrentDetailsError : groupDetailsError
     }
 
+    private func connectionFailureView(shareName: String) -> some View {
+        ContentUnavailableView {
+            Label(glassText("cant connect to \(shareName)"), systemImage: "exclamationmark.triangle")
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     private var detailLoadInput: TorrentInspectorDetailLoadInput {
         TorrentInspectorDetailLoadInput(sourceID: sourceID, hashString: selectedTorrentHash,
             detailsHash: model.selectedTorrentDetails?.hashString, isLoading: model.isLoadingTorrentDetails)
@@ -214,6 +242,24 @@ private struct TorrentInspectorSnapshot {
     }
 }
 
+enum TorrentInspectorWaitingPresentation: Equatable {
+    case hidden
+    case loading
+    case connectionFailure(shareName: String)
+
+    static func resolve(isWaiting: Bool, didWait: Bool, hasError: Bool, shareName: String) -> Self {
+        guard isWaiting, didWait else { return .hidden }
+        return hasError ? .connectionFailure(shareName: shareName) : .loading
+    }
+
+    var shareName: String? {
+        guard case let .connectionFailure(name) = self else { return nil }
+        return name
+    }
+
+    var isFailure: Bool { shareName != nil }
+}
+
 private struct TorrentInspectorContent: View {
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
@@ -225,7 +271,6 @@ private struct TorrentInspectorContent: View {
     @AppearanceStorage("GlassInspector.permanentSearch") private var permanentSearch = true
     @State private var searchPresented = false
     @FocusState private var searchFocused: Bool
-    @State private var isExportingEpisodeIndex = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let fileLayout = TorrentFileListLayout.inspector
     private var sourceID: UUID { snapshot.sourceID }
@@ -337,21 +382,6 @@ private struct TorrentInspectorContent: View {
                         platformIntegration: platformIntegration, glassPills: true, showsCapacity: false)
                 }
                 Spacer(minLength: 8)
-                if snapshot.group == nil, !members.isEmpty {
-                    Menu {
-                        Button {
-                            exportEpisodeIndex()
-                        } label: {
-                            Label(glassText("Export Episode Index…"), systemImage: "square.and.arrow.up")
-                        }
-                        .disabled(isExportingEpisodeIndex)
-                    } label: {
-                        Image(systemName: isExportingEpisodeIndex ? "arrow.triangle.2.circlepath" : "ellipsis.circle")
-                    }
-                    .buttonStyle(.glass)
-                    .help(glassText("Export an episode availability snapshot"))
-                    .accessibilityLabel(glassText("Torrent Actions"))
-                }
                 if permanentSearch && supportsSearch && !allCompleted {
                     TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                         .modifier(InspectorGlassPill())
@@ -362,25 +392,6 @@ private struct TorrentInspectorContent: View {
     }
 
     private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
-
-    private func exportEpisodeIndex() {
-        guard !isExportingEpisodeIndex, let torrent = members.first else { return }
-        isExportingEpisodeIndex = true
-        Task { @MainActor in
-            defer { isExportingEpisodeIndex = false }
-            do {
-                let details = try await model.fetchDetails(for: [torrent], including: [.files], sourceID: sourceID)
-                guard let details = details.first else { return }
-                _ = try await ShowEpisodeIndexExporter.export(
-                    details: details,
-                    sourceID: sourceID,
-                    isLocal: sourceID == model.localSourceID
-                )
-            } catch {
-                model.errorMessage = error.localizedDescription
-            }
-        }
-    }
 
     private var allCompleted: Bool { !members.isEmpty && members.allSatisfy(\.isCompleted) }
 

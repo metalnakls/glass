@@ -16,6 +16,7 @@ struct MainWindowChrome: NSViewRepresentable {
     final class Anchor: NSView {
         var widthChanged: ((CGFloat) -> Void)?
         private var reportedWidth: CGFloat?
+        private var titlebarDragOverlay: TitlebarDragOverlay?
 
         override func viewDidMoveToWindow() {
             super.viewDidMoveToWindow()
@@ -31,9 +32,14 @@ struct MainWindowChrome: NSViewRepresentable {
         func stopObserving() {
             NotificationCenter.default.removeObserver(self, name: NSWindow.didResizeNotification, object: nil)
             reportedWidth = nil
+            titlebarDragOverlay?.removeFromSuperview()
+            titlebarDragOverlay = nil
         }
 
-        @objc private func windowResized(_ notification: Notification) { reportWidth() }
+        @objc private func windowResized(_ notification: Notification) {
+            configureWindow()
+            reportWidth()
+        }
 
         func reportWidth() {
             guard let window, widthChanged != nil else { return }
@@ -56,7 +62,11 @@ struct MainWindowChrome: NSViewRepresentable {
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
         func configureWindow() {
-            guard let window, window.sheetParent == nil else { return }
+            guard let window, let contentView = window.contentView else { return }
+            guard window.sheetParent == nil else {
+                updateTitlebarDragOverlay(in: window, contentView: contentView)
+                return
+            }
             if window.titleVisibility != .hidden { window.titleVisibility = .hidden }
             if !window.titlebarAppearsTransparent { window.titlebarAppearsTransparent = true }
             if !window.styleMask.contains(.fullSizeContentView) {
@@ -68,6 +78,73 @@ struct MainWindowChrome: NSViewRepresentable {
                 }
             }
             if window.toolbar != nil { window.toolbar = nil }
+            updateTitlebarDragOverlay(in: window, contentView: contentView)
         }
+
+        private func updateTitlebarDragOverlay(in window: NSWindow, contentView: NSView) {
+            guard TitlebarDragOverlay.shouldInstall(in: window) else {
+                titlebarDragOverlay?.removeFromSuperview()
+                titlebarDragOverlay = nil
+                return
+            }
+
+            let overlay: TitlebarDragOverlay
+            if let titlebarDragOverlay, titlebarDragOverlay.superview === contentView {
+                overlay = titlebarDragOverlay
+            } else {
+                titlebarDragOverlay?.removeFromSuperview()
+                overlay = TitlebarDragOverlay(frame: contentView.bounds)
+                overlay.autoresizingMask = [.width, .height]
+                contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+                titlebarDragOverlay = overlay
+            }
+            overlay.frame = contentView.bounds
+            overlay.titlebarBand = { [weak overlay, weak window] in
+                guard let overlay, let window else { return .zero }
+                return overlay.measuredTitlebarBand(in: window)
+            }
+        }
+    }
+}
+
+final class TitlebarDragOverlay: NSView {
+    static func shouldInstall(in window: NSWindow) -> Bool {
+        shouldInstall(isSheet: window.sheetParent != nil, isFullscreen: window.styleMask.contains(.fullScreen))
+    }
+
+    static func shouldInstall(isSheet: Bool, isFullscreen: Bool) -> Bool {
+        !isSheet && !isFullscreen
+    }
+
+    var titlebarBand: () -> NSRect = { .zero }
+    var performDrag: (NSWindow, NSEvent) -> Void = { window, event in
+        window.performDrag(with: event)
+    }
+
+    override var isOpaque: Bool { false }
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    func measuredTitlebarBand(in window: NSWindow) -> NSRect {
+        let contentRect = convert(window.contentLayoutRect, from: nil)
+        let height: CGFloat
+        let y: CGFloat
+        if isFlipped {
+            y = bounds.minY
+            height = max(0, contentRect.minY - bounds.minY)
+        } else {
+            y = contentRect.maxY
+            height = max(0, bounds.maxY - contentRect.maxY)
+        }
+        return NSRect(x: bounds.minX, y: y, width: bounds.width, height: height)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        let localPoint = superview.map { convert(point, from: $0) } ?? point
+        return titlebarBand().contains(localPoint) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard let window else { return }
+        performDrag(window, event)
     }
 }
