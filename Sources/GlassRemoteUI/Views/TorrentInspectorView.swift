@@ -225,6 +225,7 @@ private struct TorrentInspectorContent: View {
     @AppearanceStorage("GlassInspector.permanentSearch") private var permanentSearch = true
     @State private var searchPresented = false
     @FocusState private var searchFocused: Bool
+    @State private var isExportingEpisodeIndex = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private let fileLayout = TorrentFileListLayout.inspector
     private var sourceID: UUID { snapshot.sourceID }
@@ -336,6 +337,21 @@ private struct TorrentInspectorContent: View {
                         platformIntegration: platformIntegration, glassPills: true, showsCapacity: false)
                 }
                 Spacer(minLength: 8)
+                if snapshot.group == nil, !members.isEmpty {
+                    Menu {
+                        Button {
+                            exportEpisodeIndex()
+                        } label: {
+                            Label(glassText("Export Episode Index…"), systemImage: "square.and.arrow.up")
+                        }
+                        .disabled(isExportingEpisodeIndex)
+                    } label: {
+                        Image(systemName: isExportingEpisodeIndex ? "arrow.triangle.2.circlepath" : "ellipsis.circle")
+                    }
+                    .buttonStyle(.glass)
+                    .help(glassText("Export an episode availability snapshot"))
+                    .accessibilityLabel(glassText("Torrent Actions"))
+                }
                 if permanentSearch && supportsSearch && !allCompleted {
                     TorrentInspectorProgressView(progress: TorrentInspectorProgress(torrents: members))
                         .modifier(InspectorGlassPill())
@@ -346,6 +362,25 @@ private struct TorrentInspectorContent: View {
     }
 
     private var supportsSearch: Bool { snapshot.group != nil || (snapshot.details?.files.count ?? 0) > 1 }
+
+    private func exportEpisodeIndex() {
+        guard !isExportingEpisodeIndex, let torrent = members.first else { return }
+        isExportingEpisodeIndex = true
+        Task { @MainActor in
+            defer { isExportingEpisodeIndex = false }
+            do {
+                let details = try await model.fetchDetails(for: [torrent], including: [.files], sourceID: sourceID)
+                guard let details = details.first else { return }
+                _ = try await ShowEpisodeIndexExporter.export(
+                    details: details,
+                    sourceID: sourceID,
+                    isLocal: sourceID == model.localSourceID
+                )
+            } catch {
+                model.errorMessage = error.localizedDescription
+            }
+        }
+    }
 
     private var allCompleted: Bool { !members.isEmpty && members.allSatisfy(\.isCompleted) }
 
