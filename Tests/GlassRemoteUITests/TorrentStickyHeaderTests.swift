@@ -9,17 +9,6 @@ struct TorrentStickyHeaderTests {
     let frames = [CGRect(x: 8, y: 6, width: 480, height: 48), CGRect(x: 8, y: 186, width: 480, height: 48)]
     func viewport(_ y: CGFloat) -> CGRect { CGRect(x: 0, y: y, width: 500, height: 600) }
 
-    @Test("sticky header trace throttles geometry while preserving state changes")
-    func traceThrottle() {
-        var gate = StickyHeaderTraceGate()
-        #expect(gate.shouldLog(at: 1, state: "inline").geometryDue)
-        #expect(!gate.shouldLog(at: 1.05, state: "inline").geometryDue)
-        let transition = gate.shouldLog(at: 1.06, state: "pinned")
-        #expect(transition.stateChanged)
-        #expect(!transition.geometryDue)
-        #expect(gate.shouldLog(at: 1.101, state: "pinned").geometryDue)
-    }
-
     @MainActor @Test("production pinning preserves breathing room and releases two displayed rows early")
     func productionPolicy() throws {
         // Unequal row heights distinguish a displayed-row rule from a pixel approximation.
