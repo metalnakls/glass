@@ -1,6 +1,102 @@
 import AppKit
+import OSLog
 import SwiftUI
 
+struct StickyHeaderTraceGate {
+    private(set) var lastGeometryTime = -Double.infinity
+    private(set) var lastState = ""
+
+    mutating func shouldLog(at time: TimeInterval, state: String) -> (stateChanged: Bool, geometryDue: Bool) {
+        let stateChanged = state != lastState
+        if stateChanged { lastState = state }
+        let geometryDue = time - lastGeometryTime >= 0.1
+        if geometryDue { lastGeometryTime = time }
+        return (stateChanged, geometryDue)
+    }
+}
+
+@MainActor
+private final class StickyHeaderTrace {
+    private static let preferenceKey = "GlassDiagnostics.traceHeaders"
+    private static let logger = Logger(subsystem: "tsmc.glass", category: "sticky-headers")
+    private let identifier = String(UUID().uuidString.prefix(8))
+    private var gate = StickyHeaderTraceGate()
+    private var lastEffectState: Bool?
+    private var lastBarRegistration = ""
+    private var lastScrollNotification = "none"
+
+    private var enabled: Bool { UserDefaults.standard.bool(forKey: Self.preferenceKey) }
+
+    private func rect(_ rect: CGRect?) -> String {
+        guard let rect else { return "nil" }
+        return String(format: "(%.1f,%.1f,%.1f,%.1f)", rect.origin.x, rect.origin.y, rect.width, rect.height)
+    }
+
+    private func point(_ point: CGPoint) -> String {
+        String(format: "(%.1f,%.1f)", point.x, point.y)
+    }
+
+    private func insets(_ insets: NSEdgeInsets) -> String {
+        String(format: "(t=%.1f,l=%.1f,b=%.1f,r=%.1f)", insets.top, insets.left, insets.bottom, insets.right)
+    }
+
+    func barRegistration(_ view: NSView) {
+        guard enabled else { return }
+        let windowFrame = view.window.map { _ in view.convert(view.bounds, to: nil) }
+        let signature = "frame=\(rect(view.frame)) window=\(rect(windowFrame)) safe=\(insets(view.safeAreaInsets))"
+        guard signature != lastBarRegistration else { return }
+        lastBarRegistration = signature
+        Self.logger.notice("controller=\(self.identifier, privacy: .public) bar-registration \(signature, privacy: .public)")
+    }
+
+    func update(table: NSTableView, scroll: NSScrollView, clip: NSClipView,
+                placements: [TorrentStickyHeaderGeometry.Placement], headers: [TorrentStickyHeaders.Header],
+                hosts: [String: TitleHost], barSurface: NSView,
+                backdropActive: Bool, customEffectAlpha: CGFloat) {
+        guard enabled else { return }
+        let state = placements.map { "\($0.index):\($0.pinned ? 1 : 0):\($0.retiring ? 1 : 0)" }.joined(separator: ",")
+            + ":effect=\(backdropActive ? 1 : 0)"
+        let decision = gate.shouldLog(at: ProcessInfo.processInfo.systemUptime, state: state)
+        guard decision.stateChanged || decision.geometryDue else { return }
+
+        let eventDescription: String
+        if let event = NSApp.currentEvent, event.type == .scrollWheel {
+            let type = event.type == .scrollWheel ? "scrollWheel" : "other"
+            eventDescription = "\(type)/phase=\(event.phase.rawValue)/momentum=\(event.momentumPhase.rawValue)/lifecycle=\(lastScrollNotification)"
+        } else {
+            eventDescription = "none-or-nonscroll/lifecycle=\(lastScrollNotification)"
+        }
+        let titleFrames = placements.map { placement -> String in
+            let host = headers.indices.contains(placement.index) ? hosts[headers[placement.index].id] : nil
+            let windowFrame = host.flatMap { title in title.window.map { _ in title.convert(title.bounds, to: nil) } }
+            return "i\(placement.index){pin=\(placement.pinned),retire=\(placement.retiring),progress=\(String(format: "%.2f", placement.exitProgress)),frame=\(rect(placement.frame)),window=\(rect(windowFrame))}"
+        }.joined(separator: ";")
+        let clipInWindow = clip.window.map { _ in clip.convert(clip.bounds, to: nil) }
+        let barInWindow = barSurface.window.map { _ in barSurface.convert(barSurface.bounds, to: nil) }
+        let listInWindow = table.window.map { _ in table.convert(table.bounds, to: nil) }
+        let document = scroll.documentView
+        let documentOffset = document?.bounds.origin ?? .zero
+        let record = "controller=\(identifier) event=\(eventDescription) chosen=[\(titleFrames)] listFrame=\(rect(table.frame)) listBounds=\(rect(table.bounds)) listWindow=\(rect(listInWindow)) clipBounds=\(rect(clip.bounds)) clipWindow=\(rect(clipInWindow)) visible=\(rect(scroll.documentVisibleRect)) documentBounds=\(rect(document?.bounds ?? .zero)) documentFrame=\(rect(document?.frame)) documentOffset=\(point(documentOffset)) barFrame=\(rect(barSurface.frame)) barWindow=\(rect(barInWindow)) barSafeInsets=\(insets(barSurface.safeAreaInsets)) customEffectActive=\(backdropActive) customEffectAlpha=\(String(format: "%.2f", customEffectAlpha)) nativeBlurVisibility=unknown"
+        if decision.stateChanged { Self.logger.notice("state \(record, privacy: .public)") }
+        if decision.geometryDue { Self.logger.notice("geometry \(record, privacy: .public)") }
+    }
+
+    func effectTransition(active: Bool, alpha: CGFloat, frame: CGRect) {
+        guard enabled, lastEffectState != active else { return }
+        lastEffectState = active
+        Self.logger.notice("controller=\(self.identifier, privacy: .public) empty-effect active=\(active) alpha=\(String(format: "%.2f", alpha)) frame=\(self.rect(frame), privacy: .public) nativeBlurVisibility=unknown")
+    }
+
+    func scrollNotification(_ name: Notification.Name) {
+        guard enabled else { return }
+        let label = name == NSScrollView.willStartLiveScrollNotification ? "willStartLiveScroll" : "didLiveScroll"
+        guard lastScrollNotification != label else { return }
+        lastScrollNotification = label
+        let event = NSApp.currentEvent.flatMap { $0.type == .scrollWheel ? $0 : nil }
+        let eventType = event.map { $0.type == .scrollWheel ? "scrollWheel" : "other" } ?? "none"
+        Self.logger.notice("controller=\(self.identifier, privacy: .public) scroll-notification name=\(label, privacy: .public) event=\(eventType, privacy: .public) phase=\(event?.phase.rawValue ?? 0) momentum=\(event?.momentumPhase.rawValue ?? 0)")
+    }
+}
 struct StickyTitleLabel: View {
     let title: String
     let inset: CGFloat
@@ -162,6 +258,7 @@ final class TorrentStickyHeaders: NSObject {
         overlay.externallyHosted = true
         return overlay.pinnedSurface
     }
+    fileprivate func traceBarRegistration(_ view: NSView) { trace.barRegistration(view) }
     struct Header { var id: String; var title: String; var index: Int; var inset: CGFloat; var stickyAllowed = false }
     /// Identity of the section layout: only this invalidates the derived
     /// float-permission and release points, never a scroll offset.
@@ -197,6 +294,7 @@ final class TorrentStickyHeaders: NSObject {
     private var inlineMotionUntil = Date.distantPast
     private var lastPinned: [String: TorrentStickyHeaderGeometry.Placement] = [:]
     private var heldPinned: [String: TorrentStickyHeaderGeometry.Placement]?
+    private let trace = StickyHeaderTrace()
     func configureAppearance(_ appearance: TorrentHeaderAppearance) {
         self.appearance = appearance
         overlay.configure(appearance)
@@ -247,8 +345,8 @@ final class TorrentStickyHeaders: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: scroll.contentView)
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: table)
-        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
-        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.didLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll(_:)), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll(_:)), name: NSScrollView.didLiveScrollNotification, object: scroll)
         scheduleUpdate()
     }
 
@@ -278,7 +376,11 @@ final class TorrentStickyHeaders: NSObject {
         scheduleUpdate()
     }
     func layoutDidChange() { scheduleUpdate() }
-    @objc private func resumeScroll() { heldPinned = nil; update() }
+    @objc private func resumeScroll(_ notification: Notification) {
+        trace.scrollNotification(notification.name)
+        heldPinned = nil
+        update()
+    }
     private func scheduleUpdate() {
         guard !updateScheduled else { return }
         updateScheduled = true
@@ -341,6 +443,10 @@ final class TorrentStickyHeaders: NSObject {
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
                         backdropActive: sticky?.titles.contains { !$0.retiring } == true,
                         viewport: viewport, animateInline: Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel)
+        trace.effectTransition(active: overlay.backdropIsActive, alpha: overlay.customEffectAlpha, frame: overlay.customEffectFrame)
+        trace.update(table: table, scroll: scroll, clip: clip, placements: layout.titles,
+            headers: ordered, hosts: titleHosts, barSurface: overlay.pinnedSurface,
+            backdropActive: overlay.backdropIsActive, customEffectAlpha: overlay.customEffectAlpha)
     }
     isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview(); overlay.detachViewport() }
 }
@@ -352,6 +458,8 @@ final class HeaderBackdrop: NSView {
     private let fadeMask = CAGradientLayer()
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
+    var customEffectAlpha: CGFloat { effect.alphaValue }
+    var customEffectFrame: CGRect { effect.frame }
     private var settings = TorrentHeaderAppearance()
     func attachViewport(to scroll: NSScrollView) {
         guard !externallyHosted else { return }
@@ -568,6 +676,10 @@ final class TitleHost: NSView {
 /// titles can extend into the document; the bar owns the progressive effect.
 struct TorrentHeaderSurface: NSViewRepresentable {
     let controller: TorrentStickyHeaders
-    func makeNSView(context: Context) -> NSView { controller.barSurface }
-    func updateNSView(_ view: NSView, context: Context) {}
+    func makeNSView(context: Context) -> NSView {
+        let view = controller.barSurface
+        controller.traceBarRegistration(view)
+        return view
+    }
+    func updateNSView(_ view: NSView, context: Context) { controller.traceBarRegistration(view) }
 }
