@@ -176,11 +176,12 @@ struct TorrentListView: View {
                 }
             } else {
             List(selection: $selection) {
-                ForEach(entries) { entry in
-                    GlassNativeReorderableRow(item: entry, moveDisabled: {
-                        if case let .torrent(row) = entry { return rowIsAdding(row) }
-                        return true
-                    }()) {
+                GlassNativeReorderableRows(items: entries, move: { offsets, destination in
+                    let sources = offsets.compactMap { entries.indices.contains($0) ? entries[$0].id : nil }
+                    let target: TorrentListReorderPlan.Destination = destination < entries.count
+                        ? .before(entries[destination].id) : .end
+                    applyNativeMove(sources: sources, destination: target)
+                }) { entry in
                     VStack(alignment: .leading, spacing: 0) {
                     switch entry {
                     case let .header(section):
@@ -219,7 +220,6 @@ struct TorrentListView: View {
                             .moveDisabled(rowIsAdding(row))
                     }
                     }
-                    }
                     .tag(entry.selectionTag)
                     .selectionDisabled({ if case .header = entry { return true }; return false }())
                     .moveDisabled({
@@ -242,14 +242,6 @@ struct TorrentListView: View {
                         leading: separatorLeading, trailing: separatorTrailing))
                 }
                     .listRowBackground(Color.clear)
-            }
-            .reorderContainer(for: TorrentListEntry.self) { difference in
-                let destination: TorrentListReorderPlan.Destination
-                switch difference.destination.position {
-                case let .before(id): destination = .before(id)
-                case .end: destination = .end
-                }
-                applyNativeMove(sources: difference.sources, destination: destination)
             }
             .listStyle(.plain)
             .scrollContentBackground(.hidden)

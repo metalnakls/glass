@@ -74,15 +74,16 @@ struct TorrentInlineHeaderSpacing: ViewModifier {
     }
 }
 
-/// Native reordering wraps its content before List reads row preferences.
-/// Attach row metadata to this owner, outside the decoration. Keeping each
-/// entry's original identity preserves the shared reorder container's IDs.
-struct GlassNativeReorderableRow<Item: Identifiable, Content: View>: View where Item.ID: Sendable {
-    let item: Item
-    var moveDisabled = false
-    @ViewBuilder var content: () -> Content
+/// One native reorder collection preserves List's viewport-driven row creation.
+/// Nesting a separate ForEach inside every row forces List to build every row
+/// to discover the collection's shape before it can render its viewport.
+struct GlassNativeReorderableRows<Items: RandomAccessCollection, Content: View>: View
+where Items.Element: Identifiable, Items.Element.ID: Sendable {
+    let items: Items
+    var move: (IndexSet, Int) -> Void = { _, _ in }
+    @ViewBuilder var content: (Items.Element) -> Content
     var body: some View {
-        ForEach([item]) { _ in content().moveDisabled(moveDisabled) }.reorderable()
+        ForEach(items, content: content).onMove(perform: move)
     }
 }
 

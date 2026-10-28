@@ -30,8 +30,8 @@ struct TorrentNativeListTests {
         private var columns: TorrentRowColumns { .init(showsArtwork: !compact, compact: compact, stateGap: 8) }
         var body: some View {
             List(selection: .constant(selection)) {
-                ForEach((0..<8).map { Entry(id: $0) }) { entry in
-                    GlassNativeReorderableRow(item: entry, moveDisabled: entry.header) {
+                GlassNativeReorderableRows(items: (0..<8).map { Entry(id: $0) }) { entry in
+                    Group {
                         if entry.header {
                             Text("Header").font(.largeTitle.bold()).padding(.vertical, GlassListMetrics.titleVerticalInset)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -51,7 +51,7 @@ struct TorrentNativeListTests {
                         leading: columns.textLeading, trailing: columns.textTrailing, tint: .red))
                     // Diagnostic color makes native rules measurable without font/appearance heuristics.
                 }
-            }.reorderContainer(for: Entry.self) { _ in }
+            }
                 .listStyle(.plain).contentMargins(.horizontal, 0, for: .scrollContent)
                 .environment(\.defaultMinListRowHeight, 0)
         }
@@ -64,16 +64,17 @@ struct TorrentNativeListTests {
         let betweenSections: CGFloat
         var body: some View {
             List {
-                ForEach((0..<8).map { Entry(id: $0) }) { entry in
-                    GlassNativeReorderableRow(item: entry, moveDisabled: entry.header) {
+                GlassNativeReorderableRows(items: (0..<8).map { Entry(id: $0) }) { entry in
+                    Group {
                         if entry.header {
                             TorrentStickyTitle(title: "Header", id: entry.id == 0 ? "unfinished" : "finished", rowIndex: entry.id, inset: 16, controller: controller)
                                 .modifier(TorrentInlineHeaderSpacing(isFirst: entry.id == 0, beforeFirst: beforeFirst,
                                     betweenSections: betweenSections, belowHeader: belowHeader))
                         } else { Text("Torrent \(entry.id)").frame(height: 64) }
-                    }.listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    }.moveDisabled(entry.header)
+                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
                 }
-            }.reorderContainer(for: Entry.self) { _ in }.listStyle(.plain)
+            }.listStyle(.plain)
                 .contentMargins(.top, 0, for: .scrollContent)
                 .safeAreaBar(edge: .top, spacing: 0) {
                     TorrentHeaderSurface(controller: controller).frame(height: controller.titleHeight).allowsHitTesting(false)
@@ -187,6 +188,18 @@ struct TorrentNativeListTests {
         }
         let native = try #require(table(in: host))
         #expect(native.numberOfRows == 8)
+        let dragPasteboard = NSPasteboard.withUniqueName()
+        defer { dragPasteboard.releaseGlobally() }
+        if let outline = native as? NSOutlineView, let item = outline.item(atRow: 2),
+           let source = outline.dataSource as? NSOutlineViewDataSource {
+            let rowWriter = source.outlineView?(outline, pasteboardWriterForItem: item)
+            let wroteRows = source.outlineView?(outline, writeItems: [item], to: dragPasteboard)
+            #expect(rowWriter != nil || wroteRows == true)
+        } else {
+            let rowWriter = native.dataSource?.tableView?(native, pasteboardWriterForRow: 2)
+            let wroteRows = native.dataSource?.tableView?(native, writeRowsWith: IndexSet(integer: 2), to: dragPasteboard)
+            #expect(rowWriter != nil || wroteRows == true)
+        }
         let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
         host.cacheDisplay(in: host.bounds, to: bitmap)
         let scale = CGFloat(bitmap.pixelsWide) / host.bounds.width
