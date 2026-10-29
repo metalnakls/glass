@@ -7,6 +7,83 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("season naming finishes before transfer starts and preserves paused imports", arguments: [false, true])
+    func seasonNamingBeforeStart(paused: Bool) async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID(), child = TorrentPathRename(path: "Spider-Noir/Old.mkv", name: "S04E01.mkv")
+        #expect(model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Walking Dead", size: 100,
+            fileCount: 16, downloadDirectory: "/downloads",
+            namingPlan: .init(rootName: "Walking Dead", pathRenames: [child], season: .init(title: "Walking Dead", season: 4)),
+            data: Data([1]), startPaused: paused))
+        await client.setRenameFailurePath(child.path)
+        #expect(!(await model.retryTorrentAddition(id)))
+        #expect(await client.stoppedIDs == ["hash-1"])
+        #expect(await client.startRequests.isEmpty)
+        await client.setRenameFailurePath(nil)
+        #expect(await model.retryTorrentAddition(id))
+        #expect(await client.addedFiles.count == 1)
+        #expect(await client.startRequests == (paused ? [] : [["hash-1"]]))
+    }
+
+    @Test("existing show folders determine the submitted root", arguments: [false, true])
+    func existingSeasonRootReachesProvider(legacy: Bool) async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let state = try #require(model.sources.first { $0.id == profile.id })
+        state.records = [TorrentRecord(
+            TorrentSummary(id: 3, hashString: "existing", name: legacy ? "Season 3" : "The Walking Dead", status: 6,
+                percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 0,
+                eta: -1, uploadRatio: 0, peersConnected: nil,
+                downloadDir: legacy ? "/downloads/The Walking Dead" : "/downloads", fileCount: 16),
+            sourceID: profile.id, season: legacy ? nil : .init(title: "The Walking Dead", season: 3))]
+        let child = TorrentPathRename(path: "Spider-Noir/Old.mkv", name: "S04E01.mkv")
+        #expect(await model.addTorrentFile(Data([1]), downloadDirectory: "/downloads",
+            namingPlan: .init(rootName: "Walking Dead", pathRenames: [child], displayName: "Walking Dead",
+                season: .init(title: "Walking Dead", season: 4)), sourceID: profile.id))
+        #expect(await client.addedFiles.first?.directory == "/downloads")
+        #expect(await client.renamedPaths == [child, .init(path: "Spider-Noir", name: "The Walking Dead")])
+    }
+
+    @Test("series matching respects source, destination, and explicit names")
+    func independentSeasonDestinations() throws {
+        let profile = makeProfile()
+        let store = MemoryProfileStore(profiles: [profile])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory().make(config:))
+        func enqueue(_ title: String, source: UUID, directory: String, season: Bool = true) {
+            #expect(model.prepareTorrentAddition(id: UUID(), sourceID: source, name: title, size: 100, fileCount: 16,
+                downloadDirectory: directory, namingPlan: .init(rootName: title, pathRenames: [],
+                    season: season ? .init(title: title, season: 4) : nil)))
+        }
+        enqueue("The Walking Dead", source: profile.id, directory: "/downloads")
+        enqueue("Walking Dead", source: UUID(), directory: "/downloads")
+        enqueue("Walking Dead", source: profile.id, directory: "/other")
+        enqueue("Walking Dead", source: profile.id, directory: "/downloads", season: false)
+        enqueue("My Show", source: profile.id, directory: "/downloads")
+        #expect(try store.loadTorrentAddQueue().map { $0.namingPlan?.rootName }
+            == ["The Walking Dead", "Walking Dead", "Walking Dead", "Walking Dead", "My Show"])
+    }
+
+    @Test("seasons reuse the first queued show's physical root despite a missing article", arguments: [false, true])
+    func seasonAdditionsSharePhysicalRoot(reverse: Bool) throws {
+        let profile = makeProfile()
+        let store = MemoryProfileStore(profiles: [profile])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory().make(config:))
+        let titles = reverse ? ["Walking Dead", "The Walking Dead"] : ["The Walking Dead", "Walking Dead"]
+        for (index, title) in titles.enumerated() {
+            #expect(model.prepareTorrentAddition(id: UUID(), sourceID: profile.id, name: title, size: 100,
+                fileCount: 16, downloadDirectory: "/downloads",
+                namingPlan: .init(rootName: title, pathRenames: [], displayName: title,
+                    season: .init(title: title, season: index + 3))))
+        }
+        let entries = try store.loadTorrentAddQueue()
+        #expect(entries.map { $0.namingPlan?.rootName } == [titles[0], titles[0]])
+        #expect(entries.map(\.downloadDirectory) == ["/downloads", "/downloads"])
+        #expect(entries.map { $0.namingPlan?.season?.season } == [3, 4])
+    }
+
     @Test("queued and failed Add removal leaves siblings alone and never sends placeholder IDs")
     func removeQueuedAndFailedAdds() async throws {
         let profile = makeProfile(), client = StubRPCClient()

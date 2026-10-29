@@ -29,9 +29,10 @@ enum MagnetAddPreparation {
         let plan = season.map {
             TorrentAddNamingPlan(rootName: $0.title, pathRenames: suggestion?.pathRenames ?? [], displayName: $0.title, season: $0)
         } ?? suggestion
-        let destination = season.flatMap { season in
-            directory.map { TorrentSeasonStoragePlan.baseDirectory(base: $0, title: season.title) }
-        } ?? directory
-        return Result(preview: preview, plan: plan, directory: destination)
+        if let plan, plan.season != nil, let directory {
+            let storage = TorrentSeasonStoragePlan(baseDirectory: directory, namingPlan: plan)
+            return Result(preview: preview, plan: storage.namingPlan, directory: storage.downloadDirectory)
+        }
+        return Result(preview: preview, plan: plan, directory: directory)
     }
 }

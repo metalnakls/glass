@@ -4,6 +4,26 @@ import Testing
 
 @Suite("Presentation-only season naming")
 struct SeasonPresentationTests {
+    @Test("batch seasons use the same series identity as the library")
+    func batchArticleAlias() {
+        let groups = TorrentNameCleaner.batchGroups(for: [
+            .init(rootName: "The.Walking.Dead.S03", files: []),
+            .init(rootName: "Walking.Dead.S04", files: [])
+        ])
+        #expect(groups.count == 1)
+        #expect(groups.first?.itemIndices == [0, 1])
+        #expect(groups.first?.displayName == "The Walking Dead")
+    }
+
+    @Test("choosing an existing show folder does not nest its article alias")
+    func selectedAliasDirectory() {
+        #expect(TorrentSeasonStoragePlan.baseDirectory(base: "/downloads/The Walking Dead", title: "Walking Dead") == "/downloads")
+        let storage = TorrentSeasonStoragePlan(baseDirectory: "/downloads/The Walking Dead",
+            namingPlan: .init(rootName: "Walking Dead", pathRenames: [], season: .init(title: "Walking Dead", season: 4)))
+        #expect(storage.downloadDirectory == "/downloads")
+        #expect(storage.namingPlan.rootName == "The Walking Dead")
+    }
+
     @Test("series matching tolerates articles and release separators without changing titles")
     func seriesIdentity() {
         #expect(TorrentSeriesIdentity.key(for: "THE.Expanse") == TorrentSeriesIdentity.key(for: "Expanse"))

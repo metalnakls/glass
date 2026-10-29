@@ -467,12 +467,15 @@ struct AddTorrentBatchView: View {
         let pathRenames = smartNamesEnabled
             ? (item.suggestion()?.pathRenames ?? [])
             : []
-        return TorrentAddNamingPlan(
+        let plan = TorrentAddNamingPlan(
             rootName: resolvedGroupName(for: group),
             pathRenames: pathRenames,
             displayName: resolvedGroupName(for: group),
             season: TorrentSeasonDescriptor(title: resolvedGroupName(for: group), season: group.seasons[offset])
         )
+        return resolvedBaseDownloadDirectory.map {
+            TorrentSeasonStoragePlan(baseDirectory: $0, namingPlan: plan).namingPlan
+        } ?? plan
     }
 
     private func submissionName(
@@ -679,7 +682,7 @@ final class TorrentBatchItemState {
     func seasonStoragePlan(baseDirectory: String) -> TorrentSeasonStoragePlan? {
         guard let season = smartSeason else { return nil }
         return TorrentSeasonStoragePlan(
-            downloadDirectory: TorrentSeasonStoragePlan.baseDirectory(base: baseDirectory, title: season.title),
+            baseDirectory: baseDirectory,
             namingPlan: TorrentAddNamingPlan(
                 rootName: season.title, pathRenames: suggestion()?.pathRenames ?? [], displayName: normalizedName, season: season
             )

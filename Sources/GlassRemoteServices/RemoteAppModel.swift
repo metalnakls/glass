@@ -164,6 +164,7 @@ public final class RemoteAppModel {
             trashSourceOnSuccess: trashSourceOnSuccess)
         entry.renameDuplicateRoot = renameDuplicateRoot
         entry.startPaused = startPaused
+        resolveSeasonStorage(&entry)
         let expectedHashes = entry.expectedHashes
         entry.existedBeforeSubmission = sourceState(for: sourceID).records.contains {
             expectedHashes.contains($0.hashString.lowercased())
@@ -171,6 +172,40 @@ public final class RemoteAppModel {
         appendAddition(entry)
         do { try persistAddQueue(); return true }
         catch { failAddition(id, error: error); return false }
+    }
+
+    /// Resolve once before submission, against this source's existing and queued
+    /// show roots. Never change an accepted transfer's persisted rename plan.
+    private func resolveSeasonStorage(_ entry: inout TorrentAddQueueEntry) {
+        guard entry.receipt == nil, entry.attempts == 0,
+              let plan = entry.namingPlan, plan.season != nil,
+              let directory = entry.downloadDirectory else { return }
+        let stored = sourceState(for: entry.sourceID).records.compactMap { record -> TorrentSeasonStoragePlan? in
+            guard let directory = record.summary.downloadDir else { return nil }
+            let root = record.summary.name
+            let season = record.season ?? TorrentNameCleaner.seasonDescriptor(for: .init(rootName: root, files: []))
+            if let season, TorrentSeriesIdentity.key(for: root) == TorrentSeriesIdentity.key(for: season.title) {
+                return .init(downloadDirectory: directory,
+                    namingPlan: .init(rootName: root, pathRenames: [], season: season))
+            }
+            // Older versions stored Season N below the common show folder.
+            if root.range(of: #"(?i)^season[\s._-]+[1-9]\d?$"#, options: .regularExpression) != nil {
+                let show = URL(fileURLWithPath: directory).standardizedFileURL
+                return .init(downloadDirectory: show.deletingLastPathComponent().path,
+                    namingPlan: .init(rootName: show.lastPathComponent, pathRenames: []))
+            }
+            return nil
+        }
+        let queued = pendingAdditions.compactMap { pending -> TorrentSeasonStoragePlan? in
+            let other = pending.entry
+            guard other.id != entry.id, other.sourceID == entry.sourceID,
+                  let directory = other.downloadDirectory, let plan = other.namingPlan,
+                  plan.season != nil else { return nil }
+            return .init(downloadDirectory: directory, namingPlan: plan)
+        }
+        let storage = TorrentSeasonStoragePlan(baseDirectory: directory, namingPlan: plan, existing: stored + queued)
+        entry.downloadDirectory = storage.downloadDirectory
+        entry.namingPlan = storage.namingPlan
     }
 
     private func appendAddition(_ entry: TorrentAddQueueEntry) {
@@ -833,9 +868,10 @@ public final class RemoteAppModel {
         entry.name = preparation.plan?.suggestedName ?? preparation.preview.name
         entry.size = preparation.preview.size; entry.fileCount = preparation.preview.files.count
         entry.downloadDirectory = preparation.directory
+        resolveSeasonStorage(&entry)
         let record = pendingAdditions[index].record
         let summary = TorrentSummary(id: -1, hashString: record.hashString,
-            name: preparation.plan?.rootName ?? entry.name, status: 0, percentDone: 0,
+            name: entry.namingPlan?.rootName ?? entry.name, status: 0, percentDone: 0,
             metadataPercentComplete: 1, rateDownload: 0, rateUpload: 0,
             sizeWhenDone: entry.size, leftUntilDone: max(1, entry.size), eta: -1, uploadRatio: 0,
             peersConnected: nil, downloadDir: entry.downloadDirectory, fileCount: entry.fileCount)
@@ -938,6 +974,15 @@ public final class RemoteAppModel {
             try persistAddQueue()
             let provider = try self.provider(for: sourceID)
             var entry = pending.entry
+            if entry.receipt == nil, entry.attempts == 0, entry.namingPlan?.season != nil, entry.downloadDirectory == nil {
+                entry.downloadDirectory = try await provider.fetchDefaultDownloadDirectory()
+            }
+            resolveSeasonStorage(&entry)
+            updateAddition(id) {
+                $0.downloadDirectory = entry.downloadDirectory
+                $0.namingPlan = entry.namingPlan
+            }
+            try persistAddQueue()
             // A retry checks the server first: a timeout is not proof that an add failed.
             if entry.receipt == nil, entry.attempts > 0, !pending.expectedHashes.isEmpty {
                 await refresh(sourceID: sourceID)
@@ -955,7 +1000,8 @@ public final class RemoteAppModel {
                 let result: TorrentAddResult?
                 if let data = entry.data {
                     result = try await provider.addTorrentFile(data: data, torrentName: nil,
-                        downloadDirectory: entry.downloadDirectory, fileSelection: entry.fileSelection, startPaused: entry.startPaused ?? false)
+                        downloadDirectory: entry.downloadDirectory, fileSelection: entry.fileSelection,
+                        startPaused: (entry.startPaused ?? false) || entry.namingPlan?.season != nil)
                 } else if let magnet = entry.magnet {
                     result = try await provider.addMagnet(magnet, downloadDirectory: entry.downloadDirectory)
                 } else {
@@ -992,6 +1038,13 @@ public final class RemoteAppModel {
                         displayName: displayName, season: plan.season)
                     try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
                 }
+            }
+            // Set the shared root before downloading creates the release folder.
+            // Transmission can then attach to an existing show directory without
+            // attempting to rename one nonempty directory over another.
+            if entry.namingPlan?.season != nil, !receipt.wasDuplicate,
+               !(entry.startPaused ?? false), !entry.namingComplete {
+                try await provider.start(ids: [receipt.hashString])
             }
             updateAddition(id) { $0.namingComplete = true; $0.phase = .confirming; $0.error = nil }
             try persistAddQueue()

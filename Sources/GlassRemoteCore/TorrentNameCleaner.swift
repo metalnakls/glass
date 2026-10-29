@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared series matching for presentation. Original titles remain untouched.
+/// Shared series matching for presentation and storage. This key is never a filename.
 public enum TorrentSeriesIdentity {
     public static func key(for title: String) -> String {
         title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
@@ -244,7 +244,7 @@ public enum TorrentNameCleaner {
     }
 
     private static func normalizedSeriesKey(_ title: String) -> String {
-        title.folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+        TorrentSeriesIdentity.key(for: title)
             .replacingOccurrences(of: #"[^a-z0-9]+"#, with: "", options: .regularExpression)
     }
 
