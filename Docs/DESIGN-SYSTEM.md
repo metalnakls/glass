@@ -57,7 +57,7 @@ Add variants only for real callers.
 | L2 | Rules start at the text column and end before the state-control column. Contents are centered vertically between row boundaries. | Each supported density and a narrow window. |
 | L3 | Pinned titles retain established breathing room. History before `d6cf155` used a 20-point pin inset, separate from the label's 8-point interior. These are historical app values, not Apple defaults. | Accepted reference compared against inline and pinned positions. |
 | L4 | An outgoing title begins clearing two displayed rows before the following section. Existing short-section eligibility is a separate rule and also survives. | Forward/reverse scrolling with 1-, 2-, 3-, and many-row sections; production controller policy exercised. |
-| L5 | Normal scrolling keeps one sharp, continuous title through inline, pinned and outgoing states. During a fast fling, floating titles are suppressed and only the current title returns as scrolling settles; inline labels remain visible. | Forward/reverse handoffs, velocity thresholds, idle recovery, Reduce Motion. |
+| L5 | Normal scrolling keeps one sharp, continuous title through inline, pinned and outgoing states. During a fast fling, titles fade across one title height approaching the pin line in either direction; floating titles stay suppressed and only the current title returns as scrolling settles. Inline labels below that zone remain visible. | Forward/reverse handoffs, velocity thresholds, idle recovery, native presentation opacity, Reduce Motion. |
 | L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material with a gradient and interruptible exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
 | L7 | Selection, keyboard, rename, group expansion, drag, row identity and state-button actions survive layout changes. | Native input checks with representative rows. |
 
@@ -149,6 +149,16 @@ second and return below 0.8 after 80 ms of slow movement, or after 160 ms withou
 scroll updates. The thresholds scale with window height and use hysteresis.
 Restoration uses the saved title entrance duration; Reduce Motion restores
 immediately. Native labels remain accessible in their original list rows.
+
+Speed samples accumulate movement across sub-frame notifications instead of
+rounding each interval separately. Fast-scroll visibility follows a continuous
+curve across one measured title height approaching or leaving the pin line, so
+becoming inline or pinned cannot cause an opacity cut. Suppression uses a 0.12-second
+native fade; restoration retains its saved duration. Newly crossed floating
+titles receive their opacity before the next frame, preventing a flash of each
+section. Opacity animation runs outside the transaction that disables animation
+for scroll coordinates. Native scrolling and title pin/release positions remain
+unchanged.
 
 `glassScrollEdges(.sectionTitles)` disables the system edge effect only in the
 main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerView`

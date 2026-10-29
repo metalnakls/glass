@@ -266,7 +266,7 @@ public struct SelectionAppearanceView: View {
                 GlassTuningSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, unit: .percent)
                 GlassTuningSlider("Reach below title", value: $headerFadeReach, range: 0...240)
                 GlassTuningSlider("Extra push lead", value: $headerPushLead, range: 0...120)
-                Text(glassText("Floating titles hide during fast scrolling. Inline section labels stay visible."))
+                Text(glassText("During fast scrolling, section titles fade near the top and return as scrolling settles."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         case .progress:

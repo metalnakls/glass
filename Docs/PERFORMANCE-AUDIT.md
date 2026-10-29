@@ -66,6 +66,30 @@ test exercises the actual notification path and restoration without moving the
 document. This is an explicitly requested interaction change, not a claim that
 the previous multiple-title presentation was functionally broken.
 
+### Fast-scroll handoff — corrected after live feedback
+
+The first suppression implementation had two reproducible faults: crossing the
+pin boundary by one point changed opacity directly between 0 and 1, in both
+directions; and rounding every sub-frame notification to 1/120 second made a
+1,200 pt/s gesture sampled at 240 Hz appear to move at only 600 pt/s. The focused
+regressions failed on the installed implementation before these corrections.
+
+The same header owner now uses a continuous visibility curve across one measured
+title height approaching the pin line. It applies in both directions, including
+the return to inline positioning. Speed sampling accumulates sub-frame movement.
+The existing speed thresholds, settling policy and saved restoration duration
+remain intact. Native presentation-layer checks also exposed an animation bug:
+the scroll-geometry transaction disabled opacity animation, making restoration
+instantaneous. Opacity now animates outside that transaction. Already visible
+titles fade out over 0.12 seconds; newly crossed floating titles start suppressed.
+Native List geometry, the window-top backdrop and its fade remain separate.
+
+All 29 tests across scroll motion, native header continuity, backdrop alignment,
+sticky geometry and native list rows passed. Actual presentation-layer opacity
+checks cover fade-out, restoration, interruption and revisiting a section whose
+old fade is unfinished. Motion ownership and whitespace checks also passed.
+These checks do not establish subjective trackpad feel in the live library.
+
 ### Header blur exit — reproduced and corrected
 
 The supplied screenshots showed the blur disappearing as a title left the top.

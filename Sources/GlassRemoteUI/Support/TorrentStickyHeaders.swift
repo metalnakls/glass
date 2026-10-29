@@ -49,6 +49,12 @@ enum TorrentStickyHeaderGeometry {
         }
         return Layout(titles: titles, backdropHeight: sticky?.backdropHeight ?? 0)
     }
+    /// During a fling, fade an inline title across its own height as it reaches
+    /// the pin line. The same continuous curve works when scrolling back up.
+    static func fastScrollVisibility(_ placement: Placement, topInset: CGFloat) -> CGFloat {
+        let progress = min(1, max(0, (placement.frame.minY - topInset) / max(1, placement.frame.height)))
+        return progress * progress * (3 - 2 * progress)
+    }
     static func layout(frames: [CGRect], viewport: CGRect, feather: CGFloat = 48, topInset: CGFloat = 0, releasePoints: [CGFloat]? = nil, stickyAllowed: [Bool]? = nil) -> Layout? {
         guard let index = frames.indices.last(where: { frames[$0].minY < viewport.minY + topInset }) else { return nil }
         guard stickyAllowed?[index] != false else { return nil }
@@ -491,6 +497,7 @@ final class HeaderBackdrop: NSView {
         for placement in layout.titles {
             let header = headers[placement.index]
             guard let host = hosts[header.id] else { continue }
+            let wasVisible = host.superview != nil && !host.isHidden
             // In the SwiftUI overlay, inline and pinned titles share one plane
             // above the native blur. Pinning never changes their compositing.
             let inViewport = externallyHosted || placement.pinned
@@ -503,9 +510,10 @@ final class HeaderBackdrop: NSView {
             // A pinned title never counter-scrolls inside the moving document.
             if host.superview !== parent { parent.addSubview(host) }
             host.isPinned = placement.pinned
+            let visibility = suppressFloatingTitles
+                ? TorrentStickyHeaderGeometry.fastScrollVisibility(placement, topInset: TorrentStickyHeaders.topInset)
+                : 1
             host.isHidden = false
-            host.setScrollSuppressed(placement.pinned && suppressFloatingTitles,
-                                     restorationDuration: placement.pinned ? settings.titleIn : 0)
             titles[header.id] = host
             // Scroll coordinates must bypass any inherited AppKit animation
             // context.
@@ -519,6 +527,9 @@ final class HeaderBackdrop: NSView {
                 }
             }
             CATransaction.commit()
+            // Geometry disables layer actions, but the opacity transition must
+            // run outside that transaction or AppKit applies its target at once.
+            host.setScrollVisibility(visibility, restorationDuration: settings.titleIn, animated: wasVisible)
             // The native material is below every title; the title stays sharp.
         }
     }
@@ -541,15 +552,26 @@ final class HeaderViewportSurface: NSView {
 final class TitleHost: NSView {
     var isPinned = false
     var isRetiring = false
-    private(set) var isScrollSuppressed = false
-    func setScrollSuppressed(_ suppressed: Bool, restorationDuration: TimeInterval) {
-        guard isScrollSuppressed != suppressed else { return }
-        isScrollSuppressed = suppressed
-        // Remove floating titles immediately during a fling. Restore only the
-        // current title at its current position; never replay crossed sections.
+    private var scrollVisibility: CGFloat = 1
+    var isScrollSuppressed: Bool { scrollVisibility < 1 }
+    func setScrollVisibility(_ visibility: CGFloat, restorationDuration: TimeInterval, animated: Bool) {
+        if !animated || ReduceMotion.enabled {
+            // A recycled/offscreen title may still have an unfinished fade even
+            // when its model opacity already matches the requested value.
+            scrollVisibility = visibility
+            layer?.removeAnimation(forKey: "opacity")
+            alphaValue = visibility
+            return
+        }
+        guard scrollVisibility != visibility else { return }
+        let restoring = visibility > scrollVisibility
+        scrollVisibility = visibility
+        // Native opacity transitions stay interruptible. A title newly entering
+        // the viewport adopts its visibility before showing, so crossed sections
+        // cannot flash at their pinned position during a fling.
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = suppressed || ReduceMotion.enabled ? 0 : restorationDuration
-            animator().alphaValue = suppressed ? 0 : 1
+            context.duration = restoring ? restorationDuration : TorrentHeaderScrollMotion.suppressionFadeDuration
+            animator().alphaValue = visibility
         }
     }
     private let hosting: NSHostingController<StickyTitleLabel>

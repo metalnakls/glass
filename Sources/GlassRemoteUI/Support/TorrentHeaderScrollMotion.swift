@@ -8,27 +8,37 @@ struct TorrentHeaderScrollMotion {
     static let showSpeed: CGFloat = 0.8
     static let settlingTime: TimeInterval = 0.08
     static let idleTime: TimeInterval = 0.16
+    // Seconds: a short native opacity transition clears an already visible
+    // title without a cut. Restoration keeps its separate saved Tune duration.
+    static let suppressionFadeDuration: TimeInterval = 0.12
     private var sample: (offset: CGFloat, time: TimeInterval)?
+    private var lastEventTime: TimeInterval?
     private var slowSince: TimeInterval?
     private(set) var suppressesFloatingTitles = false
-    var idleDeadline: TimeInterval? { sample.map { $0.time + Self.idleTime } }
+    var idleDeadline: TimeInterval? { lastEventTime.map { $0 + Self.idleTime } }
 
     mutating func begin(offset: CGFloat, at time: TimeInterval) {
         sample = (offset, time)
+        lastEventTime = time
         slowSince = nil
     }
 
     mutating func record(offset: CGFloat, at time: TimeInterval, viewportHeight: CGFloat) {
-        defer { sample = (offset, time) }
-        guard let previous = sample, time > previous.time else { return }
-        guard time - previous.time < Self.idleTime else {
+        guard let previous = sample else { begin(offset: offset, at: time); return }
+        guard time > previous.time else { return }
+        let idle = time - (lastEventTime ?? previous.time) >= Self.idleTime
+        lastEventTime = time
+        guard !idle else {
+            sample = (offset, time)
             suppressesFloatingTitles = false
             slowSince = nil
             return
         }
-        // Coalesced notifications in one frame must not turn a tiny movement
-        // into an enormous speed. Sample no faster than a 120 Hz display.
-        let elapsed = max(time - previous.time, 1.0 / 120)
+        // Accumulate sub-frame movement instead of rounding every interval up,
+        // which underestimated fast gestures with closely spaced notifications.
+        let elapsed = time - previous.time
+        guard elapsed >= 1.0 / 120 else { return }
+        sample = (offset, time)
         let speed = abs(offset - previous.offset) / elapsed / max(1, viewportHeight)
         if speed >= Self.hideSpeed {
             suppressesFloatingTitles = true
@@ -43,6 +53,7 @@ struct TorrentHeaderScrollMotion {
 
     mutating func end() {
         sample = nil
+        lastEventTime = nil
         slowSince = nil
         suppressesFloatingTitles = false
     }
