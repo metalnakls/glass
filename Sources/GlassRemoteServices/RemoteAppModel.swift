@@ -157,7 +157,12 @@ public final class RemoteAppModel {
                                       sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
                                       renameDuplicateRoot: Bool = false, startPaused: Bool = false) -> Bool {
         guard !discardedAdditionIDs.contains(id) else { return false }
-        guard !pendingAdditions.contains(where: { $0.id == id }) else { return true }
+        if pendingAdditions.contains(where: { $0.id == id }) {
+            // A previous preparation may still exist only in memory after a
+            // failed save. The draft cannot hand off ownership until it is durable.
+            do { try persistAddQueue(); return true }
+            catch { failAddition(id, error: error); return false }
+        }
         var entry = TorrentAddQueueEntry(id: id, sourceID: sourceID, name: name, size: size,
             fileCount: fileCount, data: data, downloadDirectory: downloadDirectory,
             fileSelection: fileSelection, namingPlan: namingPlan, sourceURL: sourceURL,
@@ -180,8 +185,22 @@ public final class RemoteAppModel {
         guard entry.receipt == nil, entry.attempts == 0,
               let plan = entry.namingPlan, plan.season != nil,
               let directory = entry.downloadDirectory else { return }
-        let stored = sourceState(for: entry.sourceID).records.compactMap { record -> TorrentSeasonStoragePlan? in
-            guard let directory = record.summary.downloadDir else { return nil }
+        let stored = existingSeasonStorage(sourceID: entry.sourceID)
+        let queued = pendingAdditions.compactMap { pending -> TorrentSeasonStoragePlan? in
+            let other = pending.entry
+            guard other.id != entry.id, other.sourceID == entry.sourceID,
+                  let directory = other.downloadDirectory, let plan = other.namingPlan,
+                  plan.season != nil else { return nil }
+            return .init(downloadDirectory: directory, namingPlan: plan)
+        }
+        let storage = TorrentSeasonStoragePlan(baseDirectory: directory, namingPlan: plan, existing: stored + queued)
+        entry.downloadDirectory = storage.downloadDirectory
+        entry.namingPlan = storage.namingPlan
+    }
+
+    private func existingSeasonStorage(sourceID: UUID, excluding excludedHash: String? = nil) -> [TorrentSeasonStoragePlan] {
+        sourceState(for: sourceID).records.compactMap { record -> TorrentSeasonStoragePlan? in
+            guard record.hashString != excludedHash, let directory = record.summary.downloadDir else { return nil }
             let root = record.summary.name
             let season = record.season ?? TorrentNameCleaner.seasonDescriptor(for: .init(rootName: root, files: []))
             if let season, TorrentSeriesIdentity.key(for: root) == TorrentSeriesIdentity.key(for: season.title) {
@@ -196,16 +215,6 @@ public final class RemoteAppModel {
             }
             return nil
         }
-        let queued = pendingAdditions.compactMap { pending -> TorrentSeasonStoragePlan? in
-            let other = pending.entry
-            guard other.id != entry.id, other.sourceID == entry.sourceID,
-                  let directory = other.downloadDirectory, let plan = other.namingPlan,
-                  plan.season != nil else { return nil }
-            return .init(downloadDirectory: directory, namingPlan: plan)
-        }
-        let storage = TorrentSeasonStoragePlan(baseDirectory: directory, namingPlan: plan, existing: stored + queued)
-        entry.downloadDirectory = storage.downloadDirectory
-        entry.namingPlan = storage.namingPlan
     }
 
     private func appendAddition(_ entry: TorrentAddQueueEntry) {
@@ -1361,15 +1370,25 @@ public final class RemoteAppModel {
     }
 
     public func smartRename(_ details: TorrentDetails, sourceID: UUID) async {
-        guard let plan = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
+        guard var plan = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
             selectedFileIndices: Set(details.files.indices)) else { return }
+        if plan.season != nil, let directory = details.downloadDir {
+            let storage = TorrentSeasonStoragePlan(baseDirectory: directory, namingPlan: plan,
+                existing: existingSeasonStorage(sourceID: sourceID, excluding: details.hashString))
+            // Smart Rename changes names only. Moving an existing transfer to a
+            // different parent requires a separate verified data relocation.
+            if storage.downloadDirectory == URL(fileURLWithPath: directory).standardizedFileURL.path {
+                plan = storage.namingPlan
+            }
+        }
+        let resolvedPlan = plan
         let didRename = await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
             reloadCoreDetails: true, detailSections: [.files]) { provider in
-            for rename in plan.pathRenames {
+            for rename in resolvedPlan.pathRenames {
                 try await provider.renamePath(id: details.hashString, path: rename.path, name: rename.name)
             }
-            if plan.rootName != details.name {
-                try await provider.renamePath(id: details.hashString, path: details.name, name: plan.rootName)
+            if resolvedPlan.rootName != details.name {
+                try await provider.renamePath(id: details.hashString, path: details.name, name: resolvedPlan.rootName)
             }
         }
         if didRename, let displayName = plan.displayName {
@@ -2232,15 +2251,26 @@ public final class RemoteAppModel {
     }
 
     private func storedSeason(for summary: TorrentSummary, sourceID: UUID) -> TorrentSeasonDescriptor? {
-        let key = Self.recordIdentity(for: summary, sourceID: sourceID)
-        guard let stored = torrentDisplayNames[key], stored.rootName == summary.name else { return nil }
-        return stored.season
+        matchedStoredName(for: summary, sourceID: sourceID)?.season
     }
 
     private func storedDisplayName(for summary: TorrentSummary, sourceID: UUID) -> String? {
+        matchedStoredName(for: summary, sourceID: sourceID)?.displayName
+    }
+
+    private func matchedStoredName(for summary: TorrentSummary, sourceID: UUID) -> TorrentStoredDisplayName? {
         let key = Self.recordIdentity(for: summary, sourceID: sourceID)
-        guard let stored = torrentDisplayNames[key], stored.rootName == summary.name else { return nil }
-        return stored.displayName
+        guard let stored = torrentDisplayNames[key] else { return nil }
+        if stored.rootName == summary.name { return stored }
+        // A server-side article/case repair keeps the same hash and season.
+        // Unrelated renames still invalidate the old metadata. Resolve on read
+        // so older saved names also survive a restart without a disk migration.
+        guard let season = stored.season,
+              TorrentSeriesIdentity.key(for: stored.rootName) == TorrentSeriesIdentity.key(for: summary.name),
+              TorrentSeriesIdentity.key(for: season.title) == TorrentSeriesIdentity.key(for: summary.name) else { return nil }
+        let displayName = stored.displayName == season.title ? summary.name : stored.displayName
+        return .init(rootName: summary.name, displayName: displayName,
+                     season: .init(title: summary.name, season: season.season))
     }
 
     private func pruneTorrentDisplayNames(sourceID: UUID, keeping identities: Set<String>) {

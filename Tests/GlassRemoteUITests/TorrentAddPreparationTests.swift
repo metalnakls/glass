@@ -7,6 +7,20 @@ import Testing
 @MainActor
 @Suite("Torrent add preparation")
 struct TorrentAddPreparationTests {
+    @Test("restored original names and file choices survive asynchronous naming")
+    func restoredOriginalNameSurvivesPreparation() {
+        let item = makeItem()
+        let restored = TorrentAddDraftItem(id: item.draft.id, data: item.draft.data, name: item.draft.preview.name,
+            selectedFileIndices: [1], filePriorities: [1: -1], smartNamesEnabled: false)
+        item.apply(restored)
+        item.applyPreparedSuggestion(item.suggestion())
+        item.applySeasonDisplayName("Show Name", season: 1)
+        #expect(item.name == restored.name)
+        #expect(item.fileSelection.filesWanted == [1])
+        #expect(item.fileSelection.filesUnwanted == [0])
+        #expect(item.fileSelection.priorityLow == [1])
+    }
+
     @Test("smart names are applied before the user edits the draft")
     func smartNamesStartApplied() throws {
         let item = makeItem()

@@ -7,6 +7,78 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("repeated preparation cannot acknowledge a queue that was never saved")
+    func repeatedPreparationRequiresDurability() throws {
+        let profile = makeProfile(), store = MemoryProfileStore(profiles: [makeProfile()])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory().make(config:))
+        let id = UUID()
+        store.rejectQueueWrites()
+        for _ in 0..<2 {
+            #expect(!model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Show", size: 1,
+                fileCount: 1, downloadDirectory: "/downloads", namingPlan: nil, data: Data([1])))
+        }
+        #expect(try store.loadTorrentAddQueue().isEmpty)
+        #expect(model.allTorrentRecords.count == 1)
+    }
+
+    @Test("Smart Rename uses the established series root, ignoring unsubmitted additions", arguments: [false, true])
+    func smartRenameReusesSeriesRoot(hasExisting: Bool) async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let state = try #require(model.sources.first { $0.id == profile.id })
+        if hasExisting { state.records = [TorrentRecord(.init(id: 3, hashString: "existing", name: "The Walking Dead", status: 6,
+            percentDone: 1, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100, leftUntilDone: 0,
+            eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: "/downloads", fileCount: 16),
+            sourceID: profile.id, season: .init(title: "The Walking Dead", season: 3))] }
+        #expect(model.prepareTorrentAddition(id: UUID(), sourceID: profile.id, name: "The Walking Dead", size: 100,
+            fileCount: 16, downloadDirectory: "/downloads", namingPlan: .init(rootName: "The Walking Dead", pathRenames: [],
+                season: .init(title: "The Walking Dead", season: 5))))
+        let details = TorrentDetails(id: 4, hashString: "hash-1", name: "Walking.Dead.S04.1080p",
+            downloadDir: "/downloads", files: [.init(name: "Walking.Dead.S04.1080p/S04E01.mkv", length: 10, bytesCompleted: 10)])
+        await model.smartRename(details, sourceID: profile.id)
+        #expect(await client.renamedPaths.last == .init(path: details.name, name: hasExisting ? "The Walking Dead" : "Walking Dead"))
+    }
+
+    @Test("duplicate season adds neither rename nor change the existing transfer state", arguments: [false, true])
+    func duplicateSeasonIsUntouched(paused: Bool) async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        await client.setAddTorrentWasDuplicate(true)
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        let id = UUID()
+        #expect(model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Walking Dead", size: 100,
+            fileCount: 16, downloadDirectory: "/downloads", namingPlan: .init(rootName: "Walking Dead", pathRenames: [],
+                season: .init(title: "Walking Dead", season: 4)), data: Data([1]), startPaused: paused))
+        #expect(await model.retryTorrentAddition(id))
+        #expect(await client.renamedPaths.isEmpty)
+        #expect(await client.stoppedIDs.isEmpty)
+        #expect(await client.startRequests.isEmpty)
+    }
+
+    @Test("a server-side series alias repair preserves the season across refresh and restart")
+    func repairedSeasonRootKeepsIdentity() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let store = MemoryProfileStore(profiles: [profile])
+        let key = TorrentRecord.identity(sourceID: profile.id, hashString: "hash-1")
+        try store.saveTorrentDisplayNames([key: .init(rootName: "Walking Dead", displayName: "Walking Dead",
+            season: .init(title: "Walking Dead", season: 4))])
+        try await client.renamePath(id: "hash-1", path: "Spider-Noir", name: "The Walking Dead")
+        for _ in 0..<2 {
+            let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+                rpcClientFactory: StubRPCClientFactory { _ in client }.make(config:))
+            await model.refresh()
+            let record = try #require(model.torrentRecords.first)
+            #expect(record.displayName == "The Walking Dead")
+            #expect(record.season == .init(title: "The Walking Dead", season: 4))
+        }
+        try await client.renamePath(id: "hash-1", path: "The Walking Dead", name: "Other Show")
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory { _ in client }.make(config:))
+        await model.refresh()
+        #expect(model.torrentRecords.first?.season == nil)
+        #expect(model.torrentRecords.first?.displayName == nil)
+    }
+
     @Test("season naming finishes before transfer starts and preserves paused imports", arguments: [false, true])
     func seasonNamingBeforeStart(paused: Bool) async throws {
         let profile = makeProfile(), client = StubRPCClient()

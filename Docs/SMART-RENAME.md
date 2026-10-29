@@ -31,3 +31,32 @@ downloading cannot create a separate release folder before the shared root is
 assigned. They then start unless the user chose a paused import. Duplicate
 transfers retain their existing state. Existing split folders require a separate,
 verified repair of files and Transmission paths; import matching never moves them.
+
+When the server repairs only a series alias (for example `Walking Dead` to
+`The Walking Dead`), Glass retains that transfer's saved season by source and
+torrent hash. It resolves the stored name against the server's current spelling
+on refresh and restart. Unrelated root renames still invalidate stale season
+metadata, and custom display labels remain intact. This does not rewrite files.
+
+## Import ownership and recovery
+
+| Owner | Contract |
+| --- | --- |
+| Draft store | Retains unsubmitted names, destination, wanted flags, priorities and source bytes. Preparing names must not replace a restored or explicitly entered name, even when it equals the original release name. |
+| Add queue | Owns the submission only after its complete snapshot saves successfully. Repeating preparation retries a failed save; the editor remains recoverable until that succeeds. Once attempted, retries keep the saved destination, selection and rename plan. |
+| Series storage plan | Matches physical show roots within one source and destination. Add can use earlier queued seasons; Smart Rename consults existing transfers only. Unsubmitted additions cannot rename a live transfer. |
+| Transmission | Owns transfer identity, paths and bytes. Duplicate adds retain their existing names and running/paused state. A rename error is reported; it does not authorize a filesystem merge. |
+
+The October 29 audit reproduced and corrected failed-save acknowledgement,
+restored-name replacement, and Add/Smart Rename folder-rule drift. Regression
+checks also cover batch grouping, selected/unselected files and priorities,
+magnet metadata validation/cancellation, lost replies, completed rename retries,
+source/destination isolation, duplicate transfers, selective draft retirement,
+and persistence across relaunch. Live Ultra repair separately verified all 32
+episode inode/size pairs and resumed season 4 at 100% with no engine error.
+
+Scope: these checks cover the import/naming stack, not every app interaction.
+They do not make filename-only matching a universal show identifier. Existing
+nonempty directories, alternate releases with overlapping paths, and an external
+client moving data still require explicit collision checks and relocation;
+automatic title matching is not permission to overwrite their contents.

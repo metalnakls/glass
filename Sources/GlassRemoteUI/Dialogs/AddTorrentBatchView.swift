@@ -306,10 +306,7 @@ struct AddTorrentBatchView: View {
             })
             smartNamesByGroupID = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, smartNamesByGroupID[$0.id] ?? true) })
             for (index, plan) in result.plans.enumerated() {
-                items[index].cachedSuggestion = plan
-                if items[index].name == items[index].draft.preview.name {
-                    items[index].name = plan?.suggestedName ?? items[index].name
-                }
+                items[index].applyPreparedSuggestion(plan)
             }
             for group in groups where group.isSeasonGroup {
                 for (offset, index) in group.itemIndices.enumerated() {
@@ -400,13 +397,17 @@ struct AddTorrentBatchView: View {
         }
         let destinationSource = sourceID
         for (item, name, directory, plan) in jobs {
-            model.prepareTorrentAddition(id: item.draft.id, sourceID: destinationSource,
+            guard model.prepareTorrentAddition(id: item.draft.id, sourceID: destinationSource,
                 name: name, size: item.draft.preview.size, fileCount: item.draft.preview.files.count,
                 downloadDirectory: directory,
                 namingPlan: plan ?? (name == item.draft.preview.name ? nil : TorrentAddNamingPlan(rootName: name, pathRenames: [])),
                 data: item.draft.data, fileSelection: item.fileSelection,
                 sourceURL: item.draft.sourceURL, trashSourceOnSuccess: item.draft.sourceURL != nil,
-                renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: startsPaused)
+                renameDuplicateRoot: plan == nil && name != item.draft.preview.name, startPaused: startsPaused) else {
+                addErrorMessage = model.errorMessage ?? "Glass couldn’t save this add. Your draft is still available."
+                captureDraft()
+                return
+            }
         }
         model.selectedProfileID = destinationSource
         model.selectedTorrentGroup = .all
@@ -622,6 +623,7 @@ final class TorrentBatchItemState {
     var filePriorities: [Int: Int] = [:]
     var wasAdded = false
     var cachedSuggestion: TorrentAddNamingPlan?
+    private var preservesEnteredName = false
 
     init(draft: TorrentFileAddDraft, defersNaming: Bool = false) {
         self.draft = draft
@@ -634,7 +636,7 @@ final class TorrentBatchItemState {
     }
 
     func apply(_ restored: TorrentAddDraftItem) {
-        if !restored.name.isEmpty { name = restored.name }
+        if !restored.name.isEmpty { name = restored.name; preservesEnteredName = true }
         if let selected = restored.selectedFileIndices {
             let valid = Set(selected.filter { draft.preview.files.indices.contains($0) })
             selectedFileIndices = valid
@@ -642,6 +644,11 @@ final class TorrentBatchItemState {
         if let priorities = restored.filePriorities {
             filePriorities = priorities.filter { draft.preview.files.indices.contains($0.key) }
         }
+    }
+
+    func applyPreparedSuggestion(_ plan: TorrentAddNamingPlan?) {
+        cachedSuggestion = plan
+        if !preservesEnteredName, name == draft.preview.name { name = plan?.suggestedName ?? name }
     }
 
     func presentedName(holdingOption: Bool, showExtensions: Bool = false) -> String {
@@ -652,6 +659,7 @@ final class TorrentBatchItemState {
         TorrentExtensionPolicy.hiddenExtension(paths: draft.preview.files.map(\.name))
     }
     func editPresentedName(_ title: String, showExtensions: Bool = false) {
+        preservesEnteredName = true
         name = TorrentExtensionPolicy.editedName(title, original: name, hiding: showExtensions ? nil : hiddenTitleExtension)
     }
 
@@ -713,16 +721,19 @@ final class TorrentBatchItemState {
     }
 
     func applySmartName() {
+        preservesEnteredName = false
         if let suggestion = suggestion() {
             name = suggestion.suggestedName
         }
     }
 
     func restoreOriginalName() {
+        preservesEnteredName = true
         name = draft.preview.name
     }
 
     func applySeasonDisplayName(_ title: String, season: Int) {
+        guard !preservesEnteredName else { return }
         name = "\(title) \(season)"
     }
 }
