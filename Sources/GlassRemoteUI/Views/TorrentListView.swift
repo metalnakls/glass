@@ -257,13 +257,7 @@ struct TorrentListView: View {
             })
             .environment(\.defaultMinListRowHeight, 0)
             .focusEffectDisabled()
-            .glassScrollEdges(.sectionTitles)
-            .ignoresSafeArea(.container, edges: .top)
-            .safeAreaBar(edge: .top, spacing: 0) {
-                TorrentHeaderSurface(controller: stickyHeaders)
-                    .frame(height: stickyHeaders.titleHeight)
-                    .allowsHitTesting(false)
-            }
+            .torrentStickyHeaders(stickyHeaders)
             .glassSwipeActionsContainer()
             .onChange(of: revealSelectionToken) { _, _ in
                 revealAndScrollToTorrent(selection, using: scrollProxy)

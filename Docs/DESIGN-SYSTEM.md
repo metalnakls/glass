@@ -169,6 +169,16 @@ longer starts an independent opacity exit. The gradient keeps its full height
 and clears the viewport through the same measured translation as the title.
 Reversing to inline also keeps any finishing fade attached to that title.
 
+The main list and native header fixtures use `torrentStickyHeaders` to own the
+surface, reserved height and edge-effect policy together. It uses
+`safeAreaInset`, not `safeAreaBar`: the full-window reproduction showed that the
+latter creates an additional stationary AppKit scroll pocket despite the hidden
+edge-effect setting. That pocket remained visible after the custom material had
+left the viewport. The inset keeps the same document/header geometry without
+extending that system backdrop. A native regression check includes the titled
+window and NavigationStack, light/dark appearance, and Inspector shown/hidden;
+standalone material-frame tests alone did not catch this composition failure.
+
 Saved background durations remain for activation and removal. Their native
 opacity transition explicitly enables Core Animation actions in its own
 transaction, then restores the caller's state. Scroll coordinates remain

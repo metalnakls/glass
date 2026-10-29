@@ -571,8 +571,23 @@ final class TitleHost: NSView {
     }
 }
 
-/// The bar reserves space; its AppKit surface owns the material and sharp titles.
-/// An explicit backdrop fade avoids the system edge effect's glyph-exit cutoff.
+extension View {
+    /// Owns the header's reserved space and its scroll-effect policy together.
+    func torrentStickyHeaders(_ controller: TorrentStickyHeaders) -> some View {
+        self
+            .ignoresSafeArea(.container, edges: .top)
+            // safeAreaBar adds a separate window-anchored AppKit pocket even
+            // when scrollEdgeEffectHidden is true. Reserve the same space
+            // without registering another material behind our moving surface.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                TorrentHeaderSurface(controller: controller)
+                    .frame(height: controller.titleHeight)
+                    .allowsHitTesting(false)
+            }
+            .glassScrollEdges(.sectionTitles)
+    }
+}
+
 struct TorrentHeaderSurface: NSViewRepresentable {
     let controller: TorrentStickyHeaders
     func makeNSView(context: Context) -> NSView { controller.barSurface }

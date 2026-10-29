@@ -76,9 +76,7 @@ struct TorrentNativeListTests {
                 }
             }.listStyle(.plain)
                 .contentMargins(.top, 0, for: .scrollContent)
-                .safeAreaBar(edge: .top, spacing: 0) {
-                    TorrentHeaderSurface(controller: controller).frame(height: controller.titleHeight).allowsHitTesting(false)
-                }.glassScrollEdges()
+                .torrentStickyHeaders(controller)
         }
     }
 
@@ -103,31 +101,35 @@ struct TorrentNativeListTests {
         let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: 800), styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { controller.detach(); window.close() }
-        let host = NSHostingView(rootView: SpacingFixture(controller: controller, beforeFirst: 16, belowHeader: 0, betweenSections: 16))
+        // Measure inline spacing clear of the 20-point sticky threshold. A
+        // 16-point title has already pinned, so its visible movement is clamped.
+        let host = NSHostingView(rootView: SpacingFixture(controller: controller, beforeFirst: 32, belowHeader: 0, betweenSections: 16))
         window.contentView = host
         func measure() async throws -> [CGRect] {
             for _ in 0..<20 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
             func titles(_ view: NSView) -> [TitleHost] {
                 (view as? TitleHost).map { [$0] } ?? view.subviews.flatMap(titles)
             }
-            let frames = titles(host).map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
+            let measuredTitles = titles(host)
+            #expect(measuredTitles.allSatisfy { !$0.isPinned }, "Spacing is measured independently of sticky positioning")
+            let frames = measuredTitles.map { host.convert($0.bounds, from: $0) }.sorted { $0.minY < $1.minY }
             try #require(frames.count == 2)
             return frames
         }
         let baseline = try await measure()
-        host.rootView = SpacingFixture(controller: controller, beforeFirst: 48, belowHeader: 0, betweenSections: 16)
+        host.rootView = SpacingFixture(controller: controller, beforeFirst: 64, belowHeader: 0, betweenSections: 16)
         let first = try await measure()
         #expect(abs(first[0].minY - baseline[0].minY - 32) < 1)
         #expect(abs(first[1].minY - baseline[1].minY - 32) < 1)
-        host.rootView = SpacingFixture(controller: controller, beforeFirst: 48, belowHeader: 20, betweenSections: 16)
+        host.rootView = SpacingFixture(controller: controller, beforeFirst: 64, belowHeader: 20, betweenSections: 16)
         let below = try await measure()
         #expect(abs(below[0].minY - first[0].minY) < 1)
         #expect(abs(below[1].minY - first[1].minY - 20) < 1)
-        host.rootView = SpacingFixture(controller: controller, beforeFirst: 48, belowHeader: 20, betweenSections: 44)
+        host.rootView = SpacingFixture(controller: controller, beforeFirst: 64, belowHeader: 20, betweenSections: 44)
         let between = try await measure()
         #expect(abs(between[0].minY - below[0].minY) < 1)
         #expect(abs(between[1].minY - below[1].minY - 28) < 1)
-        host.rootView = SpacingFixture(controller: controller, beforeFirst: 16, belowHeader: 0, betweenSections: 16)
+        host.rootView = SpacingFixture(controller: controller, beforeFirst: 32, belowHeader: 0, betweenSections: 16)
         let restored = try await measure()
         #expect(restored == baseline)
     }
