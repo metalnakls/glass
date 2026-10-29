@@ -225,6 +225,66 @@ public struct YinaDownloadDemand: Sendable, Hashable, Codable {
     }
 }
 
+/// A durable outcome for one demand revision. Accepted means selection, priority and start RPCs succeeded,
+/// not that bytes have arrived or playback is possible.
+public struct YinaDemandReceipt: Sendable, Hashable, Codable {
+    public static let currentSchemaVersion = 1
+    public enum Outcome: String, Sendable, Hashable, Codable { case accepted, failed, cancelled }
+    public enum FailureReason: String, Sendable, Hashable, Codable {
+        case selectionFailed, priorityFailed, startFailed
+    }
+
+    public let schemaVersion: Int
+    public let showID: UUID
+    public let requestID: UUID
+    public let requestWriterID: UUID
+    public let receiptWriterID: UUID
+    public let revision: UInt64
+    public let requestRevision: UInt64
+    public let updatedAt: Date
+    public let outcome: Outcome
+    public let reason: FailureReason?
+
+    public init(showID: UUID, requestID: UUID, requestWriterID: UUID, receiptWriterID: UUID,
+                revision: UInt64, requestRevision: UInt64, updatedAt: Date = .now,
+                outcome: Outcome, reason: FailureReason? = nil) throws {
+        guard revision > 0, requestRevision > 0,
+              (outcome == .failed) == (reason != nil) else { throw YinaShowStore.Error.invalidReceipt }
+        schemaVersion = Self.currentSchemaVersion
+        self.showID = showID
+        self.requestID = requestID
+        self.requestWriterID = requestWriterID
+        self.receiptWriterID = receiptWriterID
+        self.revision = revision
+        self.requestRevision = requestRevision
+        self.updatedAt = updatedAt
+        self.outcome = outcome
+        self.reason = reason
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, showID, requestID, requestWriterID, receiptWriterID
+        case revision, requestRevision, updatedAt, outcome, reason
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let version = try values.decode(Int.self, forKey: .schemaVersion)
+        guard version == Self.currentSchemaVersion else { throw YinaShowStore.Error.unsupportedSchema(version) }
+        try self.init(
+            showID: values.decode(UUID.self, forKey: .showID),
+            requestID: values.decode(UUID.self, forKey: .requestID),
+            requestWriterID: values.decode(UUID.self, forKey: .requestWriterID),
+            receiptWriterID: values.decode(UUID.self, forKey: .receiptWriterID),
+            revision: values.decode(UInt64.self, forKey: .revision),
+            requestRevision: values.decode(UInt64.self, forKey: .requestRevision),
+            updatedAt: values.decode(String.self, forKey: .updatedAt).yinaDate,
+            outcome: values.decode(Outcome.self, forKey: .outcome),
+            reason: values.decodeIfPresent(FailureReason.self, forKey: .reason)
+        )
+    }
+}
+
 /// File-backed protocol store. Keep calls off the main actor; each writer ID must be unique per app run.
 public actor YinaShowStore {
     public static let demandFreshnessLimit: TimeInterval = 15 * 60
@@ -243,12 +303,15 @@ public actor YinaShowStore {
         case progressRevisionNotIncreasing
         case invalidDemand
         case demandRevisionNotIncreasing
+        case invalidReceipt
+        case receiptRevisionNotIncreasing
         case writeFailed(String)
     }
 
     private var root: URL
     private let maximumTransferBytes = 10 * 1024 * 1024
     private let maximumProgressBytes = 512 * 1024
+    private let maximumReceiptBytes = 64 * 1024
     private let maximumDirectoryEntries = 4096
     private let maximumAggregateEntries = 8192
     private let aggregateReadByteLimit: Int
@@ -673,6 +736,65 @@ public actor YinaShowStore {
             catch { continue }
         }
         return demands
+    }
+
+    /// Replaces only this Glass writer's outcome for one request. A matching record is idempotent.
+    public func publishReceipt(_ receipt: YinaDemandReceipt) throws {
+        try validateRoot()
+        guard let descriptor = try readDescriptor(), descriptor.showID == receipt.showID else {
+            throw Error.identityMismatch
+        }
+        let directory = root.appendingPathComponent(
+            ".yina/receipts/\(receipt.receiptWriterID.uuidString.lowercased())", isDirectory: true
+        )
+        try createDirectoryIfNeeded(directory)
+        let destination = directory.appendingPathComponent("\(receipt.requestID.uuidString.lowercased()).json")
+        if fileExists(destination) {
+            let previous = try Self.decodeReceiptStrict(readRegularFile(destination, limit: maximumReceiptBytes))
+            guard previous.showID == receipt.showID, previous.requestID == receipt.requestID,
+                  previous.requestWriterID == receipt.requestWriterID,
+                  previous.receiptWriterID == receipt.receiptWriterID else { throw Error.identityMismatch }
+            if previous == receipt { return }
+            guard receipt.revision > previous.revision,
+                  receipt.requestRevision >= previous.requestRevision else {
+                throw Error.receiptRevisionNotIncreasing
+            }
+        }
+        let data = try Self.encoder().encode(receipt)
+        guard data.count <= maximumReceiptBytes else { throw Error.oversizedFile }
+        try atomicWrite(data, to: destination)
+    }
+
+    /// Reads every writer's outcome for an exact request, including old revisions for caller-side comparison.
+    public func readReceipts(showID: UUID, requestID: UUID) throws -> [YinaDemandReceipt] {
+        try validateRoot()
+        let base = root.appendingPathComponent(".yina/receipts", isDirectory: true)
+        guard fileExists(base) else { return [] }
+        let writers = try boundedChildren(of: base, limit: maximumDirectoryEntries)
+        var bytesRead = 0
+        var receipts: [YinaDemandReceipt] = []
+        for writerDirectory in writers {
+            guard let writerID = UUID(uuidString: writerDirectory.lastPathComponent) else { continue }
+            guard try isSafeDirectory(writerDirectory) else { throw Error.unsafeExistingPath }
+            let file = writerDirectory.appendingPathComponent("\(requestID.uuidString.lowercased()).json")
+            guard fileExists(file) else { continue }
+            guard try isSafeRegularFile(file) else { throw Error.unsafeExistingPath }
+            let data = try readBudgetedFile(file, fileLimit: maximumReceiptBytes, bytesRead: &bytesRead)
+            let receipt = try Self.decodeReceiptStrict(data)
+            guard receipt.showID == showID, receipt.requestID == requestID,
+                  receipt.receiptWriterID == writerID else { throw Error.identityMismatch }
+            receipts.append(receipt)
+        }
+        return receipts
+    }
+
+    private static func decodeReceiptStrict(_ data: Data) throws -> YinaDemandReceipt {
+        let object = try jsonObject(data)
+        let required: Set<String> = ["schemaVersion", "showID", "requestID", "requestWriterID",
+                                     "receiptWriterID", "revision", "requestRevision", "updatedAt", "outcome"]
+        guard required.isSubset(of: Set(object.keys)),
+              Set(object.keys).isSubset(of: required.union(["reason"])) else { throw Error.invalidReceipt }
+        return try decoder().decode(YinaDemandReceipt.self, from: data)
     }
 
     /// Stable v2 ID derivation: SHA-256 of UTF-8 `glass-yina-show-v2:<lowercased-trimmed-hash>`,

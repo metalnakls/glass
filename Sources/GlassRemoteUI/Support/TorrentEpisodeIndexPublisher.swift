@@ -3,6 +3,12 @@ import GlassRemoteCore
 import GlassRemoteServices
 import Observation
 
+enum DemandActionOutcome: Sendable, Equatable {
+    case accepted
+    case failed(YinaDemandReceipt.FailureReason)
+    case interrupted
+}
+
 /// Keeps shared YINA transfer inventories current without depending on the Inspector.
 @MainActor
 @Observable
@@ -265,13 +271,52 @@ final class TorrentEpisodeIndexPublisher {
             let store = YinaShowStore(rootURL: show.rootURL)
             guard let demands = try? await store.readDemand(showID: show.showID) else { continue }
             guard !Task.isCancelled, sources[sourceID] != nil else { return }
-            let actionable = demands.filter { !$0.cancelled && !processedDemandIDs.contains($0.requestID) }
-            guard !actionable.isEmpty else { continue }
-            guard let inventories = try? await store.readTransferSnapshots(showID: show.showID) else { continue }
+            let inventories = (try? await store.readTransferSnapshots(showID: show.showID)) ?? []
             guard !Task.isCancelled, sources[sourceID] != nil else { return }
-            for demand in actionable {
-                guard handled < 4,
-                      let identity = Self.targetIdentity(for: demand, inventories: inventories),
+            for demand in demands {
+                guard handled < 4, demand.revision > 0,
+                      processedDemandRevision[demand.requestID].map({ $0 < demand.revision }) ?? true else { continue }
+                if let pending = unsavedReceipts[demand.requestID] {
+                    if pending.requestRevision == demand.revision {
+                        if (try? await store.publishReceipt(pending)) != nil {
+                            unsavedReceipts[demand.requestID] = nil
+                            rememberProcessedDemand(demand.requestID, revision: demand.revision)
+                        }
+                        continue
+                    }
+                    unsavedReceipts[demand.requestID] = nil
+                }
+                // If receipt discovery fails, never replay an RPC whose result may already be durable.
+                guard let receipts = try? await store.readReceipts(showID: show.showID, requestID: demand.requestID),
+                      !Task.isCancelled, sources[sourceID] != nil else { continue }
+                let current = receipts.filter {
+                    $0.requestWriterID == demand.writerID && $0.requestRevision == demand.revision
+                }
+                if demand.cancelled {
+                    if current.contains(where: { $0.outcome == .cancelled }) {
+                        rememberProcessedDemand(demand.requestID, revision: demand.revision)
+                        continue
+                    }
+                    let own = receipts.first(where: { $0.receiptWriterID == writerID })
+                    guard own?.revision != UInt64.max,
+                          let receipt = try? YinaDemandReceipt(
+                            showID: show.showID, requestID: demand.requestID,
+                            requestWriterID: demand.writerID, receiptWriterID: writerID,
+                            revision: (own?.revision ?? 0) + 1, requestRevision: demand.revision,
+                            outcome: .cancelled
+                          ) else { continue }
+                    unsavedReceipts[demand.requestID] = receipt
+                    guard (try? await store.publishReceipt(receipt)) != nil else { continue }
+                    unsavedReceipts[demand.requestID] = nil
+                    handled += 1
+                    rememberProcessedDemand(demand.requestID, revision: demand.revision)
+                    continue
+                }
+                if !Self.shouldDispatch(demand, receipts: current) {
+                    rememberProcessedDemand(demand.requestID, revision: demand.revision)
+                    continue
+                }
+                guard let identity = Self.targetIdentity(for: demand, inventories: inventories),
                       identity.hashString == hash else { continue }
                 handled += 1
                 guard let refreshed = try? await model.fetchDetails(for: [candidate.summary], including: [.files], sourceID: sourceID).first,
@@ -287,14 +332,35 @@ final class TorrentEpisodeIndexPublisher {
                       let episode = index.episodes.first(where: { $0.id == identity }),
                       episode.relativePath == demand.relativePath,
                       !Task.isCancelled, sources[sourceID] != nil else { continue }
-                guard await Self.dispatchDemandActions(model: model, torrent: candidate.summary, identity: identity, sourceID: sourceID),
-                      !Task.isCancelled, sources[sourceID] != nil,
+                let result = await Self.dispatchDemandActionResult(
+                    model: model, torrent: candidate.summary, identity: identity, sourceID: sourceID
+                )
+                guard !Task.isCancelled, sources[sourceID] != nil, result != .interrupted else { continue }
+                let own = receipts.first(where: { $0.receiptWriterID == writerID })
+                guard own?.revision != UInt64.max else { continue }
+                let outcome: YinaDemandReceipt.Outcome
+                let reason: YinaDemandReceipt.FailureReason?
+                switch result {
+                case .accepted: outcome = .accepted; reason = nil
+                case .failed(let failure): outcome = .failed; reason = failure
+                case .interrupted: continue
+                }
+                guard let receipt = try? YinaDemandReceipt(
+                    showID: show.showID, requestID: demand.requestID,
+                    requestWriterID: demand.writerID, receiptWriterID: writerID,
+                    revision: (own?.revision ?? 0) + 1, requestRevision: demand.revision,
+                    outcome: outcome, reason: reason
+                ) else { continue }
+                unsavedReceipts[demand.requestID] = receipt
+                guard (try? await store.publishReceipt(receipt)) != nil else { continue }
+                unsavedReceipts[demand.requestID] = nil
+                rememberProcessedDemand(demand.requestID, revision: demand.revision)
+                guard result == .accepted,
                       let afterAction = try? await model.fetchDetails(for: [candidate.summary], including: [.files], sourceID: sourceID).first,
                       !Task.isCancelled, sources[sourceID] != nil,
                       let updatedDetails = Self.details(afterAction, relativeTo: show.remotePath),
                       let updatedIndex = try? ShowEpisodeIndex(details: updatedDetails, relativePathPrefix: "", capturedAt: Date.now) else { continue }
                 try? await store.publishTransferSnapshot(updatedIndex, showID: show.showID, writerID: writerID)
-                rememberProcessedDemand(demand.requestID)
             }
         }
     }
@@ -305,13 +371,38 @@ final class TorrentEpisodeIndexPublisher {
         identity: ShowEpisodeIndex.Episode.TransferIdentity,
         sourceID: UUID
     ) async -> Bool {
-        guard identity.hashString == torrent.hashString, identity.fileIndex >= 0,
-              await model.setFileWanted(torrent, fileIndices: [identity.fileIndex], wanted: true, sourceID: sourceID),
-              !Task.isCancelled,
-              await model.setFilePriority(torrent, fileIndices: [identity.fileIndex], priority: 1, sourceID: sourceID),
-              !Task.isCancelled,
-              await model.start(torrent, sourceID: sourceID) else { return false }
-        return true
+        await dispatchDemandActionResult(model: model, torrent: torrent, identity: identity, sourceID: sourceID) == .accepted
+    }
+
+    nonisolated static func dispatchDemandActionResult(
+        model: RemoteAppModel,
+        torrent: TorrentSummary,
+        identity: ShowEpisodeIndex.Episode.TransferIdentity,
+        sourceID: UUID
+    ) async -> DemandActionOutcome {
+        guard identity.hashString == torrent.hashString, identity.fileIndex >= 0, !Task.isCancelled else {
+            return .interrupted
+        }
+        guard await model.setFileWanted(torrent, fileIndices: [identity.fileIndex], wanted: true, sourceID: sourceID) else {
+            return .failed(.selectionFailed)
+        }
+        guard !Task.isCancelled else { return .interrupted }
+        guard await model.setFilePriority(torrent, fileIndices: [identity.fileIndex], priority: 1, sourceID: sourceID) else {
+            return .failed(.priorityFailed)
+        }
+        guard !Task.isCancelled else { return .interrupted }
+        guard await model.start(torrent, sourceID: sourceID) else { return .failed(.startFailed) }
+        return Task.isCancelled ? .interrupted : .accepted
+    }
+
+    /// Only a newer request revision permits another attempt after any writer's outcome.
+    nonisolated static func shouldDispatch(_ demand: YinaDownloadDemand,
+                                           receipts: [YinaDemandReceipt]) -> Bool {
+        guard !demand.cancelled else { return false }
+        return !receipts.contains {
+            $0.showID == demand.showID && $0.requestID == demand.requestID &&
+                $0.requestWriterID == demand.writerID && $0.requestRevision == demand.revision
+        }
     }
 
     nonisolated static func targetIdentity(
@@ -329,14 +420,15 @@ final class TorrentEpisodeIndexPublisher {
         return identities.first
     }
 
-    @ObservationIgnored private var processedDemandIDs = Set<UUID>()
+    @ObservationIgnored private var unsavedReceipts: [UUID: YinaDemandReceipt] = [:]
+    @ObservationIgnored private var processedDemandRevision: [UUID: UInt64] = [:]
     @ObservationIgnored private var processedDemandOrder: [UUID] = []
 
-    private func rememberProcessedDemand(_ id: UUID) {
-        guard processedDemandIDs.insert(id).inserted else { return }
-        processedDemandOrder.append(id)
+    private func rememberProcessedDemand(_ id: UUID, revision: UInt64) {
+        if processedDemandRevision[id] == nil { processedDemandOrder.append(id) }
+        processedDemandRevision[id] = max(revision, processedDemandRevision[id] ?? 0)
         if processedDemandOrder.count > 1024 {
-            processedDemandIDs.remove(processedDemandOrder.removeFirst())
+            processedDemandRevision.removeValue(forKey: processedDemandOrder.removeFirst())
         }
     }
 

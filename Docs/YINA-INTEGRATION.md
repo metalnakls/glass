@@ -65,6 +65,7 @@ or adding a file for every progress tick.
 | `transfers/<writerUUID>/<hash>.json` | `schemaVersion: 1`, `showID`, `writerID`, `index` |
 | `progress/<participantUUID>/<writerUUID>.json` | `schemaVersion: 1`, show/participant/writer IDs, monotonic `revision`, ISO8601 `updatedAt`, `relativePath`, `position`, `duration`, `activity`, optional playback `coverage` |
 | `demand/<writerUUID>.json` | `schemaVersion: 1`, show/request/participant/writer IDs, monotonic `revision`, ISO8601 `updatedAt`, `relativePath`, optional paired `hashString`/`fileIndex`, `cancelled` |
+| `receipts/<glassWriterUUID>/<requestUUID>.json` | `schemaVersion: 1`, show/request/request-writer/receipt-writer IDs, monotonic receipt `revision`, exact `requestRevision`, ISO8601 `updatedAt`, `outcome`, optional generic failure `reason` |
 
 The transfer `index` retains v1: `schemaVersion`, `hashString`, ISO8601
 `capturedAt`, `episodes`. Each episode has `id: {hashString, fileIndex}`,
@@ -92,9 +93,20 @@ A fresh YINA request is resolved only against known inventories for the same
 show. Glass requires exactly one matching transfer/file identity, marks that file
 wanted, raises its priority and starts its existing torrent. It does not search
 for or add an unknown torrent. Ambiguous paths, foreign show IDs, stale requests
-and cancellation records do not trigger downloads. Request IDs deduplicate
-repeated polling within the Glass run. This initial channel does not provide
-coordinator election or persistent acknowledgement across restarts.
+and cancellation records do not trigger downloads.
+
+Durable receipts acknowledge the exact demand revision. Glass writes `accepted`
+only after the existing torrent's file selection, priority, and start RPCs all
+succeed. `accepted` does not assert that bytes arrived or playback is possible;
+fresh transfer inventory and YINA's contained-file check establish those states.
+A failed stage writes `failed` with one of `selectionFailed`, `priorityFailed`, or
+`startFailed`; a cancelled demand writes `cancelled`. The same failed revision is
+not silently retried. YINA can explicitly retry with a newer demand revision.
+Glass checks receipts before dispatching RPCs, including after an app restart,
+and keeps an unsaved outcome in memory for a later write attempt if the share is
+temporarily unavailable. Multiple receipt writers have separate paths; a
+current accepted or failed receipt prevents another writer from replaying that
+revision. This initial channel does not provide coordinator election.
 
 Progress is per participant and writer. A seek or another person's furthest
 position cannot mark everyone watched. Coverage intervals support later watched

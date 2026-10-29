@@ -123,46 +123,6 @@ struct YinaShowStoreTests {
         #expect(try Data(contentsOf: linkedOriginal) == data)
     }
 
-    @Test("validates interrupted migration markers and keeps recent writers' markers")
-    func migrationQuarantineRecovery() async throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let legacy = try makeIndex()
-        let data = try JSONEncoder().encode(legacy)
-        try data.write(to: root.appendingPathComponent(".yina.json"))
-        let store = YinaShowStore(rootURL: root)
-        _ = try await store.readDescriptor()
-        let marker = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
-        try data.write(to: marker)
-        _ = try await store.readDescriptor()
-        #expect(FileManager.default.fileExists(atPath: marker.path))
-        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-31)],
-                                              ofItemAtPath: marker.path)
-        _ = try await store.readDescriptor()
-        #expect(!FileManager.default.fileExists(atPath: marker.path))
-
-        let conflicting = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
-        let unknown = Data(String(decoding: data, as: UTF8.self).dropLast().appending(",\"future\":true}").utf8)
-        try unknown.write(to: conflicting)
-        do { _ = try await store.readDescriptor(); Issue.record("unknown quarantine was discarded") }
-        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
-        #expect(try Data(contentsOf: conflicting) == unknown)
-    }
-
-    @Test("concurrent Glass migrators converge on the same v1 identity")
-    func concurrentLegacyMigration() async throws {
-        let root = try temporaryDirectory()
-        defer { try? FileManager.default.removeItem(at: root) }
-        let legacy = try makeIndex()
-        try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent(".yina.json"))
-        let first = YinaShowStore(rootURL: root), second = YinaShowStore(rootURL: root)
-        async let left = first.readDescriptor()
-        async let right = second.readDescriptor()
-        let (a, b) = try await (left, right)
-        #expect(a == b)
-        #expect(a?.showID == YinaShowStore.deterministicShowID(for: legacy.hashString))
-    }
-
     @Test("isolates transfer snapshots by run writer and filters stale or foreign snapshots")
     func transferSnapshots() async throws {
         let root = try temporaryDirectory()
@@ -273,6 +233,130 @@ struct YinaShowStoreTests {
                                    participantID: participant, writerID: writer, revision: 3,
                                    relativePath: "Season 1/E01.mkv", hashString: "ab12cd34")
         }
+    }
+
+    @Test("validates interrupted migration markers and keeps recent writers' markers")
+    func migrationQuarantineRecovery() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = try makeIndex()
+        let data = try JSONEncoder().encode(legacy)
+        try data.write(to: root.appendingPathComponent(".yina.json"))
+        let store = YinaShowStore(rootURL: root)
+        _ = try await store.readDescriptor()
+        let marker = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
+        try data.write(to: marker)
+        _ = try await store.readDescriptor()
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-31)],
+                                              ofItemAtPath: marker.path)
+        _ = try await store.readDescriptor()
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+
+        let conflicting = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
+        let unknown = Data(String(decoding: data, as: UTF8.self).dropLast().appending(",\"future\":true}").utf8)
+        try unknown.write(to: conflicting)
+        do { _ = try await store.readDescriptor(); Issue.record("unknown quarantine was discarded") }
+        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
+        #expect(try Data(contentsOf: conflicting) == unknown)
+    }
+
+    @Test("concurrent Glass migrators converge on the same v1 identity")
+    func concurrentLegacyMigration() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = try makeIndex()
+        try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent(".yina.json"))
+        let first = YinaShowStore(rootURL: root), second = YinaShowStore(rootURL: root)
+        async let left = first.readDescriptor()
+        async let right = second.readDescriptor()
+        let (a, b) = try await (left, right)
+        #expect(a == b)
+        #expect(a?.showID == YinaShowStore.deterministicShowID(for: legacy.hashString))
+    }
+
+    @Test("persists accepted and failed request revisions across independent receipt writers")
+    func demandReceipts() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = YinaShowStore(rootURL: root)
+        let descriptor = try await store.createDescriptorIfAbsent()
+        let request = UUID(), requester = UUID(), writerA = UUID(), writerB = UUID()
+        let accepted = try YinaDemandReceipt(
+            showID: descriptor.showID, requestID: request, requestWriterID: requester,
+            receiptWriterID: writerA, revision: 1, requestRevision: 1,
+            updatedAt: date(100), outcome: .accepted
+        )
+        let failed = try YinaDemandReceipt(
+            showID: descriptor.showID, requestID: request, requestWriterID: requester,
+            receiptWriterID: writerB, revision: 1, requestRevision: 1,
+            updatedAt: date(101), outcome: .failed, reason: .priorityFailed
+        )
+        try await store.publishReceipt(accepted)
+        try await store.publishReceipt(accepted)
+        try await store.publishReceipt(failed)
+        let records = try await store.readReceipts(showID: descriptor.showID, requestID: request)
+        #expect(Set(records) == Set([accepted, failed]))
+        do { _ = try await store.readReceipts(showID: UUID(), requestID: request)
+             Issue.record("foreign show receipt was accepted") }
+        catch { #expect(error as? YinaShowStore.Error == .identityMismatch) }
+        #expect(try await store.readReceipts(showID: descriptor.showID, requestID: request).count == 2)
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(
+            ".yina/receipts/\(writerA.uuidString.lowercased())/\(request.uuidString.lowercased()).json"
+        ).path))
+
+        // An explicit newer demand revision can supersede a failed outcome without changing request identity.
+        let retry = try YinaDemandReceipt(
+            showID: descriptor.showID, requestID: request, requestWriterID: requester,
+            receiptWriterID: writerB, revision: 2, requestRevision: 2,
+            updatedAt: date(103), outcome: .accepted
+        )
+        try await store.publishReceipt(retry)
+        #expect(Set(try await store.readReceipts(showID: descriptor.showID, requestID: request)) ==
+                Set([accepted, retry]))
+        let future = try YinaDemandReceipt(
+            showID: descriptor.showID, requestID: request, requestWriterID: requester,
+            receiptWriterID: UUID(), revision: 1, requestRevision: 2,
+            updatedAt: Date().addingTimeInterval(60), outcome: .accepted
+        )
+        try await store.publishReceipt(future)
+        #expect(try await store.readReceipts(showID: descriptor.showID, requestID: request).contains {
+            $0.receiptWriterID == future.receiptWriterID && $0.requestRevision == 2 && $0.outcome == .accepted
+        })
+        do { try await store.publishReceipt(failed); Issue.record("old receipt overwrote newer retry") }
+        catch { #expect(error as? YinaShowStore.Error == .receiptRevisionNotIncreasing) }
+    }
+
+    @Test("rejects invalid receipt reasons and unsafe existing receipt paths")
+    func receiptValidation() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = YinaShowStore(rootURL: root)
+        let descriptor = try await store.createDescriptorIfAbsent()
+        let request = UUID(), requester = UUID(), writer = UUID()
+        #expect(throws: YinaShowStore.Error.invalidReceipt) {
+            try YinaDemandReceipt(showID: descriptor.showID, requestID: request,
+                                  requestWriterID: requester, receiptWriterID: writer,
+                                  revision: 1, requestRevision: 1, outcome: .failed)
+        }
+        #expect(throws: YinaShowStore.Error.invalidReceipt) {
+            try YinaDemandReceipt(showID: descriptor.showID, requestID: request,
+                                  requestWriterID: requester, receiptWriterID: writer,
+                                  revision: 1, requestRevision: 1, outcome: .accepted,
+                                  reason: .selectionFailed)
+        }
+        let directory = root.appendingPathComponent(".yina/receipts/\(writer.uuidString.lowercased())", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let outside = root.appendingPathComponent("outside.json")
+        try Data("foreign".utf8).write(to: outside)
+        let target = directory.appendingPathComponent("\(request.uuidString.lowercased()).json")
+        try FileManager.default.createSymbolicLink(at: target, withDestinationURL: outside)
+        let receipt = try YinaDemandReceipt(showID: descriptor.showID, requestID: request,
+                                            requestWriterID: requester, receiptWriterID: writer,
+                                            revision: 1, requestRevision: 1, outcome: .accepted)
+        do { try await store.publishReceipt(receipt); Issue.record("symlink receipt overwritten") }
+        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
+        #expect(try Data(contentsOf: outside) == Data("foreign".utf8))
     }
 
     @Test("does not follow a symlinked protocol directory")

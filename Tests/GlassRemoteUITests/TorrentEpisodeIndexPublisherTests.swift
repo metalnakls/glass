@@ -224,6 +224,63 @@ struct TorrentEpisodeIndexPublisherTests {
         #expect(await session.actions.count == 3)
     }
 
+    @Test("requires an explicit newer demand revision after a durable failure")
+    func receiptRetryDecision() throws {
+        let show = UUID(), request = UUID(), requester = UUID(), writer = UUID()
+        let first = try YinaDownloadDemand(showID: show, requestID: request,
+                                           participantID: UUID(), writerID: requester,
+                                           revision: 1, relativePath: "S01E01.mkv")
+        let failed = try YinaDemandReceipt(showID: show, requestID: request,
+                                           requestWriterID: requester, receiptWriterID: writer,
+                                           revision: 1, requestRevision: 1, outcome: .failed,
+                                           reason: .priorityFailed)
+        #expect(!TorrentEpisodeIndexPublisher.shouldDispatch(first, receipts: [failed]))
+        let retry = try YinaDownloadDemand(showID: show, requestID: request,
+                                           participantID: first.participantID, writerID: requester,
+                                           revision: 2, relativePath: "S01E01.mkv")
+        #expect(TorrentEpisodeIndexPublisher.shouldDispatch(retry, receipts: [failed]))
+        let accepted = try YinaDemandReceipt(showID: show, requestID: request,
+                                             requestWriterID: requester, receiptWriterID: UUID(),
+                                             revision: 1, requestRevision: 2, outcome: .accepted)
+        #expect(!TorrentEpisodeIndexPublisher.shouldDispatch(retry, receipts: [failed, accepted]))
+        let foreign = try YinaDemandReceipt(showID: show, requestID: request,
+                                            requestWriterID: UUID(), receiptWriterID: UUID(),
+                                            revision: 1, requestRevision: 2, outcome: .accepted)
+        #expect(TorrentEpisodeIndexPublisher.shouldDispatch(retry, receipts: [foreign]))
+    }
+
+    @MainActor
+    @Test("reports the failed RPC stage and never treats partial success as accepted")
+    func demandActionFailures() async throws {
+        let cases: [(String, YinaDemandReceipt.FailureReason, Int)] = [
+            ("wanted", .selectionFailed, 1),
+            ("priority", .priorityFailed, 2),
+            ("start", .startFailed, 3)
+        ]
+        for (stage, expected, count) in cases {
+            let directory = try temporaryDirectory()
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let session = DemandActionSession(failAt: stage)
+            let model = RemoteAppModel(
+                profileStore: FileProfileStore(fileURL: directory.appendingPathComponent("profiles.json")),
+                credentialStore: KeychainCredentialStore(service: "GlassTests.YinaDemandFailure"),
+                localSessionFactory: { session }
+            )
+            let torrent = TorrentSummary(
+                id: 7, hashString: "ab12cd34", name: "Example Show S01E01", status: 0,
+                percentDone: 0, rateDownload: 0, rateUpload: 0, sizeWhenDone: 100,
+                leftUntilDone: 100, eta: -1, uploadRatio: 0, peersConnected: 0,
+                downloadDir: "/share", fileCount: 1
+            )
+            let identity = ShowEpisodeIndex.Episode.TransferIdentity(hashString: torrent.hashString, fileIndex: 0)
+            let outcome = await TorrentEpisodeIndexPublisher.dispatchDemandActionResult(
+                model: model, torrent: torrent, identity: identity, sourceID: model.localSourceID
+            )
+            #expect(outcome == .failed(expected))
+            #expect(await session.actions.count == count)
+        }
+    }
+
     private func makeIndex(hash: String, path: String, wanted: Bool) throws -> ShowEpisodeIndex {
         let details = TorrentDetails(
             id: 1, hashString: hash, name: "Example Show",
@@ -242,6 +299,9 @@ struct TorrentEpisodeIndexPublisherTests {
 
 private actor DemandActionSession: LocalTransmissionServicing {
     private(set) var actions: [String] = []
+    private let failAt: String?
+
+    init(failAt: String? = nil) { self.failAt = failAt }
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot { throw Failure.unused }
     func fetchDefaultDownloadDirectory() async throws -> String? { throw Failure.unused }
@@ -250,7 +310,10 @@ private actor DemandActionSession: LocalTransmissionServicing {
     func fetchTorrentDetails(hashString: String) async throws -> TorrentDetails { throw Failure.unused }
     func addMagnet(_ magnet: String, downloadDirectory: String?) async throws -> TorrentAddResult? { throw Failure.unused }
     func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?) async throws -> TorrentAddResult? { throw Failure.unused }
-    func start(ids: [String]) async throws { actions.append("start:\(ids.joined(separator: ","))") }
+    func start(ids: [String]) async throws {
+        actions.append("start:\(ids.joined(separator: ","))")
+        if failAt == "start" { throw Failure.unused }
+    }
     func stop(ids: [String]) async throws { throw Failure.unused }
     func remove(ids: [String], deleteLocalData: Bool) async throws { throw Failure.unused }
     func verify(ids: [String]) async throws { throw Failure.unused }
@@ -262,9 +325,11 @@ private actor DemandActionSession: LocalTransmissionServicing {
     func renamePath(id: String, path: String, name: String) async throws { throw Failure.unused }
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws {
         actions.append("wanted:\(ids.joined(separator: ",")):\(fileIndices.map(String.init).joined(separator: ",")):\(wanted)")
+        if failAt == "wanted" { throw Failure.unused }
     }
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws {
         actions.append("priority:\(ids.joined(separator: ",")):\(fileIndices.map(String.init).joined(separator: ",")):\(priority)")
+        if failAt == "priority" { throw Failure.unused }
     }
     func setTorrentPriority(ids: [String], priority: Int) async throws { throw Failure.unused }
 
