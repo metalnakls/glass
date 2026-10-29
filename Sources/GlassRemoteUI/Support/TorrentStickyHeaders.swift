@@ -257,7 +257,6 @@ final class TorrentStickyHeaders: NSObject {
         // scrolling alike. Starting a gesture alone cannot change placement.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollBegan), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSScrollView.didLiveScrollNotification, object: scroll)
-        NotificationCenter.default.addObserver(self, selector: #selector(scrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         scheduleUpdate()
     }
 
@@ -290,23 +289,19 @@ final class TorrentStickyHeaders: NSObject {
     func layoutDidChange() { scheduleUpdate() }
     @objc private func scrollBegan() {
         guard let clip = table?.enclosingScrollView?.contentView else { return }
-        scrollSettlingTask?.cancel(); scrollSettlingTask = nil
         scrollMotion.begin(offset: clip.bounds.minY, at: CACurrentMediaTime())
-    }
-    @objc private func scrollEnded() {
-        scrollMotion.finishTracking()
         scheduleScrollSettling()
     }
     @objc private func scrolled() {
         guard let clip = table?.enclosingScrollView?.contentView else { return }
-        let wasSuppressed = scrollMotion.suppressesFloatingTitles
+        let previousVisibility = scrollMotion.floatingTitleVisibility
         scrollMotion.record(offset: clip.bounds.minY, at: CACurrentMediaTime(), viewportHeight: clip.bounds.height)
-        if wasSuppressed != scrollMotion.suppressesFloatingTitles { update() }
+        if previousVisibility != scrollMotion.floatingTitleVisibility { update() }
         scheduleScrollSettling()
     }
     private func scheduleScrollSettling() {
-        // Native tracking owns the gesture's end. Momentum and legacy wheels
-        // extend one idle deadline; slowing within a gesture cannot restore titles.
+        // One idle fallback handles a stationary finger, momentum ending and
+        // legacy wheels. Moving slowly restores titles through velocity itself.
         guard scrollMotion.idleDeadline != nil, scrollSettlingTask == nil else { return }
         scrollSettlingTask = Task { @MainActor [weak self] in
             while let deadline = self?.scrollMotion.idleDeadline {
@@ -376,7 +371,7 @@ final class TorrentStickyHeaders: NSObject {
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
                         backdropActive: sticky?.titles.contains { !$0.retiring } == true,
                         viewport: viewport, animateInline: Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel,
-                        suppressFloatingTitles: scrollMotion.suppressesFloatingTitles)
+                        floatingTitleVisibility: scrollMotion.floatingTitleVisibility)
     }
     isolated deinit {
         scrollSettlingTask?.cancel()
@@ -472,7 +467,7 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false, suppressFloatingTitles: Bool = false) {
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false, floatingTitleVisibility: CGFloat = 1) {
         isHidden = false
         setBackdropActive(backdropActive)
         CATransaction.begin()
@@ -520,9 +515,8 @@ final class HeaderBackdrop: NSView {
             // A pinned title never counter-scrolls inside the moving document.
             if host.superview !== parent { parent.addSubview(host) }
             host.isPinned = placement.pinned
-            let visibility = suppressFloatingTitles
-                ? TorrentStickyHeaderGeometry.fastScrollVisibility(placement, topInset: TorrentStickyHeaders.topInset)
-                : 1
+            let spatialVisibility = TorrentStickyHeaderGeometry.fastScrollVisibility(placement, topInset: TorrentStickyHeaders.topInset)
+            let visibility = spatialVisibility + floatingTitleVisibility * (1 - spatialVisibility)
             host.isHidden = false
             titles[header.id] = host
             // Scroll coordinates must bypass any inherited AppKit animation

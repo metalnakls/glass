@@ -172,8 +172,8 @@ struct TorrentHeaderContinuityTests {
         #expect(scroll.contentView.bounds.minY == 100)
     }
 
-    @Test("one scroll interaction cannot blink a floating header as its speed varies", arguments: [true, false])
-    func noMidGestureBlink(trackedGesture: Bool) async throws {
+    @Test("headers recover during slow scrolling before the gesture ends", arguments: [true, false])
+    func slowScrollRestoresHeader(trackedGesture: Bool) async throws {
         _ = NSApplication.shared
         let controller = TorrentStickyHeaders()
         let layout = makeHeaderLayout(12)
@@ -184,6 +184,7 @@ struct TorrentHeaderContinuityTests {
         defer { controller.detach(); window.close() }
         let host = NSHostingView(rootView: HeaderContinuityFixture(controller: controller, layout: layout))
         window.contentView = host
+        window.orderFront(nil)
         for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
         let table = try #require(headerDescendants(host, NSTableView.self).first)
         let scroll = try #require(table.enclosingScrollView)
@@ -201,19 +202,22 @@ struct TorrentHeaderContinuityTests {
             scroll.reflectScrolledClipView(scroll.contentView)
             NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
             #expect(title.isScrollSuppressed)
-            for _ in 0..<10 {
+            for _ in 0..<20 {
                 try await Task.sleep(for: .milliseconds(20))
                 offset += 1
                 scroll.contentView.scroll(to: .init(x: 0, y: offset))
                 scroll.reflectScrolledClipView(scroll.contentView)
                 NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
             }
-            #expect(title.isScrollSuppressed, "header blinked back during burst \(burst) of the same gesture")
+            let suppressed = title.isScrollSuppressed
+            #expect(!suppressed, "header stayed invisible during the slow part of burst \(burst)")
+            let opacity = try #require(title.layer?.presentation()?.opacity)
+            #expect(opacity > 0.9, "header must be readable while slow scrolling continues")
         }
-        // A stationary finger is still the same gesture; an idle timer must not
-        // flash a header before the next stroke. Legacy wheels settle by inactivity.
+        // A stationary finger must not keep a title hidden either.
         try await Task.sleep(for: .milliseconds(220))
-        #expect(title.isScrollSuppressed == trackedGesture)
+        let suppressed = title.isScrollSuppressed
+        #expect(!suppressed)
         if trackedGesture {
             NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         }

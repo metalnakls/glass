@@ -59,11 +59,10 @@ did not reproduce animation drift; the section-change animation policy is
 therefore retained rather than rewritten speculatively.
 
 The user subsequently requested suppression during fast scrolling. The new
-presentation policy hides floating titles above 2.5 viewport heights/second,
-leaves inline labels in place, and restores the current title after the gesture
-ends and scrolling settles. Suppression stays latched through slower strokes
-and reversals in the same gesture. A native live-scroll
-test exercises the actual notification path and restoration without moving the
+presentation policy fades floating titles continuously with current speed,
+leaves inline labels below the fade zone visible, and restores the current title
+as scrolling slows. A native live-scroll test exercises the actual notification
+path and restoration during the same gesture without moving the
 document. This is an explicitly requested interaction change, not a claim that
 the previous multiple-title presentation was functionally broken.
 
@@ -92,7 +91,7 @@ checks cover fade-out, restoration, interruption and revisiting a section whose
 old fade is unfinished. Motion ownership and whitespace checks also passed.
 These checks do not establish subjective trackpad feel in the live library.
 
-### Repeated header blinking — gesture lifecycle correction
+### Speed-dependent visibility — replacing the gesture lock
 
 A subsequent report exposed an incomplete condition in the speed policy.
 Repeated native presentation updates kept opacity monotonic in both directions,
@@ -102,19 +101,26 @@ reset and the idle task both permitted restoration before native tracking ended.
 A focused List fixture reproduced this with two fast/slow bursts and a pause
 inside one begin/end pair; its assertions failed on the installed implementation.
 
-`TorrentHeaderScrollMotion` now latches suppression through native tracking.
-`TorrentStickyHeaders` observes the native end notification and starts idle
-recovery only after tracking has ended. Momentum updates extend the deadline.
-Legacy wheel events still recover by inactivity: AppKit documents that some
-scrolls have no [begin/end notification pair](https://developer.apple.com/documentation/appkit/nsscrollview/didlivescrollnotification).
-The correction changes the faulty restoration condition, preserving continuous
-opacity, saved durations, pin/release geometry and the window-top backdrop.
+The attempted gesture-wide lock in `f581fc0` removed those transitions but kept
+headers invisible during ordinary scrolling after a fast stroke. The user
+rejected that behavior. A revised native fixture confirmed opacity stayed at
+zero through slow scrolling in both tracked and legacy input paths. That lock
+and its native-end dependency have been removed.
 
-Passed: 31 tests across the five affected header/native-list suites, including
-both tracked gestures and legacy wheels, changing speed, a stationary finger,
-native end notifications and repeated presentation-layer updates in either
-direction. Motion ownership and whitespace checks passed. Live-library trackpad
-feel remains unverified by these isolated fixtures.
+`TorrentHeaderScrollMotion` now provides a continuous visibility value from
+filtered speed: fully visible below 0.8 viewport heights/second, fully faded above
+2.5, with a smooth curve between. A 60 ms filter rejects event jitter without
+requiring a gesture to end. `HeaderBackdrop` combines this value with the existing
+spatial handoff fade. The same native opacity owner, saved durations, pin/release
+geometry and window-top backdrop remain. A 160 ms idle fallback restores titles
+when movement stops, including legacy events without a
+[begin/end pair](https://developer.apple.com/documentation/appkit/nsscrollview/didlivescrollnotification).
+
+The native regression now requires actual presentation opacity above 0.9 while
+slow scrolling is still underway, before the end notification. Both input paths
+pass. Additional checks cover monotonic recovery, a steady partial fade under
+small speed fluctuations, reversals and the inline/pinned handoff. Live-library
+trackpad feel remains unverified by these isolated fixtures.
 
 ### Header blur exit — reproduced and corrected
 

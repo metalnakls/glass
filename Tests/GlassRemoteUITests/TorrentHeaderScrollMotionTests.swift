@@ -9,7 +9,7 @@ struct TorrentHeaderScrollMotionTests {
         motion.begin(offset: 0, at: 0)
         for frame in 1...60 {
             motion.record(offset: CGFloat(frame * 2), at: Double(frame) / 60, viewportHeight: 400)
-            #expect(!motion.suppressesFloatingTitles)
+            #expect(motion.floatingTitleVisibility == 1)
         }
     }
 
@@ -23,7 +23,7 @@ struct TorrentHeaderScrollMotionTests {
             motion.record(offset: 1000 + direction * CGFloat(sample * 5),
                           at: Double(sample) / 240, viewportHeight: 400)
         }
-        #expect(motion.suppressesFloatingTitles)
+        #expect(motion.floatingTitleVisibility < 1)
     }
 
     @MainActor @Test("fast-scroll visibility stays continuous across the pin boundary in either direction", arguments: [false, true])
@@ -41,7 +41,7 @@ struct TorrentHeaderScrollMotionTests {
             let sticky = TorrentStickyHeaderGeometry.layout(frames: frames, viewport: viewport,
                 topInset: TorrentStickyHeaders.topInset, releasePoints: [1000])
             let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
-            backdrop.present(layout: layout, headers: headers, hosts: ["finished": title], suppressFloatingTitles: true)
+            backdrop.present(layout: layout, headers: headers, hosts: ["finished": title], floatingTitleVisibility: 0)
             if let previous {
                 #expect(abs(title.alphaValue - previous) < 0.05,
                         "one point of scrolling changed title visibility from \(previous) to \(title.alphaValue)")
@@ -71,7 +71,7 @@ struct TorrentHeaderScrollMotionTests {
         func present(_ index: Int, fast: Bool) {
             backdrop.present(layout: .init(titles: [.init(index: index,
                 frame: .init(x: 0, y: 20, width: 500, height: 47), pinned: true)], backdropHeight: 115),
-                headers: headers, hosts: ["loading": first, "finished": second], suppressFloatingTitles: fast)
+                headers: headers, hosts: ["loading": first, "finished": second], floatingTitleVisibility: fast ? 0 : 1)
         }
         present(0, fast: false)
         try await Task.sleep(for: .milliseconds(40))
@@ -119,7 +119,7 @@ struct TorrentHeaderScrollMotionTests {
         for y in positions {
             backdrop.present(layout: .init(titles: [.init(index: 0,
                 frame: .init(x: 0, y: y, width: 500, height: 47), pinned: y <= 20)], backdropHeight: 115),
-                headers: headers, hosts: ["finished": title], suppressFloatingTitles: true)
+                headers: headers, hosts: ["finished": title], floatingTitleVisibility: 0)
             try await Task.sleep(for: .milliseconds(16))
             let actual = try #require(title.layer?.presentation()?.opacity)
             if let previous {
@@ -130,28 +130,41 @@ struct TorrentHeaderScrollMotionTests {
         }
     }
 
-    @Test("a fling stays suppressed through slower strokes until the gesture ends and settles")
-    func flingAndGestureEnd() {
+    @Test("visibility recovers continuously when a fling slows without ending the gesture")
+    func flingSlowsWhileTracking() {
         var motion = TorrentHeaderScrollMotion()
         motion.begin(offset: 0, at: 0)
-        motion.record(offset: 40, at: 0.016, viewportHeight: 400)
-        #expect(motion.suppressesFloatingTitles)
-        motion.record(offset: 60, at: 0.032, viewportHeight: 400)
-        motion.record(offset: 80, at: 0.048, viewportHeight: 400)
-        #expect(motion.suppressesFloatingTitles)
-        // A reversal is still a fast scroll, not an instruction to flash a title.
-        motion.record(offset: 40, at: 0.064, viewportHeight: 400)
-        #expect(motion.suppressesFloatingTitles)
-        for frame in 1...7 {
-            motion.record(offset: 40 + CGFloat(frame), at: 0.064 + Double(frame) * 0.016, viewportHeight: 400)
+        var offset: CGFloat = 0
+        for frame in 1...12 {
+            offset += 25.6 // 4 viewport heights/second.
+            motion.record(offset: offset, at: Double(frame) * 0.016, viewportHeight: 400)
         }
-        #expect(motion.suppressesFloatingTitles)
-        #expect(motion.idleDeadline == nil)
-        motion.finishTracking()
-        #expect(motion.idleDeadline != nil)
-        #expect(motion.suppressesFloatingTitles)
-        motion.end()
-        #expect(!motion.suppressesFloatingTitles)
+        #expect(motion.floatingTitleVisibility == 0)
+        var samples: [CGFloat] = []
+        for frame in 13...32 {
+            offset += 1
+            motion.record(offset: offset, at: Double(frame) * 0.016, viewportHeight: 400)
+            samples.append(motion.floatingTitleVisibility)
+        }
+        #expect(samples.contains { $0 > 0 && $0 < 1 })
+        #expect(zip(samples, samples.dropFirst()).allSatisfy { $0 <= $1 })
+        #expect(motion.floatingTitleVisibility == 1)
+    }
+
+    @Test("small speed fluctuations produce a steady partial fade instead of blinking")
+    func steadyIntermediateSpeed() {
+        var motion = TorrentHeaderScrollMotion()
+        motion.begin(offset: 0, at: 0)
+        var offset: CGFloat = 0
+        var samples: [CGFloat] = []
+        for frame in 1...60 {
+            let speed: CGFloat = 1.65 + (frame.isMultiple(of: 2) ? 0.04 : -0.04)
+            offset += speed * 400 / 60
+            motion.record(offset: offset, at: Double(frame) / 60, viewportHeight: 400)
+            if frame > 20 { samples.append(motion.floatingTitleVisibility) }
+        }
+        #expect(samples.allSatisfy { (0.4...0.6).contains($0) })
+        #expect(zip(samples, samples.dropFirst()).allSatisfy { abs($1 - $0) < 0.03 })
     }
 
     @Test("stopping or a new isolated mouse event clears suppression")
@@ -159,15 +172,13 @@ struct TorrentHeaderScrollMotionTests {
         var motion = TorrentHeaderScrollMotion()
         motion.begin(offset: 0, at: 0)
         motion.record(offset: 40, at: 0.016, viewportHeight: 400)
-        #expect(motion.suppressesFloatingTitles)
-        #expect(motion.idleDeadline == nil)
-        motion.finishTracking()
+        #expect(motion.floatingTitleVisibility < 1)
         #expect(motion.idleDeadline == 0.016 + TorrentHeaderScrollMotion.idleTime)
         motion.end()
-        #expect(!motion.suppressesFloatingTitles)
+        #expect(motion.floatingTitleVisibility == 1)
         #expect(motion.idleDeadline == nil)
         motion.record(offset: 50, at: 1, viewportHeight: 400)
-        #expect(!motion.suppressesFloatingTitles)
+        #expect(motion.floatingTitleVisibility == 1)
     }
 
     @MainActor @Test("fast-scroll suppression leaves inline labels and the native bar surface visible")
@@ -183,7 +194,7 @@ struct TorrentHeaderScrollMotionTests {
             .init(index: 1, frame: .init(x: 0, y: 200, width: 500, height: 47))
         ], backdropHeight: 115)
         backdrop.present(layout: layout, headers: headers, hosts: ["loading": floating, "finished": inline],
-                         suppressFloatingTitles: true)
+                         floatingTitleVisibility: 0)
         #expect(floating.isScrollSuppressed)
         #expect(!inline.isScrollSuppressed)
         #expect(inline.alphaValue == 1)
