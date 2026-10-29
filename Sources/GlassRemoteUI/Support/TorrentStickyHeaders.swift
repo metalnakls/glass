@@ -433,11 +433,17 @@ final class HeaderBackdrop: NSView {
     private func animateBackdrop(_ active: Bool) {
         // Only pin/unpin changes opacity. Scroll updates and section pushes
         // never restart this native, interruptible time-based transition.
+        // A live-scroll/layout caller can disable actions in its transaction.
+        // Re-enable them only for this fade, then restore the caller's state.
+        // NSAnimationContext's duration alone does not override that flag.
+        CATransaction.begin()
+        CATransaction.setDisableActions(false)
         NSAnimationContext.runAnimationGroup { context in
             context.duration = ReduceMotion.enabled ? 0 : (active ? settings.backgroundIn : settings.backgroundOut)
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
             effect.animator().alphaValue = active ? settings.strength : 0
         }
+        CATransaction.commit()
     }
     func hideTitles(except retained: Set<String> = []) {
         for (id, host) in titles where !retained.contains(id) {

@@ -170,7 +170,13 @@ main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerVie
 material and `.withinWindow` blending. This is necessary because the system
 variable-blur filter disappeared at the outgoing title's last glyph in the
 native reproduction. The backdrop retains its full gradient extent through its
-saved exit duration. No private rendering API is used in the application.
+saved exit duration. The opacity transition explicitly enables Core Animation
+layer actions inside its own transaction, then restores the caller's state.
+Native scroll/layout transactions can disable actions; inheriting that flag
+made the blur vanish immediately despite a nonzero saved exit duration. Tests
+cover that calling context, entrance, and reversal during an unfinished exit.
+Title coordinates retain their unanimated scroll transaction. No private
+rendering API is used in the application.
 Inspector, Add and Tune retain `glassScrollEdges(.floatingControls)`.
 
 Both Tune slider groups use `GlassTuningSlider`: native keyboard behavior,
