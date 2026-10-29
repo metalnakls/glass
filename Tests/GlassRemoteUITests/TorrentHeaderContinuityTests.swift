@@ -66,6 +66,9 @@ struct TorrentHeaderContinuityTests {
         for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
         let table = try #require(headerDescendants(host, NSTableView.self).first)
         let scroll = try #require(table.enclosingScrollView)
+        let material = try #require(scroll.subviews.compactMap { $0 as? TorrentHeaderMaterialView }.first,
+            "The live blur must sample the list from the native scroll view, not an isolated SwiftUI host")
+        #expect(material.clipsToBounds)
         let nextHeader = try #require(layout.headerIndices["finished"])
         let release = table.rect(ofRow: nextHeader - 2).minY
         scroll.contentView.scroll(to: .init(x: 0, y: release + 60))

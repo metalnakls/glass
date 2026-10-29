@@ -58,7 +58,7 @@ Add variants only for real callers.
 | L3 | Pinned titles retain established breathing room. History before `d6cf155` used a 20-point pin inset, separate from the label's 8-point interior. These are historical app values, not Apple defaults. | Accepted reference compared against inline and pinned positions. |
 | L4 | An outgoing title begins clearing two displayed rows before the following section. Existing short-section eligibility is a separate rule and also survives. | Forward/reverse scrolling with 1-, 2-, 3-, and many-row sections; production controller policy exercised. |
 | L5 | Headers stay fully visible at every scroll speed. A large jump resolves directly to the current section without animating skipped headers through the pinned slot. Inline labels remain visible. | Forward/reverse jumps, native live scrolling, interrupted layout motion and short/long sections. |
-| L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material whose gradient moves with the owning title through exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
+| L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit background filter whose gradient moves with the owning title through exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
 | L7 | Selection, keyboard, rename, group expansion, drag, row identity and state-button actions survive layout changes. | Native input checks with representative rows. |
 
 ### Distinct spacing quantities
@@ -158,9 +158,13 @@ opacity animation in the scroll path. Tests exercise the native fast/slow scroll
 notifications, forward/reverse jumps, and interruption of an inline animation.
 
 `glassScrollEdges(.sectionTitles)` disables the system edge effect only in the
-main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerView`
-material and `.withinWindow` blending. This is necessary because the system
-variable-blur filter disappeared at the outgoing title's last glyph in the
+main list, whose `HeaderBackdrop` owns one `TorrentHeaderMaterialView`. Its public
+AppKit `backgroundFilters` pipeline uses Core Image’s masked variable blur; its
+separate gradient supplies the appearance-aware tint. The blur view is a native
+sibling of the scroll clip view, where its background filter can sample list
+content. Titles remain in the foreground host; the same measured header geometry
+positions both. A filter inside the empty SwiftUI bar host cannot sample the list.
+The system variable-blur filter disappeared at the outgoing title's last glyph in the
 native reproduction. The user subsequently requested that the material move with
 its header, replacing the previous window-top anchoring. Layout retains the
 owning title's geometry even after its last glyph is clipped, so the full
@@ -179,6 +183,19 @@ extending that system backdrop. A native regression check includes the titled
 window and NavigationStack, light/dark appearance, and Inspector shown/hidden;
 standalone material-frame tests alone did not catch this composition failure.
 
+The blur stays at full strength through the title and tapers over the saved
+reach below it. The mask moves in the background filter’s parent coordinates;
+its image is cached until the size or title height changes. The native filter
+uses its standard radius. No list snapshots, private filters, or per-row effects
+are used. Reduce Transparency disables spatial filtering and makes the tint solid.
+
+Saved fade-strength values now control the tint independently of the blur. This
+corrects the earlier material-opacity coupling, which mixed sharp content back
+into the blurred area (over 50% stripe contrast at the user’s saved strength in
+the native reproduction). No preferences are reset. Tune explicitly labels this
+meaning as “Fade strength.” Pixel checks cover faint tint, full header coverage,
+the feather, translated masks and the restored sharp area after exit.
+
 Saved background durations remain for activation and removal. Their native
 opacity transition explicitly enables Core Animation actions in its own
 transaction, then restores the caller's state. Scroll coordinates remain
@@ -190,7 +207,7 @@ Inspector, Add and Tune retain `glassScrollEdges(.floatingControls)`.
 Both Tune slider groups use `GlassTuningSlider`: native keyboard behavior,
 semantic text, visible units and an accessible label/value. Stored values and
 ranges are preserved. Header colour overrides remain saved for compatibility;
-their inactive controls are removed because the native material owns colour.
+their inactive controls are removed because the window appearance supplies colour.
 The header strength, reach and background timing controls now affect that native
 backdrop. The title exit label describes section removal. Scroll speed has no title
 opacity control.

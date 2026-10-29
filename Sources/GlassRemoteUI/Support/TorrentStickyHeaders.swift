@@ -345,13 +345,20 @@ final class TorrentStickyHeaders: NSObject {
 final class HeaderBackdrop: NSView {
     let pinnedSurface = HeaderViewportSurface()
     var externallyHosted = false
-    private let effect = NSVisualEffectView()
-    private let fadeMask = CAGradientLayer()
+    private let effect = TorrentHeaderMaterialView()
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
     private var settings = TorrentHeaderAppearance()
     private var backdropHeaderID: String?
+    private weak var viewportScrollView: NSScrollView?
     func attachViewport(to scroll: NSScrollView) {
+        viewportScrollView = scroll
+        // Background filters sample their parent's rendered content. Keep the
+        // blur beside the native clip view, outside SwiftUI's empty bar host.
+        if effect.superview !== scroll {
+            scroll.addSubview(effect, positioned: .above, relativeTo: scroll.contentView)
+            effect.layer?.zPosition = TorrentListRenderOrder.sectionHeader
+        }
         guard !externallyHosted else { return }
         if pinnedSurface.superview !== scroll {
             scroll.addSubview(pinnedSurface, positioned: .above, relativeTo: scroll.contentView)
@@ -359,11 +366,14 @@ final class HeaderBackdrop: NSView {
         if pinnedSurface.frame != scroll.contentView.frame { pinnedSurface.frame = scroll.contentView.frame }
         pinnedSurface.isHidden = false
     }
-    func detachViewport() { if !externallyHosted { pinnedSurface.removeFromSuperview() } }
+    func detachViewport() {
+        effect.removeFromSuperview()
+        viewportScrollView = nil
+        if !externallyHosted { pinnedSurface.removeFromSuperview() }
+    }
     func configure(_ settings: TorrentHeaderAppearance) {
-        let old = self.settings
         self.settings = settings
-        if old.strength != settings.strength, backdropIsActive { animateBackdrop(true) }
+        effect.configure(strength: settings.strength)
     }
     func retire(id: String, host: TitleHost) {
         titles[id] = nil
@@ -404,7 +414,7 @@ final class HeaderBackdrop: NSView {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = ReduceMotion.enabled ? 0 : (active ? settings.backgroundIn : settings.backgroundOut)
             context.timingFunction = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-            effect.animator().alphaValue = active ? settings.strength : 0
+            effect.animator().alphaValue = active ? 1 : 0
         }
         CATransaction.commit()
     }
@@ -414,7 +424,6 @@ final class HeaderBackdrop: NSView {
             host.isHidden = true
         }
     }
-    private var backdropSize = CGSize.zero
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override init(frame: NSRect) {
@@ -423,15 +432,6 @@ final class HeaderBackdrop: NSView {
         layer?.zPosition = TorrentListRenderOrder.sectionHeader
         layer?.masksToBounds = true
         effect.alphaValue = 0
-        effect.material = .headerView
-        effect.blendingMode = .withinWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        fadeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        fadeMask.locations = [0, 0.25, 1]
-        fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
-        fadeMask.endPoint = CGPoint(x: 0.5, y: 0)
-        effect.layer?.mask = fadeMask
         pinnedSurface.addSubview(effect)
         isHidden = true
     }
@@ -456,13 +456,19 @@ final class HeaderBackdrop: NSView {
         // One measured translation for title, material and gradient. Preserve
         // the full gradient height; clipping at the viewport reveals its tail
         // naturally as the complete surface scrolls out.
-        let fadeTop = relativeTop.map { viewportOffset.y + $0 } ?? effect.frame.minY
-        let effectFrame = CGRect(x: viewportOffset.x, y: fadeTop, width: viewport.width, height: effectHeight)
-        if effect.frame != effectFrame { effect.frame = effectFrame }
-        if backdropSize != effect.bounds.size {
-            backdropSize = effect.bounds.size
-            fadeMask.frame = effect.bounds
+        effect.configure(strength: settings.strength, titleHeight: backdropTitle?.frame.height)
+        let effectFrame: CGRect
+        if let scroll = viewportScrollView, let relativeTop {
+            let clip = scroll.contentView
+            effectFrame = scroll.convert(CGRect(x: clip.bounds.minX, y: clip.bounds.minY + relativeTop,
+                width: viewport.width, height: effectHeight), from: clip)
+        } else if viewportScrollView != nil {
+            effectFrame = effect.frame
+        } else {
+            let fadeTop = relativeTop.map { viewportOffset.y + $0 } ?? effect.frame.minY
+            effectFrame = CGRect(x: viewportOffset.x, y: fadeTop, width: viewport.width, height: effectHeight)
         }
+        if effect.frame != effectFrame { effect.frame = effectFrame }
         // Keep the whole gradient while fading out. Every title shares the
         // foreground plane above it, including incoming inline titles.
         CATransaction.commit()

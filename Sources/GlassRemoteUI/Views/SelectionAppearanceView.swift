@@ -259,10 +259,10 @@ public struct SelectionAppearanceView: View {
         case .headers:
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Header backdrop")).font(.subheadline.weight(.semibold))
-                Text(glassText("The native material follows the window appearance and fades as a header leaves."))
+                Text(glassText("Blur and fade move with the header. Fade strength adjusts the tint without weakening the blur."))
                     .font(.caption).foregroundStyle(.secondary)
-                GlassTuningSlider("Strength · light", value: $headerFadeStrengthLight, range: 0...1, unit: .percent)
-                GlassTuningSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, unit: .percent)
+                GlassTuningSlider("Fade strength · light", value: $headerFadeStrengthLight, range: 0...1, unit: .percent)
+                GlassTuningSlider("Fade strength · dark", value: $headerFadeStrengthDark, range: 0...1, unit: .percent)
                 GlassTuningSlider("Reach below title", value: $headerFadeReach, range: 0...240)
                 GlassTuningSlider("Extra push lead", value: $headerPushLead, range: 0...120)
                 Text(glassText("Section titles stay visible while scrolling. Large jumps go straight to the current section."))
