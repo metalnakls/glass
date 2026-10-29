@@ -461,10 +461,23 @@ final class HeaderBackdrop: NSView {
         setBackdropActive(backdropActive)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        // Keep the last backdrop extent while its time-based fade finishes.
-        let effectHeight = layout.backdropHeight > 0 ? layout.backdropHeight : effect.frame.height
         let viewport = viewport ?? bounds
-        let effectFrame = CGRect(x: 0, y: 0, width: viewport.width, height: effectHeight)
+        let viewportOffset: CGPoint
+        if externallyHosted, let table = superview as? NSTableView, let clip = table.enclosingScrollView?.contentView {
+            viewportOffset = pinnedSurface.convert(clip.bounds.origin, from: clip)
+        } else { viewportOffset = .zero }
+        // The bar can sit below the window top. Anchor the fade to the window,
+        // independently of both the bar's local origin and the moving title.
+        let fadeTop: CGFloat
+        if externallyHosted, let window = pinnedSurface.window {
+            fadeTop = pinnedSurface.convert(window.convertFromScreen(window.frame), from: nil).minY
+        } else { fadeTop = viewportOffset.y }
+        // Preserve the reach below the title, including any space above the
+        // viewport. Keep the last extent while its time-based fade finishes.
+        let effectHeight = layout.backdropHeight > 0
+            ? layout.backdropHeight + max(0, viewportOffset.y - fadeTop)
+            : effect.frame.height
+        let effectFrame = CGRect(x: viewportOffset.x, y: fadeTop, width: viewport.width, height: effectHeight)
         if effect.frame != effectFrame { effect.frame = effectFrame }
         if backdropSize != effect.bounds.size {
             backdropSize = effect.bounds.size
@@ -482,10 +495,6 @@ final class HeaderBackdrop: NSView {
             // above the native blur. Pinning never changes their compositing.
             let inViewport = externallyHosted || placement.pinned
             let parent: NSView = inViewport ? pinnedSurface : self
-            let viewportOffset: CGPoint
-            if externallyHosted, let table = superview as? NSTableView, let clip = table.enclosingScrollView?.contentView {
-                viewportOffset = pinnedSurface.convert(clip.bounds.origin, from: clip)
-            } else { viewportOffset = .zero }
             let frame = inViewport ? placement.frame.offsetBy(dx: viewportOffset.x, dy: viewportOffset.y)
                 : placement.frame.offsetBy(dx: viewport.minX, dy: viewport.minY)
             CATransaction.begin()

@@ -86,6 +86,19 @@ opacity progressed 0.75 → 0.45 → 0.14 → 0.02 → 0 while the full 115-poin
 extent remained. This proves continuous fading in that fixture; live-library
 appearance and GPU cost of the changed material still require observation.
 
+The subsequent alignment correction keeps that fade and anchors its top to the
+window, independently of the title and safe-area bar. Previously the effect used
+the bar's local origin: a native regression fixture reproduced 28- and 44-point
+vertical errors with matching bar insets. The corrected fixture covers those
+insets, an inset scroll viewport, forward/reverse document offsets and a departing
+title. All 26 header/backdrop/native-list tests passed. Fade timing, strength and
+title pin/release geometry are unchanged. A full-size-content native window
+confirmed alignment during forward/reverse scrolling at heights of 350, 400 and
+600 points, including unclipped drawing above the safe-area bar. Debug build
+`202610291605` was installed with strict signature verification and matching
+built/installed executable hashes. Live-library visual alignment remains
+unverified by screen capture.
+
 ### 3. Reorder wrapper builds every row description — next priority
 
 Owner: `GlassNativeReorderableRow` in
