@@ -100,8 +100,38 @@ struct TorrentHeaderScrollMotionTests {
         #expect(second.layer?.presentation()?.opacity == 0)
     }
 
-    @Test("flings suppress floating headers and threshold jitter cannot restore them")
-    func flingAndHysteresis() {
+    @MainActor @Test("repeated native scroll updates cannot reverse an ongoing title fade", arguments: [false, true])
+    func repeatedScrollFade(reverse: Bool) async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: 400),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let backdrop = HeaderBackdrop(frame: .init(x: 0, y: 0, width: 500, height: 400))
+        backdrop.externallyHosted = true
+        window.contentView = backdrop.pinnedSurface
+        window.orderFront(nil)
+        let title = TitleHost(title: "Completed", inset: 16)
+        let headers = [TorrentStickyHeaders.Header(id: "finished", title: "Completed", index: 0, inset: 16)]
+        var positions = Array(stride(from: CGFloat(20), through: 85, by: 1))
+        if !reverse { positions.reverse() }
+        var previous: Float?
+        for y in positions {
+            backdrop.present(layout: .init(titles: [.init(index: 0,
+                frame: .init(x: 0, y: y, width: 500, height: 47), pinned: y <= 20)], backdropHeight: 115),
+                headers: headers, hosts: ["finished": title], suppressFloatingTitles: true)
+            try await Task.sleep(for: .milliseconds(16))
+            let actual = try #require(title.layer?.presentation()?.opacity)
+            if let previous {
+                #expect(reverse ? actual >= previous - 0.03 : actual <= previous + 0.03,
+                        "title blinked during a continuous scroll: y=\(y), opacity \(previous) -> \(actual)")
+            }
+            previous = actual
+        }
+    }
+
+    @Test("a fling stays suppressed through slower strokes until the gesture ends and settles")
+    func flingAndGestureEnd() {
         var motion = TorrentHeaderScrollMotion()
         motion.begin(offset: 0, at: 0)
         motion.record(offset: 40, at: 0.016, viewportHeight: 400)
@@ -115,6 +145,12 @@ struct TorrentHeaderScrollMotionTests {
         for frame in 1...7 {
             motion.record(offset: 40 + CGFloat(frame), at: 0.064 + Double(frame) * 0.016, viewportHeight: 400)
         }
+        #expect(motion.suppressesFloatingTitles)
+        #expect(motion.idleDeadline == nil)
+        motion.finishTracking()
+        #expect(motion.idleDeadline != nil)
+        #expect(motion.suppressesFloatingTitles)
+        motion.end()
         #expect(!motion.suppressesFloatingTitles)
     }
 
@@ -124,6 +160,8 @@ struct TorrentHeaderScrollMotionTests {
         motion.begin(offset: 0, at: 0)
         motion.record(offset: 40, at: 0.016, viewportHeight: 400)
         #expect(motion.suppressesFloatingTitles)
+        #expect(motion.idleDeadline == nil)
+        motion.finishTracking()
         #expect(motion.idleDeadline == 0.016 + TorrentHeaderScrollMotion.idleTime)
         motion.end()
         #expect(!motion.suppressesFloatingTitles)

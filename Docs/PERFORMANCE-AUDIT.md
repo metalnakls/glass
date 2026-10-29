@@ -60,8 +60,9 @@ therefore retained rather than rewritten speculatively.
 
 The user subsequently requested suppression during fast scrolling. The new
 presentation policy hides floating titles above 2.5 viewport heights/second,
-leaves inline labels in place, and restores the current title after slow movement
-or idle. Threshold hysteresis prevents flicker on reversal. A native live-scroll
+leaves inline labels in place, and restores the current title after the gesture
+ends and scrolling settles. Suppression stays latched through slower strokes
+and reversals in the same gesture. A native live-scroll
 test exercises the actual notification path and restoration without moving the
 document. This is an explicitly requested interaction change, not a claim that
 the previous multiple-title presentation was functionally broken.
@@ -77,8 +78,9 @@ regressions failed on the installed implementation before these corrections.
 The same header owner now uses a continuous visibility curve across one measured
 title height approaching the pin line. It applies in both directions, including
 the return to inline positioning. Speed sampling accumulates sub-frame movement.
-The existing speed thresholds, settling policy and saved restoration duration
-remain intact. Native presentation-layer checks also exposed an animation bug:
+The speed threshold and saved restoration duration remain intact. The settling
+policy was subsequently corrected as described below. Native presentation-layer
+checks also exposed an animation bug:
 the scroll-geometry transaction disabled opacity animation, making restoration
 instantaneous. Opacity now animates outside that transaction. Already visible
 titles fade out over 0.12 seconds; newly crossed floating titles start suppressed.
@@ -89,6 +91,30 @@ sticky geometry and native list rows passed. Actual presentation-layer opacity
 checks cover fade-out, restoration, interruption and revisiting a section whose
 old fade is unfinished. Motion ownership and whitespace checks also passed.
 These checks do not establish subjective trackpad feel in the live library.
+
+### Repeated header blinking — gesture lifecycle correction
+
+A subsequent report exposed an incomplete condition in the speed policy.
+Repeated native presentation updates kept opacity monotonic in both directions,
+but the production controller restored a header during the slow part of the same
+live gesture. The next faster stroke suppressed it again. The 80 ms slow-speed
+reset and the idle task both permitted restoration before native tracking ended.
+A focused List fixture reproduced this with two fast/slow bursts and a pause
+inside one begin/end pair; its assertions failed on the installed implementation.
+
+`TorrentHeaderScrollMotion` now latches suppression through native tracking.
+`TorrentStickyHeaders` observes the native end notification and starts idle
+recovery only after tracking has ended. Momentum updates extend the deadline.
+Legacy wheel events still recover by inactivity: AppKit documents that some
+scrolls have no [begin/end notification pair](https://developer.apple.com/documentation/appkit/nsscrollview/didlivescrollnotification).
+The correction changes the faulty restoration condition, preserving continuous
+opacity, saved durations, pin/release geometry and the window-top backdrop.
+
+Passed: 31 tests across the five affected header/native-list suites, including
+both tracked gestures and legacy wheels, changing speed, a stationary finger,
+native end notifications and repeated presentation-layer updates in either
+direction. Motion ownership and whitespace checks passed. Live-library trackpad
+feel remains unverified by these isolated fixtures.
 
 ### Header blur exit — reproduced and corrected
 

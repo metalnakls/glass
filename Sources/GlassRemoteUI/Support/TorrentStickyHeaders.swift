@@ -257,6 +257,7 @@ final class TorrentStickyHeaders: NSObject {
         // scrolling alike. Starting a gesture alone cannot change placement.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollBegan), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
         NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSScrollView.didLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollEnded), name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         scheduleUpdate()
     }
 
@@ -289,16 +290,24 @@ final class TorrentStickyHeaders: NSObject {
     func layoutDidChange() { scheduleUpdate() }
     @objc private func scrollBegan() {
         guard let clip = table?.enclosingScrollView?.contentView else { return }
+        scrollSettlingTask?.cancel(); scrollSettlingTask = nil
         scrollMotion.begin(offset: clip.bounds.minY, at: CACurrentMediaTime())
+    }
+    @objc private func scrollEnded() {
+        scrollMotion.finishTracking()
+        scheduleScrollSettling()
     }
     @objc private func scrolled() {
         guard let clip = table?.enclosingScrollView?.contentView else { return }
         let wasSuppressed = scrollMotion.suppressesFloatingTitles
         scrollMotion.record(offset: clip.bounds.minY, at: CACurrentMediaTime(), viewportHeight: clip.bounds.height)
         if wasSuppressed != scrollMotion.suppressesFloatingTitles { update() }
-        // One sleeping task per gesture, not a timer or task per scroll frame.
-        // The idle fallback also handles legacy mice without live-scroll end events.
-        guard scrollSettlingTask == nil else { return }
+        scheduleScrollSettling()
+    }
+    private func scheduleScrollSettling() {
+        // Native tracking owns the gesture's end. Momentum and legacy wheels
+        // extend one idle deadline; slowing within a gesture cannot restore titles.
+        guard scrollMotion.idleDeadline != nil, scrollSettlingTask == nil else { return }
         scrollSettlingTask = Task { @MainActor [weak self] in
             while let deadline = self?.scrollMotion.idleDeadline {
                 let remaining = deadline - CACurrentMediaTime()
@@ -311,6 +320,7 @@ final class TorrentStickyHeaders: NSObject {
                 do { try await Task.sleep(for: .seconds(remaining)) }
                 catch { return }
             }
+            self?.scrollSettlingTask = nil
         }
     }
     private func scheduleUpdate() {

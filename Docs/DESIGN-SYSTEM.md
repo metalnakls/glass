@@ -145,8 +145,11 @@ Compilation and policy tests do not establish visual quality in every variant.
 The user requested fast-scroll title suppression and a gradual blur exit on
 29 October 2026. `TorrentHeaderScrollMotion` measures native live-scroll offsets;
 it never moves the document. Floating titles hide above 2.5 viewport heights per
-second and return below 0.8 after 80 ms of slow movement, or after 160 ms without
-scroll updates. The thresholds scale with window height and use hysteresis.
+second and remain suppressed for the rest of the native scroll gesture. They
+return after tracking ends and 160 ms have passed without scroll updates.
+Momentum extends that deadline; legacy wheels use the same idle recovery without
+requiring a begin/end notification pair. Slow strokes and a stationary finger
+inside an active gesture cannot restart title restoration.
 Restoration uses the saved title entrance duration; Reduce Motion restores
 immediately. Native labels remain accessible in their original list rows.
 

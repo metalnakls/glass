@@ -165,10 +165,61 @@ struct TorrentHeaderContinuityTests {
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
         #expect(title.isScrollSuppressed)
         let pinnedFrame = title.frame
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         try await Task.sleep(for: .milliseconds(400))
         #expect(!title.isScrollSuppressed)
         #expect(title.frame == pinnedFrame)
         #expect(scroll.contentView.bounds.minY == 100)
+    }
+
+    @Test("one scroll interaction cannot blink a floating header as its speed varies", arguments: [true, false])
+    func noMidGestureBlink(trackedGesture: Bool) async throws {
+        _ = NSApplication.shared
+        let controller = TorrentStickyHeaders()
+        let layout = makeHeaderLayout(12)
+        controller.configure(layout, lowercase: false, inset: 16)
+        let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: 400),
+                              styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { controller.detach(); window.close() }
+        let host = NSHostingView(rootView: HeaderContinuityFixture(controller: controller, layout: layout))
+        window.contentView = host
+        for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
+        let table = try #require(headerDescendants(host, NSTableView.self).first)
+        let scroll = try #require(table.enclosingScrollView)
+        scroll.contentView.scroll(to: .init(x: 0, y: 40))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try await Task.sleep(for: .milliseconds(20))
+        let title = try #require(headerDescendants(host, TitleHost.self).first { $0.isPinned && !$0.isHidden })
+        NotificationCenter.default.post(name: trackedGesture ? NSScrollView.willStartLiveScrollNotification
+                                                             : NSScrollView.didLiveScrollNotification, object: scroll)
+        var offset: CGFloat = 40
+        for burst in 0..<2 {
+            try await Task.sleep(for: .milliseconds(16))
+            offset += 60
+            scroll.contentView.scroll(to: .init(x: 0, y: offset))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+            #expect(title.isScrollSuppressed)
+            for _ in 0..<10 {
+                try await Task.sleep(for: .milliseconds(20))
+                offset += 1
+                scroll.contentView.scroll(to: .init(x: 0, y: offset))
+                scroll.reflectScrolledClipView(scroll.contentView)
+                NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
+            }
+            #expect(title.isScrollSuppressed, "header blinked back during burst \(burst) of the same gesture")
+        }
+        // A stationary finger is still the same gesture; an idle timer must not
+        // flash a header before the next stroke. Legacy wheels settle by inactivity.
+        try await Task.sleep(for: .milliseconds(220))
+        #expect(title.isScrollSuppressed == trackedGesture)
+        if trackedGesture {
+            NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
+        }
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(!title.isScrollSuppressed)
+        #expect(scroll.contentView.bounds.minY == offset)
     }
 
 }
