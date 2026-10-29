@@ -5,6 +5,30 @@ import Testing
 
 @Suite("Native glass artwork")
 struct NativeGlassIconTests {
+    @MainActor @Test("the detail overlay contains the glyph, not a second shaded icon body", arguments: [false, true], [false, true])
+    func detailsExcludeBodyShading(highResolution: Bool, brightGlyph: Bool) throws {
+        let image = NSImage(size: .init(width: 128, height: 128), flipped: false) { rect in
+            let start = brightGlyph ? NSColor(srgbRed: 1, green: 0.35, blue: 0, alpha: 1) : NSColor(white: 0.65, alpha: 1)
+            let end = brightGlyph ? NSColor(srgbRed: 1, green: 0.65, blue: 0, alpha: 1) : .white
+            NSGradient(starting: start, ending: end)!.draw(in: rect, angle: 0)
+            NSColor(white: brightGlyph ? 1 : 0.1, alpha: 1).setStroke()
+            let glyph = NSBezierPath(roundedRect: .init(x: 48, y: 48, width: 32, height: 32), xRadius: 6, yRadius: 6)
+            glyph.lineWidth = 4
+            glyph.stroke()
+            return true
+        }
+        let artwork = try #require(NativeIconGeometry.artwork(for: image, highResolution: highResolution))
+        let mask = NSBitmapImageRep(cgImage: artwork.ink)
+        let scale = highResolution ? 4 : 1
+        // These are smooth body-only areas away from the glyph and contour.
+        for y in [24, 104] {
+            for x in stride(from: 20, through: 108, by: 8) {
+                #expect((mask.colorAt(x: x * scale, y: y * scale)?.alphaComponent ?? 1) < 0.03)
+            }
+        }
+        #expect((mask.colorAt(x: 48 * scale, y: 64 * scale)?.alphaComponent ?? 0) > 0.5)
+    }
+
     @MainActor private func footprint(_ image: CGImage) -> CGRect {
         let bitmap = NSBitmapImageRep(cgImage: image)
         // Clear glass can have very low alpha in an offscreen renderer.

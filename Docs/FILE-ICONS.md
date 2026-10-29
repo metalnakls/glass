@@ -10,10 +10,14 @@ use that owner. Size, optical insets, rotation, saved Tune values and the
 original-artwork switch remain unchanged. Reduce Transparency uses original
 monochrome artwork. Tune previews use the same owner on a neutral surface.
 
-`NativeIconGeometry` extracts the mask once per cached native image. It removes
-bright paper/colour surfaces using the brightest channel, excludes baked shadows,
-and keeps darker details. No per-frame image processing or file I/O is added to
-scrolling. The existing 128-pixel row and 512-pixel preview caches remain bounded.
+`NativeIconGeometry` extracts the mask once per cached native image. The original
+brightness-only extraction also retained broad paper/folder shading, producing
+a second body inside the glass. The corrected mask retains local luminance
+contrast, including dark document glyphs and light lettering on coloured files,
+while excluding smooth body shading, baked shadows and the outside contour.
+Integral sums keep extraction linear in pixel count. No per-frame image
+processing or file I/O is added to scrolling. The existing 128-pixel row and
+512-pixel preview caches remain bounded.
 
 ## Torrent ghosts
 

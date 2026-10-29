@@ -168,18 +168,49 @@ extension EnvironmentValues {
         return Artwork(image: original, path: path, ink: ink)
     }
 
-    /// Retain Finder's actual glyph, extension label, fold and folder seam. The
-    /// brightest channel removes the coloured paper/body without inventing a
-    /// second set of file-type symbols. Low-alpha baked shadows are excluded.
+    /// Extract local detail rather than treating the icon's entire shaded body
+    /// as ink. Glass owns that body and its outside edge; Finder supplies the
+    /// actual glyph, extension label, fold and seam. Integral sums keep this
+    /// cached pass linear in the number of pixels, including large previews.
     nonisolated private static func detailMask(pixels: [UInt8], size: Int) -> CGImage? {
+        let stride = size + 1
+        var tones = [Double](repeating: 0, count: size * size)
+        var sums = [Double](repeating: 0, count: stride * stride)
+        var counts = [Int](repeating: 0, count: stride * stride)
+        for y in 0..<size {
+            for x in 0..<size {
+                let pixel = y * size + x, offset = pixel * 4
+                let alpha = Double(pixels[offset + 3]) / 255
+                let opaque = alpha > 0.9
+                let tone = opaque ? (0.2126 * Double(pixels[offset]) + 0.7152 * Double(pixels[offset + 1])
+                    + 0.0722 * Double(pixels[offset + 2])) / (255 * alpha) : 0
+                tones[pixel] = tone
+                let index = (y + 1) * stride + x + 1
+                sums[index] = tone + sums[index - 1] + sums[index - stride] - sums[index - stride - 1]
+                counts[index] = (opaque ? 1 : 0) + counts[index - 1] + counts[index - stride] - counts[index - stride - 1]
+            }
+        }
+        func box<T: Numeric>(_ values: [T], x: Int, y: Int, radius: Int) -> T {
+            let left = max(0, x - radius), right = min(size, x + radius + 1)
+            let top = max(0, y - radius), bottom = min(size, y + radius + 1)
+            return values[bottom * stride + right] - values[top * stride + right]
+                - values[bottom * stride + left] + values[top * stride + left]
+        }
+        let radius = max(2, size / 16)
+        let border = max(1, size / 128)
+        let interiorCount = (border * 2 + 1) * (border * 2 + 1)
         var ink = [UInt8](repeating: 0, count: pixels.count)
-        for offset in stride(from: 0, to: pixels.count, by: 4) {
-            let alpha = Double(pixels[offset + 3]) / 255
-            guard alpha > 0.9 else { continue }
-            let brightest = Double(max(pixels[offset], pixels[offset + 1], pixels[offset + 2])) / (255 * alpha)
-            let coverage = min(1, max(0, (0.96 - brightest) * 3)) * alpha
-            let byte = UInt8((coverage * 255).rounded())
-            ink[offset] = byte; ink[offset + 1] = byte; ink[offset + 2] = byte; ink[offset + 3] = byte
+        for y in border..<(size - border) {
+            for x in border..<(size - border) {
+                guard box(counts, x: x, y: y, radius: border) == interiorCount else { continue }
+                let count = box(counts, x: x, y: y, radius: radius)
+                guard count > 0 else { continue }
+                let mean = box(sums, x: x, y: y, radius: radius) / Double(count)
+                let contrast = abs(tones[y * size + x] - mean)
+                let coverage = min(1, max(0, (contrast - 0.06) * 5))
+                let byte = UInt8((coverage * 255).rounded()), offset = (y * size + x) * 4
+                ink[offset] = byte; ink[offset + 1] = byte; ink[offset + 2] = byte; ink[offset + 3] = byte
+            }
         }
         return ink.withUnsafeMutableBytes { bytes in context(bytes.baseAddress, size: size)?.makeImage() }
     }
