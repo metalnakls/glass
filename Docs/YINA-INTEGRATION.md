@@ -38,16 +38,22 @@ the coordinator cannot prevent them deleting files outside this protocol.
 
 ## Portable format and first slice
 
-A show folder has one `.yina.json` v2 identity descriptor:
-`{schemaVersion: 2, showID: UUID, createdAt: ISO8601}`. New shows receive a random
-UUID, created exclusively once so concurrent discovery converges on the winner.
-Show identity survives moving the folder and does not depend on a torrent hash.
-Unknown schemas and malformed existing descriptors are preserved, not overwritten.
+A show folder has one hidden `.yina/` directory. Its immutable identity is
+`.yina/show.json`: `{schemaVersion: 2, showID: UUID, createdAt: ISO8601}`.
+New shows receive a random UUID, published exclusively once so concurrent
+discovery converges on the winner. Show identity survives moving the folder and
+does not depend on a torrent hash. Unknown schemas, extended records, symlinks,
+and conflicting existing descriptors are preserved and never overwritten.
 
-Keep the old v1 single-torrent `.yina.json` unchanged. Read it through an adapter;
-its compatible show UUID is derived from the first 16 bytes of SHA-256 of UTF-8
+The old root `.yina.json` is a migration input only. A v2 descriptor moves into
+`.yina/show.json` with identical bytes and identity. A recognized v1 single-torrent
+index moves byte-for-byte into `.yina/legacy-index.json`; its compatible show UUID
+is derived from the first 16 bytes of SHA-256 of UTF-8
 `glass-yina-show-v2:<lowercased-trimmed-hash>`, with version-4 and RFC-4122 variant
-bits set. This deterministic rule applies only to existing v1 metadata.
+bits set. The original root name is retired only after the destination is
+published and the captured old bytes are revalidated. Interrupted migration can
+recover from the preserved legacy index. This deterministic rule applies only
+to existing v1 metadata.
 
 Separate writers own separate current records beneath `.yina/`. A writer UUID is
 unique to an app run; participant UUIDs persist per YINA profile. Updates replace

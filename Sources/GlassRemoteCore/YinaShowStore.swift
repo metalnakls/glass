@@ -266,63 +266,279 @@ public actor YinaShowStore {
 
     public func readDescriptor() throws -> YinaShowDescriptor? {
         try validateRoot()
-        let url = root.appendingPathComponent(".yina.json")
-        guard fileExists(url) else { return nil }
-        // Legacy v1 indexes can be much larger than the small v2 identity descriptor.
-        let data = try readRegularFile(url, limit: maximumTransferBytes)
-        if let descriptor = try? Self.decoder().decode(YinaShowDescriptor.self, from: data) { return descriptor }
-        if let legacy = try? Self.decoder().decode(ShowEpisodeIndex.self, from: data) {
-            return YinaShowDescriptor(showID: Self.deterministicShowID(for: legacy.hashString), createdAt: legacy.capturedAt)
+        do { try migrateLegacyRootIfPresent() }
+        catch Error.unsafeExistingPath where !fileExists(root.appendingPathComponent(".yina.json")) {
+            // Another writer moved the old name after our existence check.
         }
-        // Decode again to preserve a useful unsupported-schema error when possible.
-        _ = try Self.decoder().decode(YinaShowDescriptor.self, from: data)
-        return nil
+        try recoverOrphanLegacyIndexIfNeeded()
+        let descriptor = try readCanonicalDescriptor()
+        if let descriptor {
+            try validateLegacyIndex(for: descriptor)
+            try recoverPendingQuarantines()
+        }
+        return descriptor
     }
 
-    /// Creates the descriptor with O_EXCL semantics. The random identity does not depend on a torrent.
+    /// Publishes a new immutable identity only when no migrated or existing descriptor owns the show.
     public func createDescriptorIfAbsent(createdAt: Date = .now) throws -> YinaShowDescriptor {
         try validateRoot()
         if let descriptor = try readDescriptor() { return descriptor }
         let descriptor = YinaShowDescriptor(showID: UUID(), createdAt: createdAt)
-        let data = try Self.encoder().encode(descriptor)
-        try createDirectoryIfNeeded(root)
-        let url = root.appendingPathComponent(".yina.json")
-        let fd = open(url.path, O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
-        guard fd >= 0 else {
-            let openError = errno
-            if openError == EEXIST {
-                // Another process may have created the name but not finished writing yet.
-                for _ in 0..<5 {
-                    if let existing = try? readDescriptor() { return existing }
-                    usleep(20_000)
-                }
-            }
-            throw Error.writeFailed(String(cString: strerror(openError)))
-        }
+        let directory = root.appendingPathComponent(".yina", isDirectory: true)
+        try createDirectoryIfNeeded(directory)
+        let destination = directory.appendingPathComponent("show.json")
         do {
-            try writeAll(data, to: fd)
-            guard fsync(fd) == 0 else { throw Error.writeFailed(String(cString: strerror(errno))) }
-            _ = close(fd)
+            try publishImmutable(Self.encoder().encode(descriptor), to: destination)
             return descriptor
-        } catch {
-            _ = close(fd)
-            throw error
+        } catch Error.identityMismatch {
+            // Another writer won the exclusive publication race.
+            if let winner = try readDescriptor() { return winner }
+            throw Error.identityMismatch
         }
     }
 
-    /// Compatibility overload for callers that already have a transfer hash. New show identity is independent of it.
+    /// Compatibility overload for callers that already have a transfer hash.
     public func createDescriptorIfAbsent(transferHash: String, createdAt: Date = .now) throws -> YinaShowDescriptor {
         try createDescriptorIfAbsent(createdAt: createdAt)
     }
 
-    /// Reads a legacy v1 single-torrent index without modifying it.
+    /// Reads the migrated v1 inventory without modifying its original JSON bytes.
     public func readLegacyIndex() throws -> ShowEpisodeIndex? {
         try validateRoot()
-        let url = root.appendingPathComponent(".yina.json")
+        try migrateLegacyRootIfPresent()
+        let url = root.appendingPathComponent(".yina/legacy-index.json")
         guard fileExists(url) else { return nil }
-        let data = try readRegularFile(url, limit: maximumTransferBytes)
-        do { return try Self.decoder().decode(ShowEpisodeIndex.self, from: data) }
-        catch { return nil }
+        return try Self.decodeLegacyIndexStrict(readRegularFile(url, limit: maximumTransferBytes))
+    }
+
+    private func readCanonicalDescriptor() throws -> YinaShowDescriptor? {
+        let url = root.appendingPathComponent(".yina/show.json")
+        guard fileExists(url) else { return nil }
+        return try Self.decodeDescriptorStrict(readRegularFile(url, limit: maximumProgressBytes))
+    }
+
+    private func migrateLegacyRootIfPresent() throws {
+        let legacyURL = root.appendingPathComponent(".yina.json")
+        guard fileExists(legacyURL) else { return }
+        let data = try readRegularFile(legacyURL, limit: maximumTransferBytes)
+        let object = try Self.jsonObject(data)
+        guard let version = object["schemaVersion"] as? Int else { throw Error.unsafeExistingPath }
+        let directory = root.appendingPathComponent(".yina", isDirectory: true)
+        let showURL = directory.appendingPathComponent("show.json")
+        let indexURL = directory.appendingPathComponent("legacy-index.json")
+        switch version {
+        case YinaShowDescriptor.currentSchemaVersion:
+            let descriptor = try Self.decodeDescriptorStrict(data)
+            if fileExists(indexURL) { throw Error.identityMismatch }
+            if let existing = try readCanonicalDescriptor(), existing != descriptor { throw Error.identityMismatch }
+            try createDirectoryIfNeeded(directory)
+            try publishImmutable(data, to: showURL)
+        case ShowEpisodeIndex.currentSchemaVersion:
+            let index = try Self.decodeLegacyIndexStrict(data)
+            let expected = YinaShowDescriptor(
+                showID: Self.deterministicShowID(for: index.hashString), createdAt: index.capturedAt
+            )
+            if fileExists(indexURL), try readRegularFile(indexURL, limit: maximumTransferBytes) != data {
+                throw Error.identityMismatch
+            }
+            if let existing = try readCanonicalDescriptor(), existing != expected { throw Error.identityMismatch }
+            try createDirectoryIfNeeded(directory)
+            try publishImmutable(data, to: indexURL)
+            try publishImmutable(Self.encoder().encode(expected), to: showURL)
+        default:
+            throw Error.unsupportedSchema(version)
+        }
+        try retireLegacyRootIfUnchanged(legacyURL, originalData: data)
+    }
+
+    private func retireLegacyRootIfUnchanged(_ legacyURL: URL, originalData: Data) throws {
+        let quarantine = root.appendingPathComponent(
+            ".yina/.legacy-root-\(UUID().uuidString.lowercased()).pending"
+        )
+        // Reserve the random destination so ordinary rename cannot overwrite another file.
+        let reserved = open(quarantine.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW, S_IRUSR | S_IWUSR)
+        guard reserved >= 0 else { throw Error.writeFailed(String(cString: strerror(errno))) }
+        _ = close(reserved)
+        if rename(legacyURL.path, quarantine.path) != 0 {
+            let moveError = errno
+            _ = unlink(quarantine.path)
+            if moveError == ENOENT { return } // Another writer completed the same migration.
+            throw Error.writeFailed(String(cString: strerror(moveError)))
+        }
+        do {
+            guard try readRegularFile(quarantine, limit: maximumTransferBytes) == originalData else {
+                throw Error.identityMismatch
+            }
+            guard unlink(quarantine.path) == 0 else {
+                throw Error.writeFailed(String(cString: strerror(errno)))
+            }
+        } catch {
+            if !fileExists(quarantine) { return } // A matching migrator already retired this marker.
+            // Exclusive restoration never overwrites a concurrent new root file.
+            if link(quarantine.path, legacyURL.path) == 0 {
+                _ = unlink(quarantine.path)
+            } else if errno == ENOTSUP || errno == EOPNOTSUPP || errno == EPERM {
+                // SMB may not support hard links; exclusive rename still preserves a new root file.
+                _ = renameatx_np(AT_FDCWD, quarantine.path, AT_FDCWD, legacyURL.path, UInt32(RENAME_EXCL))
+            }
+            throw error
+        }
+    }
+
+    private func recoverOrphanLegacyIndexIfNeeded() throws {
+        guard try readCanonicalDescriptor() == nil else { return }
+        let indexURL = root.appendingPathComponent(".yina/legacy-index.json")
+        guard fileExists(indexURL) else { return }
+        let index = try Self.decodeLegacyIndexStrict(readRegularFile(indexURL, limit: maximumTransferBytes))
+        let descriptor = YinaShowDescriptor(
+            showID: Self.deterministicShowID(for: index.hashString), createdAt: index.capturedAt
+        )
+        try publishImmutable(Self.encoder().encode(descriptor),
+                             to: root.appendingPathComponent(".yina/show.json"))
+    }
+
+    private func validateLegacyIndex(for descriptor: YinaShowDescriptor) throws {
+        let indexURL = root.appendingPathComponent(".yina/legacy-index.json")
+        guard fileExists(indexURL) else { return }
+        let index = try Self.decodeLegacyIndexStrict(readRegularFile(indexURL, limit: maximumTransferBytes))
+        let expected = YinaShowDescriptor(
+            showID: Self.deterministicShowID(for: index.hashString), createdAt: index.capturedAt
+        )
+        guard descriptor == expected else { throw Error.identityMismatch }
+    }
+
+    private func recoverPendingQuarantines() throws {
+        let directory = root.appendingPathComponent(".yina", isDirectory: true)
+        guard fileExists(directory) else { return }
+        let markers = try boundedChildren(of: directory, limit: maximumDirectoryEntries).filter {
+            $0.lastPathComponent.hasPrefix(".legacy-root-") && $0.lastPathComponent.hasSuffix(".pending")
+        }
+        guard !markers.isEmpty else { return }
+        let descriptorBytes = try readRegularFile(directory.appendingPathComponent("show.json"),
+                                                  limit: maximumTransferBytes)
+        let indexURL = directory.appendingPathComponent("legacy-index.json")
+        let indexBytes = fileExists(indexURL) ? try readRegularFile(indexURL, limit: maximumTransferBytes) : nil
+        for marker in markers {
+            let bytes = try readRegularFile(marker, limit: maximumTransferBytes)
+            let object = try Self.jsonObject(bytes)
+            guard let version = object["schemaVersion"] as? Int else { throw Error.unsafeExistingPath }
+            let expectedDescriptor: Data
+            let expectedIndex: Data?
+            switch version {
+            case YinaShowDescriptor.currentSchemaVersion:
+                _ = try Self.decodeDescriptorStrict(bytes)
+                expectedDescriptor = bytes
+                expectedIndex = nil
+            case ShowEpisodeIndex.currentSchemaVersion:
+                let index = try Self.decodeLegacyIndexStrict(bytes)
+                expectedDescriptor = try Self.encoder().encode(YinaShowDescriptor(
+                    showID: Self.deterministicShowID(for: index.hashString), createdAt: index.capturedAt
+                ))
+                expectedIndex = bytes
+            default:
+                throw Error.unsupportedSchema(version)
+            }
+            guard expectedDescriptor == descriptorBytes, expectedIndex == indexBytes else {
+                throw Error.identityMismatch
+            }
+            var info = stat()
+            guard lstat(marker.path, &info) == 0, (info.st_mode & S_IFMT) == S_IFREG else {
+                throw Error.unsafeExistingPath
+            }
+            let modified = Double(info.st_mtimespec.tv_sec) + Double(info.st_mtimespec.tv_nsec) / 1_000_000_000
+            // A recent marker belongs to a writer still completing its rename transaction.
+            if Date().timeIntervalSince1970 - modified >= 30 {
+                if unlink(marker.path) != 0 && errno != ENOENT {
+                    throw Error.writeFailed(String(cString: strerror(errno)))
+                }
+            }
+        }
+    }
+
+    private static func jsonObject(_ data: Data) throws -> [String: Any] {
+        guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw Error.unsafeExistingPath
+        }
+        return object
+    }
+
+    private static func decodeDescriptorStrict(_ data: Data) throws -> YinaShowDescriptor {
+        let object = try jsonObject(data)
+        guard let version = object["schemaVersion"] as? Int else { throw Error.unsafeExistingPath }
+        guard version == YinaShowDescriptor.currentSchemaVersion else { throw Error.unsupportedSchema(version) }
+        guard Set(object.keys) == Set(["schemaVersion", "showID", "createdAt"]) else { throw Error.unsafeExistingPath }
+        return try decoder().decode(YinaShowDescriptor.self, from: data)
+    }
+
+    private static func decodeLegacyIndexStrict(_ data: Data) throws -> ShowEpisodeIndex {
+        let object = try jsonObject(data)
+        guard let version = object["schemaVersion"] as? Int else { throw Error.unsafeExistingPath }
+        guard version == ShowEpisodeIndex.currentSchemaVersion else { throw Error.unsupportedSchema(version) }
+        guard Set(object.keys) == Set(["schemaVersion", "hashString", "capturedAt", "episodes"]),
+              let episodes = object["episodes"] as? [[String: Any]],
+              episodes.allSatisfy({ episode in
+                  let required: Set<String> = ["id", "relativePath", "bytesCompleted", "totalBytes"]
+                  let allowed = required.union(["season", "episode", "wanted"])
+                  guard required.isSubset(of: Set(episode.keys)), Set(episode.keys).isSubset(of: allowed),
+                        let identity = episode["id"] as? [String: Any],
+                        Set(identity.keys) == Set(["hashString", "fileIndex"]) else { return false }
+                  return true
+              }) else { throw Error.unsafeExistingPath }
+        return try decoder().decode(ShowEpisodeIndex.self, from: data)
+    }
+
+    private func publishImmutable(_ data: Data, to destination: URL) throws {
+        if fileExists(destination) {
+            guard try readRegularFile(destination, limit: maximumTransferBytes) == data else {
+                throw Error.identityMismatch
+            }
+            return
+        }
+        let temporary = destination.deletingLastPathComponent()
+            .appendingPathComponent(".\(UUID().uuidString.lowercased()).tmp")
+        let fd = open(temporary.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW,
+                      S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)
+        guard fd >= 0 else { throw Error.writeFailed(String(cString: strerror(errno))) }
+        defer { _ = unlink(temporary.path) }
+        do {
+            try writeAll(data, to: fd)
+            guard fsync(fd) == 0 else { throw Error.writeFailed(String(cString: strerror(errno))) }
+        } catch {
+            _ = close(fd)
+            throw error
+        }
+        guard close(fd) == 0 else { throw Error.writeFailed(String(cString: strerror(errno))) }
+        if link(temporary.path, destination.path) != 0 {
+            let publishError = errno
+            if publishError == ENOTSUP || publishError == EOPNOTSUPP || publishError == EPERM {
+                // Preserve exclusive publication on filesystems without hard links.
+                if renameatx_np(AT_FDCWD, temporary.path, AT_FDCWD, destination.path,
+                                UInt32(RENAME_EXCL)) != 0 {
+                    let renameError = errno
+                    guard renameError == EEXIST else {
+                        throw Error.writeFailed(String(cString: strerror(renameError)))
+                    }
+                    guard try readRegularFile(destination, limit: maximumTransferBytes) == data else {
+                        throw Error.identityMismatch
+                    }
+                }
+            } else if publishError == EEXIST {
+                guard try readRegularFile(destination, limit: maximumTransferBytes) == data else {
+                    throw Error.identityMismatch
+                }
+            } else {
+                throw Error.writeFailed(String(cString: strerror(publishError)))
+            }
+        }
+        let directoryFD = open(destination.deletingLastPathComponent().path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW)
+        guard directoryFD >= 0 else { throw Error.unsafeExistingPath }
+        defer { _ = close(directoryFD) }
+        if fsync(directoryFD) != 0 {
+            let syncError = errno
+            guard syncError == EINVAL || syncError == ENOTSUP || syncError == EOPNOTSUPP else {
+                throw Error.writeFailed(String(cString: strerror(syncError)))
+            }
+        }
     }
 
     public func publishTransferSnapshot(_ index: ShowEpisodeIndex, showID: UUID, writerID: UUID) throws {

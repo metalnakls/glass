@@ -34,23 +34,133 @@ struct YinaShowStoreTests {
         #expect(try await firstStore.readDescriptor() == firstResult)
     }
 
-    @Test("reads v1 root index as a descriptor adapter without changing its bytes")
+    @Test("migrates v1 root inventory into the single hidden folder without changing its bytes")
     func legacyCompatibility() async throws {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }
         let legacy = try makeIndex()
-        let url = root.appendingPathComponent(".yina.json")
+        let original = root.appendingPathComponent(".yina.json")
         let data = try JSONEncoder().encode(legacy)
-        try data.write(to: url)
+        try data.write(to: original)
         let store = YinaShowStore(rootURL: root)
 
         let descriptor = try #require(await store.readDescriptor())
         #expect(descriptor.showID == YinaShowStore.deterministicShowID(for: legacy.hashString))
         #expect(descriptor.createdAt == legacy.capturedAt)
         #expect(try await store.readLegacyIndex() == legacy)
-        #expect(try Data(contentsOf: url) == data)
+        #expect(try Data(contentsOf: root.appendingPathComponent(".yina/legacy-index.json")) == data)
+        #expect(!FileManager.default.fileExists(atPath: original.path))
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(".yina/show.json").path))
         #expect(try await store.createDescriptorIfAbsent(transferHash: "cafebabe") == descriptor)
-        #expect(try Data(contentsOf: url) == data)
+    }
+
+    @Test("moves a v2 root descriptor byte-for-byte while preserving its identity")
+    func descriptorMigration() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let id = UUID()
+        let original = root.appendingPathComponent(".yina.json")
+        let data = Data("{\"schemaVersion\":2,\"showID\":\"\(id.uuidString)\",\"createdAt\":\"1970-01-01T00:01:40.000Z\"}".utf8)
+        try data.write(to: original)
+        let store = YinaShowStore(rootURL: root)
+        let descriptor = try #require(await store.readDescriptor())
+        #expect(descriptor.showID == id)
+        #expect(descriptor.createdAt == date(100))
+        #expect(try Data(contentsOf: root.appendingPathComponent(".yina/show.json")) == data)
+        #expect(!FileManager.default.fileExists(atPath: original.path))
+        #expect(try await store.readLegacyIndex() == nil)
+    }
+
+    @Test("recovers a migrated v1 index when the identity publication was interrupted")
+    func orphanLegacyIndex() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let directory = root.appendingPathComponent(".yina", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let index = try makeIndex()
+        let data = try JSONEncoder().encode(index)
+        try data.write(to: directory.appendingPathComponent("legacy-index.json"))
+        let store = YinaShowStore(rootURL: root)
+        let descriptor = try #require(await store.readDescriptor())
+        #expect(descriptor.showID == YinaShowStore.deterministicShowID(for: index.hashString))
+        #expect(try Data(contentsOf: directory.appendingPathComponent("legacy-index.json")) == data)
+    }
+
+    @Test("preserves root data on conflicting, extended, and symbolic-link migrations")
+    func migrationRefusesUnsafeData() async throws {
+        let index = try makeIndex()
+        let data = try JSONEncoder().encode(index)
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let original = root.appendingPathComponent(".yina.json")
+        try data.write(to: original)
+        let hidden = root.appendingPathComponent(".yina", isDirectory: true)
+        try FileManager.default.createDirectory(at: hidden, withIntermediateDirectories: true)
+        let foreign = Data("{\"schemaVersion\":2,\"showID\":\"\(UUID().uuidString)\",\"createdAt\":\"1970-01-01T00:01:40.000Z\"}".utf8)
+        try foreign.write(to: hidden.appendingPathComponent("show.json"))
+        let store = YinaShowStore(rootURL: root)
+        do { _ = try await store.readDescriptor(); Issue.record("conflicting descriptor migrated") }
+        catch { #expect(error as? YinaShowStore.Error == .identityMismatch) }
+        #expect(try Data(contentsOf: original) == data)
+
+        let extendedRoot = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: extendedRoot) }
+        let extended = Data(String(decoding: data, as: UTF8.self).dropLast().appending(",\"future\":true}").utf8)
+        let extendedURL = extendedRoot.appendingPathComponent(".yina.json")
+        try extended.write(to: extendedURL)
+        do { _ = try await YinaShowStore(rootURL: extendedRoot).readDescriptor(); Issue.record("unknown field migrated") }
+        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
+        #expect(try Data(contentsOf: extendedURL) == extended)
+
+        let linkedRoot = try temporaryDirectory()
+        let outside = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: linkedRoot); try? FileManager.default.removeItem(at: outside) }
+        let linkedOriginal = linkedRoot.appendingPathComponent(".yina.json")
+        try data.write(to: linkedOriginal)
+        try FileManager.default.createSymbolicLink(at: linkedRoot.appendingPathComponent(".yina"), withDestinationURL: outside)
+        do { _ = try await YinaShowStore(rootURL: linkedRoot).readDescriptor(); Issue.record("symlink directory migrated") }
+        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
+        #expect(try Data(contentsOf: linkedOriginal) == data)
+    }
+
+    @Test("validates interrupted migration markers and keeps recent writers' markers")
+    func migrationQuarantineRecovery() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = try makeIndex()
+        let data = try JSONEncoder().encode(legacy)
+        try data.write(to: root.appendingPathComponent(".yina.json"))
+        let store = YinaShowStore(rootURL: root)
+        _ = try await store.readDescriptor()
+        let marker = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
+        try data.write(to: marker)
+        _ = try await store.readDescriptor()
+        #expect(FileManager.default.fileExists(atPath: marker.path))
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-31)],
+                                              ofItemAtPath: marker.path)
+        _ = try await store.readDescriptor()
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
+
+        let conflicting = root.appendingPathComponent(".yina/.legacy-root-\(UUID().uuidString).pending")
+        let unknown = Data(String(decoding: data, as: UTF8.self).dropLast().appending(",\"future\":true}").utf8)
+        try unknown.write(to: conflicting)
+        do { _ = try await store.readDescriptor(); Issue.record("unknown quarantine was discarded") }
+        catch { #expect(error as? YinaShowStore.Error == .unsafeExistingPath) }
+        #expect(try Data(contentsOf: conflicting) == unknown)
+    }
+
+    @Test("concurrent Glass migrators converge on the same v1 identity")
+    func concurrentLegacyMigration() async throws {
+        let root = try temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let legacy = try makeIndex()
+        try JSONEncoder().encode(legacy).write(to: root.appendingPathComponent(".yina.json"))
+        let first = YinaShowStore(rootURL: root), second = YinaShowStore(rootURL: root)
+        async let left = first.readDescriptor()
+        async let right = second.readDescriptor()
+        let (a, b) = try await (left, right)
+        #expect(a == b)
+        #expect(a?.showID == YinaShowStore.deterministicShowID(for: legacy.hashString))
     }
 
     @Test("isolates transfer snapshots by run writer and filters stale or foreign snapshots")
