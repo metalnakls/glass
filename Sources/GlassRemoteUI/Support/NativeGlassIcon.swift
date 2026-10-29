@@ -69,6 +69,13 @@ struct NativeGlassIcon: View {
                         // Glass optics extend past their shape. Bound them
                         // to the exact pixels of the original icon too.
                         .mask(source)
+                        .overlay {
+                            Image(decorative: artwork.ink, scale: 1)
+                                .resizable().renderingMode(.template).scaledToFit()
+                                .foregroundStyle(.primary.opacity(0.68))
+                                .frame(width: size, height: size)
+                                .rotationEffect(.radians(rotation + inheritedRotation))
+                        }
                         .opacity(opacity)
                         .allowedDynamicRange(.high)
                 }
@@ -113,8 +120,9 @@ extension EnvironmentValues {
     final class Artwork {
         let image: CGImage
         let path: Path
-        init(image: CGImage, path: Path) {
-            self.image = image; self.path = path
+        let ink: CGImage
+        init(image: CGImage, path: Path, ink: CGImage) {
+            self.image = image; self.path = path; self.ink = ink
         }
     }
     private static let artworks: NSCache<NSImage, Artwork> = {
@@ -132,6 +140,14 @@ extension EnvironmentValues {
     static func artwork(for image: NSImage, highResolution: Bool = false) -> Artwork? {
         let cache = highResolution ? previewArtworks : artworks
         if let cached = cache.object(forKey: image) { return cached }
+        guard let result = rasterize(image, highResolution: highResolution) else { return nil }
+        cache.setObject(result, forKey: image)
+        return result
+    }
+
+    /// Also used by the Finder renderer on its own actor. The image and drawing
+    /// context belong to the caller; this operation touches no shared cache/UI.
+    nonisolated static func rasterize(_ image: NSImage, highResolution: Bool) -> Artwork? {
         let size = highResolution ? 512 : 128
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         var pixels = [UInt8](repeating: 0, count: size * size * 4)
@@ -148,9 +164,24 @@ extension EnvironmentValues {
         }
         guard let original else { return nil }
         let path = outline(alpha: stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }, width: size, height: size)
-        let result = Artwork(image: original, path: path)
-        cache.setObject(result, forKey: image)
-        return result
+        guard let ink = detailMask(pixels: pixels, size: size) else { return nil }
+        return Artwork(image: original, path: path, ink: ink)
+    }
+
+    /// Retain Finder's actual glyph, extension label, fold and folder seam. The
+    /// brightest channel removes the coloured paper/body without inventing a
+    /// second set of file-type symbols. Low-alpha baked shadows are excluded.
+    nonisolated private static func detailMask(pixels: [UInt8], size: Int) -> CGImage? {
+        var ink = [UInt8](repeating: 0, count: pixels.count)
+        for offset in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Double(pixels[offset + 3]) / 255
+            guard alpha > 0.9 else { continue }
+            let brightest = Double(max(pixels[offset], pixels[offset + 1], pixels[offset + 2])) / (255 * alpha)
+            let coverage = min(1, max(0, (0.96 - brightest) * 3)) * alpha
+            let byte = UInt8((coverage * 255).rounded())
+            ink[offset] = byte; ink[offset + 1] = byte; ink[offset + 2] = byte; ink[offset + 3] = byte
+        }
+        return ink.withUnsafeMutableBytes { bytes in context(bytes.baseAddress, size: size)?.makeImage() }
     }
 
     /// Trace only opaque pixels so baked shadows and transparent margins do
@@ -188,7 +219,7 @@ extension EnvironmentValues {
         return path
     }
 
-    private static func context(_ data: UnsafeMutableRawPointer?, size: Int) -> CGContext? {
+    nonisolated private static func context(_ data: UnsafeMutableRawPointer?, size: Int) -> CGContext? {
         CGContext(data: data, width: size, height: size, bitsPerComponent: 8, bytesPerRow: size * 4,
             space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
     }

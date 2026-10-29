@@ -665,15 +665,27 @@ private struct ThumbnailTaskID: Equatable {
 
 @MainActor
 enum TorrentFileIconCache {
-    private static let icons = NSCache<NSString, NSImage>()
+    private static let icons: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 128
+        return cache
+    }()
 
-    static func icon(fileName: String, isFolder: Bool) -> NSImage {
+    static func icon(fileName: String, isFolder: Bool, pointSize: Int = 32) -> NSImage {
         let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
-        let key = (isFolder ? "folder" : "file:\(fileExtension)") as NSString
+        let key = "\(isFolder ? "folder" : "file:\(fileExtension)")@\(pointSize)" as NSString
         if let cached = icons.object(forKey: key) {
             return cached
         }
 
+        let icon = makeIcon(fileName: fileName, isFolder: isFolder, pointSize: pointSize)
+        icons.setObject(icon, forKey: key)
+        return icon
+    }
+
+    /// NSWorkspace permits icon lookup on any thread; every caller owns its copy.
+    nonisolated static func makeIcon(fileName: String, isFolder: Bool, pointSize: Int) -> NSImage {
+        let fileExtension = URL(fileURLWithPath: fileName).pathExtension.lowercased()
         let source: NSImage
         if isFolder {
             source = NSWorkspace.shared.icon(for: .folder)
@@ -681,8 +693,7 @@ enum TorrentFileIconCache {
             source = NSWorkspace.shared.icon(for: UTType(filenameExtension: fileExtension) ?? .data)
         }
         let icon = source.copy() as? NSImage ?? source
-        icon.size = NSSize(width: 32, height: 32)
-        icons.setObject(icon, forKey: key)
+        icon.size = NSSize(width: pointSize, height: pointSize)
         return icon
     }
 }

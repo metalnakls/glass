@@ -35,7 +35,7 @@ Add variants only for real callers.
 | Section titles | `TorrentStickyHeaders`, `StickyTitleLabel`, `TorrentHeaderScrollMotion` | inline, pinned, outgoing; short/long section; fast-scroll suppression | Measured position, pin inset, two-item release gap, continuous handoff and velocity policy |
 | Scroll effect | `glassScrollEdges`, `HeaderBackdrop` | floating controls; section titles | One native top effect, sharp foreground titles, interruptible exit |
 | Settings | `AppearancePreferences`, `GlassAppearanceDefaults`, `GlassTuningSlider`, Tune | saved override or default; explicit units | Native controls, accessible labels/values, key, meaning, units, range, default, owner |
-| Artwork | preview/icon owners and bundle document assets | document, folder, artwork, unavailable | Asset provenance, shared slot, aspect ratio, optical centering, empty state |
+| Artwork | `NativeGlassIcon`, `NativeIconGeometry`, `TorrentGhostIcon`, preview owners | glass/original, document/folder, torrent ghost, artwork, unavailable | Native source, shared optical bounds, readable details, cached rendering, empty state |
 
 ### Variant rules
 
@@ -99,9 +99,10 @@ arbitrary delay or unrelated state toggle is not a permanent invalidation fix.
 - Multiple imports remain visible as queued cards; none disappear silently.
   Pre-add file rows show size/selection, not meaningless download percentages.
 - Empty Quick Look uses an empty selection/unavailable state, never a generated
-  text-file stand-in. Torrent files retain a document icon with the app mark
-  inside; record the asset's source before updating it. Wide artwork stays
-  centered within its established box.
+  text-file stand-in. Torrent files use content-aware dotted ghost artwork through
+  Quick Look and the Downloads worker; the bundled document icon remains the
+  fallback. Shared owners and limits are in [FILE-ICONS.md](FILE-ICONS.md). Wide
+  artwork stays centered within its established box.
 - Drafts remain selectable native list entries with shared row chrome, separator
   neighbors, swipe removal, and focused Delete/Command-Delete actions. Resolve
   their stable list identity through the draft store; removal discards saved Add

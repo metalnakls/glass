@@ -29,17 +29,20 @@ struct GlassIconAppearanceControls: View {
             Toggle(glassText("Glass icons"), isOn: $glassEnabled)
             Text(glassText("Turn off to use the original Finder folder and file icons."))
                 .font(.caption).foregroundStyle(.secondary)
-            HStack(spacing: 36) {
+            HStack {
+                Spacer()
                 NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "", isFolder: true), size: 48, isFolder: true)
-                NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "file.txt", isFolder: false), size: 48)
+                Spacer()
+                NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "Movie.mkv", isFolder: false), size: 48)
+                Spacer()
+                NativeGlassIcon(image: TorrentFileIconCache.icon(fileName: "Archive.zip", isFolder: false), size: 48)
+                Spacer()
             }
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 16)
-            .background {
-                LinearGradient(colors: [.indigo.opacity(0.7), .pink.opacity(0.45), .orange.opacity(0.55)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing)
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .padding(.vertical)
+            .background(.quaternary, in: .rect(cornerRadius: 10))
+            Text(glassText("File symbols and folded corners remain visible through the glass."))
+                .font(.caption).foregroundStyle(.secondary)
             Group {
                 Picker(glassText("Style"), selection: $regular) {
                     Text(glassText("Clear")).tag(false)

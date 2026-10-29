@@ -39,7 +39,9 @@ struct NativeGlassIconTests {
         let maskRenderer = ImageRenderer(content: Image(decorative: artwork.image, scale: 1).resizable().scaledToFit().frame(width: 36, height: 36).rotationEffect(.radians(angle)))
         maskRenderer.scale = 2
         let mask = footprint(try #require(maskRenderer.cgImage))
-        let tolerance = 2.0 / 72.0
+        // Include equality at exactly two pixels despite normalized subtraction
+        // rounding (e.g. 0.02777777777777779 versus 0.027777777777777776).
+        let tolerance = 2.0 / 72.0 + 1e-12
         #expect(abs(expected.minX - mask.minX) <= tolerance)
         #expect(abs(expected.minY - mask.minY) <= tolerance)
         #expect(abs(expected.width - mask.width) <= tolerance)

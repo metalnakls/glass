@@ -228,7 +228,14 @@ private actor GlassBackgroundWorker {
                     print("Worker rename failed: \(names)")
                     exit(1)
                 }
-                print("Worker rename passed: \(names[0])")
+                let renamed = diagnosticDirectory.appendingPathComponent(names[0])
+                let modified = try renamed.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate!
+                let icon = await TorrentFinderIconWriter.shared.apply(to: renamed, content: .file(name: name), modified: modified)
+                guard try Data(contentsOf: renamed) == data, icon == .current else {
+                    print("Worker icon or byte preservation failed: \(icon)")
+                    exit(1)
+                }
+                print("Worker rename, ghost icon, and byte preservation passed: \(names[0])")
                 exit(0)
             } catch { print("Worker check failed: \(error.localizedDescription)"); exit(1) }
         }
@@ -327,6 +334,13 @@ private actor GlassBackgroundWorker {
                 continue
             }
             let preview = TorrentFilePreview(data: data, fallbackURL: url)
+            let result = await TorrentFinderIconWriter.shared.apply(to: url, content: preview.iconContent, modified: modified)
+            if result == .failed { logger.notice("Could not update torrent Finder icon") }
+            guard !Task.isCancelled else { return }
+            // Rendering suspends this scan. Do not rename from stale metadata
+            // if the browser replaced or finished writing the torrent meanwhile.
+            guard let current = try? url.resourceValues(forKeys: [.contentModificationDateKey]),
+                  current.contentModificationDate == modified else { continue }
             let plan = TorrentNameCleaner.plan(rootName: preview.name, files: preview.files,
                 selectedFileIndices: Set(preview.files.indices))
             let title = plan?.season.map { "\($0.title) \($0.season)" } ?? plan?.rootName ?? preview.name

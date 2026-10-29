@@ -1,9 +1,17 @@
 import Foundation
 
+/// The downloaded root, independent of the .torrent filename or selected files.
+public enum TorrentIconContent: Sendable, Equatable {
+    case file(name: String)
+    case folder
+    case unknown
+}
+
 public struct TorrentMetainfoPreview: Sendable {
     public let name: String
     public let size: UInt64
     public let files: [TorrentFile]
+    public let iconContent: TorrentIconContent
 
     public init?(data: Data) {
         guard data.count <= 8 * 1_024 * 1_024 else { return nil }
@@ -20,6 +28,7 @@ public struct TorrentMetainfoPreview: Sendable {
         }
 
         self.name = name
+        self.iconContent = Self.iconContent(info: info, name: name)
         if case let .integer(length)? = info["length"], length >= 0 {
             self.size = UInt64(length)
             self.files = [TorrentFile(name: name, length: UInt64(length), bytesCompleted: 0)]
@@ -47,6 +56,23 @@ public struct TorrentMetainfoPreview: Sendable {
             self.size = UInt64(data.count)
             self.files = [TorrentFile(name: name, length: UInt64(data.count), bytesCompleted: 0)]
         }
+    }
+
+    private static func iconContent(info: [String: BencodeValue], name: String) -> TorrentIconContent {
+        if case let .integer(length)? = info["length"], length >= 0 { return .file(name: name) }
+        if case let .list(files)? = info["files"], !files.isEmpty { return .folder }
+        // BEP 52: a single root entry with leaf properties is a file. A directory
+        // with one descendant is still a folder. Keep preview/rename policy separate.
+        if case let .dictionary(tree)? = info["file tree"], !tree.isEmpty {
+            if tree.count == 1, let (fileName, entry) = tree.first,
+               !fileName.isEmpty, case let .dictionary(node) = entry,
+               case let .dictionary(properties)? = node[""],
+               case let .integer(length)? = properties["length"], length >= 0 {
+                return .file(name: fileName)
+            }
+            return .folder
+        }
+        return .unknown
     }
 
     private static func fileName(rootName: String, file: [String: BencodeValue]) -> String {
@@ -155,12 +181,13 @@ private struct BencodeParser {
         while index < data.count, data[index] != UInt8(ascii: "e") {
             guard
                 case let .string(keyData)? = parseString(),
-                let key = String(data: keyData, encoding: .utf8),
                 let value = parseValue()
             else {
                 return nil
             }
-            values[key] = value
+            // v2 piece-layer keys are binary hashes, not UTF-8 paths. They are
+            // irrelevant to previews but must not invalidate the whole torrent.
+            if let key = String(data: keyData, encoding: .utf8) { values[key] = value }
         }
         guard index < data.count else { return nil }
         index += 1
