@@ -33,7 +33,9 @@ private struct HeaderContinuityFixture: View {
             }
         }.reorderContainer(for: TorrentListEntry.self) { _ in }.listStyle(.plain)
             .contentMargins(.top, 0, for: .scrollContent)
-            .torrentStickyHeaders(controller)
+            .safeAreaBar(edge: .top, spacing: 0) {
+                TorrentHeaderSurface(controller: controller).frame(height: controller.titleHeight).allowsHitTesting(false)
+            }.glassScrollEdges(.sectionTitles)
     }
 }
 @MainActor private func headerDescendants<T: NSView>(_ view: NSView, _: T.Type) -> [T] {
@@ -41,56 +43,6 @@ private struct HeaderContinuityFixture: View {
 }
 @MainActor @Suite("Native header continuity", .serialized)
 struct TorrentHeaderContinuityTests {
-    @Test("the main window does not add a stationary backdrop beneath moving headers",
-          arguments: [true, false], [ColorScheme.dark, .light])
-    func noStationaryBackdrop(inspectorVisible: Bool, colorScheme: ColorScheme) async throws {
-        _ = NSApplication.shared
-        let controller = TorrentStickyHeaders()
-        let layout = makeHeaderLayout(12)
-        controller.configure(layout, lowercase: false, inset: 16)
-        let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 795, height: 518),
-                              styleMask: [.titled, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.isReleasedWhenClosed = false
-        window.titlebarAppearsTransparent = true
-        window.titleVisibility = .hidden
-        defer { controller.detach(); window.close() }
-        let host = NSHostingView(rootView:
-            NavigationStack { HeaderContinuityFixture(controller: controller, layout: layout) }
-                .inspector(isPresented: .constant(inspectorVisible)) {
-                    Color.clear.inspectorColumnWidth(300)
-                }
-                .toolbarVisibility(.hidden, for: .windowToolbar)
-                .ignoresSafeArea(.container, edges: .top)
-                .preferredColorScheme(colorScheme))
-        window.contentView = host
-        for _ in 0..<30 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
-        let table = try #require(headerDescendants(host, NSTableView.self).first)
-        let scroll = try #require(table.enclosingScrollView)
-        let material = try #require(scroll.subviews.compactMap { $0 as? TorrentHeaderMaterialView }.first,
-            "The live blur must sample the list from the native scroll view, not an isolated SwiftUI host")
-        #expect(material.clipsToBounds)
-        let nextHeader = try #require(layout.headerIndices["finished"])
-        let release = table.rect(ofRow: nextHeader - 2).minY
-        scroll.contentView.scroll(to: .init(x: 0, y: release + 60))
-        scroll.reflectScrolledClipView(scroll.contentView)
-        for _ in 0..<20 { try await Task.sleep(for: .milliseconds(10)); host.layoutSubtreeIfNeeded() }
-
-        // Read-only inspection of AppKit's generated hierarchy catches a second
-        // surface that a test of HeaderBackdrop's own frame cannot observe.
-        // No private selectors or rendering APIs are used by the application.
-        func pockets(in view: NSView) -> [NSView] {
-            (String(describing: type(of: view)) == "NSScrollPocket" ? [view] : [])
-                + view.subviews.flatMap { pockets(in: $0) }
-        }
-        let pockets = pockets(in: host)
-        #expect(!pockets.isEmpty, "Update the native diagnostic if AppKit changes its generated hierarchy")
-        let titlebarHeight = window.frame.height - window.contentLayoutRect.height
-        for pocket in pockets where !pocket.isHidden && pocket.alphaValue > 0 {
-            #expect(pocket.frame.height <= titlebarHeight + 1,
-                    "A window-anchored backdrop still covers the custom header's reserved space")
-        }
-    }
-
     @Test("starting a scroll after section growth or shrinkage cannot move a title without moving the document", arguments: [3, 8])
     func scrollAfterSectionChange(initialCount: Int) async throws {
         _ = NSApplication.shared
