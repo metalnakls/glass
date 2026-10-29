@@ -3,7 +3,14 @@ import SwiftUI
 
 /// Decorative, click-through artwork attached to the empty Inspector.
 /// The parent retains its native frame, layout, resizing and shadow.
-struct InspectorPup: NSViewRepresentable {
+struct InspectorPup: View {
+    @AppearanceStorage("GlassInspector.showPup") private var showPup = true
+    var body: some View {
+        if showPup { InspectorPupAnchor() }
+    }
+}
+
+private struct InspectorPupAnchor: NSViewRepresentable {
     func makeNSView(context: Context) -> Anchor { Anchor() }
     func updateNSView(_ view: Anchor, context: Context) { view.scheduleUpdate() }
     static func dismantleNSView(_ view: Anchor, coordinator: ()) { view.removePup() }

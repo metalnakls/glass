@@ -195,8 +195,8 @@ final class TorrentStickyHeaders: NSObject {
     private var updateScheduled = false
     private var rowIDs: [String?] = []
     private var inlineMotionUntil = Date.distantPast
-    private var lastPinned: [String: TorrentStickyHeaderGeometry.Placement] = [:]
-    private var heldPinned: [String: TorrentStickyHeaderGeometry.Placement]?
+    private var scrollMotion = TorrentHeaderScrollMotion()
+    private var scrollSettlingTask: Task<Void, Never>?
     func configureAppearance(_ appearance: TorrentHeaderAppearance) {
         self.appearance = appearance
         overlay.configure(appearance)
@@ -230,11 +230,11 @@ final class TorrentStickyHeaders: NSObject {
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
         NotificationCenter.default.removeObserver(self)
+        scrollSettlingTask?.cancel(); scrollSettlingTask = nil
+        scrollMotion.end()
         overlay.removeFromSuperview()
         self.table = table
         structureCache = nil
-        heldPinned = nil
-        lastPinned = [:]
         table.floatsGroupRows = false
         // Inline titles move with the document in the native scroll transaction.
         // Pinned titles live in the stationary viewport; only pushing moves them.
@@ -247,13 +247,17 @@ final class TorrentStickyHeaders: NSObject {
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: scroll.contentView)
         table.postsFrameChangedNotifications = true
         NotificationCenter.default.addObserver(self, selector: #selector(update), name: NSView.frameDidChangeNotification, object: table)
-        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
-        NotificationCenter.default.addObserver(self, selector: #selector(resumeScroll), name: NSScrollView.didLiveScrollNotification, object: scroll)
+        // Bounds changes cover wheel, momentum, keyboard and programmatic
+        // scrolling alike. Starting a gesture alone cannot change placement.
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollBegan), name: NSScrollView.willStartLiveScrollNotification, object: scroll)
+        NotificationCenter.default.addObserver(self, selector: #selector(scrolled), name: NSScrollView.didLiveScrollNotification, object: scroll)
         scheduleUpdate()
     }
 
     func detach() {
         NotificationCenter.default.removeObserver(self)
+        scrollSettlingTask?.cancel(); scrollSettlingTask = nil
+        scrollMotion.end()
         overlay.removeFromSuperview()
         overlay.detachViewport()
         table = nil
@@ -261,7 +265,6 @@ final class TorrentStickyHeaders: NSObject {
     }
 
     func configure(_ layout: TorrentListLayout, lowercase: Bool, inset: CGFloat) {
-        if !rowIDs.isEmpty, rowIDs != layout.nativeRowIDs, heldPinned == nil { heldPinned = lastPinned }
         if !rowIDs.isEmpty, rowIDs != layout.nativeRowIDs { inlineMotionUntil = Date().addingTimeInterval(0.35) }
         rowIDs = layout.nativeRowIDs
         let sections = layout.titledSections(lowercase: lowercase)
@@ -278,7 +281,32 @@ final class TorrentStickyHeaders: NSObject {
         scheduleUpdate()
     }
     func layoutDidChange() { scheduleUpdate() }
-    @objc private func resumeScroll() { heldPinned = nil; update() }
+    @objc private func scrollBegan() {
+        guard let clip = table?.enclosingScrollView?.contentView else { return }
+        scrollMotion.begin(offset: clip.bounds.minY, at: CACurrentMediaTime())
+    }
+    @objc private func scrolled() {
+        guard let clip = table?.enclosingScrollView?.contentView else { return }
+        let wasSuppressed = scrollMotion.suppressesFloatingTitles
+        scrollMotion.record(offset: clip.bounds.minY, at: CACurrentMediaTime(), viewportHeight: clip.bounds.height)
+        if wasSuppressed != scrollMotion.suppressesFloatingTitles { update() }
+        // One sleeping task per gesture, not a timer or task per scroll frame.
+        // The idle fallback also handles legacy mice without live-scroll end events.
+        guard scrollSettlingTask == nil else { return }
+        scrollSettlingTask = Task { @MainActor [weak self] in
+            while let deadline = self?.scrollMotion.idleDeadline {
+                let remaining = deadline - CACurrentMediaTime()
+                if remaining <= 0 {
+                    self?.scrollMotion.end()
+                    self?.scrollSettlingTask = nil
+                    self?.update()
+                    return
+                }
+                do { try await Task.sleep(for: .seconds(remaining)) }
+                catch { return }
+            }
+        }
+    }
     private func scheduleUpdate() {
         guard !updateScheduled else { return }
         updateScheduled = true
@@ -311,7 +339,6 @@ final class TorrentStickyHeaders: NSObject {
             return measured?.frame(in: row) ?? row
         }
         let viewport = table.convert(clip.bounds, from: clip)
-        if NSApp.currentEvent?.type == .scrollWheel || NSApp.currentEvent?.type == .keyDown { heldPinned = nil }
         let releasePoints = Self.releasePoints(headerIndices: ordered.map(\.index),
             rowCount: table.numberOfRows, pushLead: appearance.pushLead, rowFrame: { table.rect(ofRow: $0) })
         let structure = SectionStructure(indices: ordered.map(\.index), rowCount: table.numberOfRows, releasePoints: releasePoints,
@@ -323,32 +350,29 @@ final class TorrentStickyHeaders: NSObject {
         }
         let stickyAllowed = structureCache?.stickyAllowed ?? []
         let releases = structureCache?.releases ?? []
-        var sticky = Self.stickyLayout(frames: frames, viewport: viewport, appearance: appearance, releases: releases, stickyAllowed: stickyAllowed)
-        if let heldPinned {
-            let titles = ordered.enumerated().compactMap { index, header -> TorrentStickyHeaderGeometry.Placement? in
-                guard let title = heldPinned[header.id] else { return nil }
-                var frame = title.frame
-                frame.size.width = frames[index].width
-                return .init(index: index, frame: frame, pinned: title.pinned, retiring: title.retiring, exitProgress: title.exitProgress)
-            }
-            sticky = titles.isEmpty ? nil : .init(titles: titles, backdropHeight: Self.topInset + (titles.first?.frame.height ?? 0) + appearance.reach)
-        }
-        lastPinned = Dictionary(uniqueKeysWithValues: (sticky?.titles ?? []).filter(\.pinned).map { (ordered[$0.index].id, $0) })
+        // Pinning is a function of the current document and viewport. A section
+        // edit must not leave a frozen position to be released by the next gesture.
+        let sticky = Self.stickyLayout(frames: frames, viewport: viewport, appearance: appearance, releases: releases, stickyAllowed: stickyAllowed)
         let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
         if overlay.frame != table.bounds { overlay.frame = table.bounds }
         overlay.attachViewport(to: scroll)
         overlay.isHidden = false
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
                         backdropActive: sticky?.titles.contains { !$0.retiring } == true,
-                        viewport: viewport, animateInline: Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel)
+                        viewport: viewport, animateInline: Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel,
+                        suppressFloatingTitles: scrollMotion.suppressesFloatingTitles)
     }
-    isolated deinit { NotificationCenter.default.removeObserver(self); overlay.removeFromSuperview(); overlay.detachViewport() }
+    isolated deinit {
+        scrollSettlingTask?.cancel()
+        NotificationCenter.default.removeObserver(self)
+        overlay.removeFromSuperview(); overlay.detachViewport()
+    }
 }
 
 final class HeaderBackdrop: NSView {
     let pinnedSurface = HeaderViewportSurface()
     var externallyHosted = false
-    private let effect = NSView()
+    private let effect = NSVisualEffectView()
     private let fadeMask = CAGradientLayer()
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
@@ -365,9 +389,6 @@ final class HeaderBackdrop: NSView {
     func configure(_ settings: TorrentHeaderAppearance) {
         let old = self.settings
         self.settings = settings
-        CATransaction.begin(); CATransaction.setDisableActions(true)
-        effect.layer?.backgroundColor = NSColor.clear.cgColor
-        CATransaction.commit()
         if old.strength != settings.strength, backdropIsActive { animateBackdrop(true) }
     }
     func retire(id: String, host: TitleHost) {
@@ -422,8 +443,10 @@ final class HeaderBackdrop: NSView {
         layer?.zPosition = TorrentListRenderOrder.sectionHeader
         layer?.masksToBounds = true
         effect.alphaValue = 0
+        effect.material = .headerView
+        effect.blendingMode = .withinWindow
+        effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.backgroundColor = NSColor.clear.cgColor
         fadeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
         fadeMask.locations = [0, 0.25, 1]
         fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
@@ -433,7 +456,7 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false) {
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false, suppressFloatingTitles: Bool = false) {
         isHidden = false
         setBackdropActive(backdropActive)
         CATransaction.begin()
@@ -447,15 +470,8 @@ final class HeaderBackdrop: NSView {
             backdropSize = effect.bounds.size
             fadeMask.frame = effect.bounds
         }
-        // The document owns inline titles. End the retiring title's backdrop
-        // before an incoming inline title reaches it, so that title never
-        // crosses under a viewport layer and then pops above it when pinned.
-        if let incoming = layout.titles.filter({ !$0.pinned }).map(\.frame.minY).min() {
-            let clearBelow = max(0, incoming - 8)
-            effect.frame.size.height = min(effectHeight, clearBelow)
-            fadeMask.frame = effect.bounds
-            backdropSize = effect.bounds.size
-        }
+        // Keep the whole gradient while fading out. Every title shares the
+        // foreground plane above it, including incoming inline titles.
         CATransaction.commit()
         let visible = Set(layout.titles.map { headers[$0.index].id })
         hideTitles(except: visible)
@@ -479,6 +495,8 @@ final class HeaderBackdrop: NSView {
             if host.superview !== parent { parent.addSubview(host) }
             host.isPinned = placement.pinned
             host.isHidden = false
+            host.setScrollSuppressed(placement.pinned && suppressFloatingTitles,
+                                     restorationDuration: placement.pinned ? settings.titleIn : 0)
             titles[header.id] = host
             // Scroll coordinates must bypass any inherited AppKit animation
             // context.
@@ -492,7 +510,7 @@ final class HeaderBackdrop: NSView {
                 }
             }
             CATransaction.commit()
-            // Native scroll-edge blur owns the backdrop; the title stays sharp.
+            // The native material is below every title; the title stays sharp.
         }
     }
 }
@@ -514,6 +532,17 @@ final class HeaderViewportSurface: NSView {
 final class TitleHost: NSView {
     var isPinned = false
     var isRetiring = false
+    private(set) var isScrollSuppressed = false
+    func setScrollSuppressed(_ suppressed: Bool, restorationDuration: TimeInterval) {
+        guard isScrollSuppressed != suppressed else { return }
+        isScrollSuppressed = suppressed
+        // Remove floating titles immediately during a fling. Restore only the
+        // current title at its current position; never replay crossed sections.
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = suppressed || ReduceMotion.enabled ? 0 : restorationDuration
+            animator().alphaValue = suppressed ? 0 : 1
+        }
+    }
     private let hosting: NSHostingController<StickyTitleLabel>
     private var titleKey = ""
     private var currentTitle = ""
@@ -564,8 +593,8 @@ final class TitleHost: NSView {
     }
 }
 
-/// The actual header surface registers with the native top bar. Its inline
-/// titles can extend into the document; the bar owns the progressive effect.
+/// The bar reserves space; its AppKit surface owns the material and sharp titles.
+/// An explicit backdrop fade avoids the system edge effect's glyph-exit cutoff.
 struct TorrentHeaderSurface: NSViewRepresentable {
     let controller: TorrentStickyHeaders
     func makeNSView(context: Context) -> NSView { controller.barSurface }

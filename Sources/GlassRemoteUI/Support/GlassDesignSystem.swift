@@ -36,16 +36,26 @@ struct TorrentRowColumns {
 }
 
 /// Scroll effects belong to the container, never to a row or title label.
+enum GlassScrollEdgeVariant: Equatable {
+    case floatingControls
+    /// Section titles own an interruptible AppKit backdrop across pin/release.
+    case sectionTitles
+}
+
 private struct GlassScrollEdges: ViewModifier {
+    let variant: GlassScrollEdgeVariant
     func body(content: Content) -> some View {
         content
             .scrollEdgeEffectStyle(.soft, for: .top)
+            .scrollEdgeEffectHidden(variant == .sectionTitles, for: .top)
             .scrollEdgeEffectHidden(true, for: .bottom)
     }
 }
 
 extension View {
-    func glassScrollEdges() -> some View { modifier(GlassScrollEdges()) }
+    func glassScrollEdges(_ variant: GlassScrollEdgeVariant = .floatingControls) -> some View {
+        modifier(GlassScrollEdges(variant: variant))
+    }
 }
 
 /// File imports, magnet imports and their loading states share this card.

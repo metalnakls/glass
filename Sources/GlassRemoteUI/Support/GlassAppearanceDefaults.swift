@@ -25,6 +25,7 @@ public enum GlassAppearanceDefaults {
         "GlassInspector.nativeSelectionHighlight": false,
         "GlassInspector.fileSideInset": 18.0,
         "GlassInspector.permanentSearch": true,
+        "GlassInspector.showPup": true,
         "GlassAdd.showIcon": true,
         "GlassAdd.titleTopPadding": 20.0,
         "GlassAdd.titleLeftPadding": 20.0,

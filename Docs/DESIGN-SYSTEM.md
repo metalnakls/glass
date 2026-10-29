@@ -32,9 +32,9 @@ Add variants only for real callers.
 | Add presentation | `GlassAddCard`, `GlassAddHeader`, `GlassModalMetrics` | resolving, ready, failure; one or multiple imports | Stable dimensions, title/location/dock structure across states |
 | File browser | `TorrentFilesBrowser`, `TorrentFileRowLabel`, file-list layout support | inspector, add selection | Columns, insets, separators, file interaction, context-specific progress |
 | Torrent rows | `TorrentListView`, `TorrentRowView`, `TorrentDraftRow`, `TorrentListRowChrome`, `TorrentListLayout` | existing densities; single/group, selected/unselected, pending/active/completed | Shared row geometry and native separator policy |
-| Section titles | `TorrentStickyHeaders`, `StickyTitleLabel`, header appearance | inline, pinned, outgoing; short/long section | Measured position, pin inset, two-item release gap, continuous handoff |
-| Scroll effect | `glassScrollEdges`, native top bar | main list, inspector, add | Native top blur, sharp foreground titles, no duplicate fade |
-| Settings | `AppearancePreferences`, `GlassAppearanceDefaults`, Tune | saved override or default | One setting definition: key, type, meaning, units, range, default, owner |
+| Section titles | `TorrentStickyHeaders`, `StickyTitleLabel`, `TorrentHeaderScrollMotion` | inline, pinned, outgoing; short/long section; fast-scroll suppression | Measured position, pin inset, two-item release gap, continuous handoff and velocity policy |
+| Scroll effect | `glassScrollEdges`, `HeaderBackdrop` | floating controls; section titles | One native top effect, sharp foreground titles, interruptible exit |
+| Settings | `AppearancePreferences`, `GlassAppearanceDefaults`, `GlassTuningSlider`, Tune | saved override or default; explicit units | Native controls, accessible labels/values, key, meaning, units, range, default, owner |
 | Artwork | preview/icon owners and bundle document assets | document, folder, artwork, unavailable | Asset provenance, shared slot, aspect ratio, optical centering, empty state |
 
 ### Variant rules
@@ -57,8 +57,8 @@ Add variants only for real callers.
 | L2 | Rules start at the text column and end before the state-control column. Contents are centered vertically between row boundaries. | Each supported density and a narrow window. |
 | L3 | Pinned titles retain established breathing room. History before `d6cf155` used a 20-point pin inset, separate from the label's 8-point interior. These are historical app values, not Apple defaults. | Accepted reference compared against inline and pinned positions. |
 | L4 | An outgoing title begins clearing two displayed rows before the following section. Existing short-section eligibility is a separate rule and also survives. | Forward/reverse scrolling with 1-, 2-, 3-, and many-row sections; production controller policy exercised. |
-| L5 | One title remains sharp and continuous through inline, pinned and outgoing states. No fade/pop, duplicate, or clipping before the intended window exit. | Recording through handoffs in both directions. |
-| L6 | Native progressive blur acts on passing content behind titles. No opaque replacement band or second custom title fade. | Light/dark appearance and content passing beneath the title. |
+| L5 | Normal scrolling keeps one sharp, continuous title through inline, pinned and outgoing states. During a fast fling, floating titles are suppressed and only the current title returns as scrolling settles; inline labels remain visible. | Forward/reverse handoffs, velocity thresholds, idle recovery, Reduce Motion. |
+| L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material with a gradient and interruptible exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
 | L7 | Selection, keyboard, rename, group expansion, drag, row identity and state-button actions survive layout changes. | Native input checks with representative rows. |
 
 ### Distinct spacing quantities
@@ -139,3 +139,34 @@ time rather than a fixed transition. These are intentional named exceptions.
 `python3 Scripts/check-motion-policy.py` rejects new fixed SwiftUI timing outside
 the shared owner; the local build/install script runs it before building.
 Compilation and policy tests do not establish visual quality in every variant.
+
+### Header and Tune follow-up
+
+The user requested fast-scroll title suppression and a gradual blur exit on
+29 October 2026. `TorrentHeaderScrollMotion` measures native live-scroll offsets;
+it never moves the document. Floating titles hide above 2.5 viewport heights per
+second and return below 0.8 after 80 ms of slow movement, or after 160 ms without
+scroll updates. The thresholds scale with window height and use hysteresis.
+Restoration uses the saved title entrance duration; Reduce Motion restores
+immediately. Native labels remain accessible in their original list rows.
+
+`glassScrollEdges(.sectionTitles)` disables the system edge effect only in the
+main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerView`
+material and `.withinWindow` blending. This is necessary because the system
+variable-blur filter disappeared at the outgoing title's last glyph in the
+native reproduction. The backdrop retains its full gradient extent through its
+saved exit duration. No private rendering API is used in the application.
+Inspector, Add and Tune retain `glassScrollEdges(.floatingControls)`.
+
+Both Tune slider groups use `GlassTuningSlider`: native keyboard behavior,
+semantic text, visible units and an accessible label/value. Stored values and
+ranges are preserved. Header colour overrides remain saved for compatibility;
+their inactive controls are removed because the native material owns colour.
+The header strength, reach and background timing controls now affect that native
+backdrop. The title entrance label describes fast-scroll restoration, and the
+exit label describes section removal rather than promising an unrelated fade.
+
+`GlassInspector.showPup` is a Boolean, default `true`, exposed as **Show pup** in
+Tune → Inspector. It removes/recreates the decorative child panel immediately,
+and participates in save/reset through the existing appearance owner. It does
+not change Inspector selection, layout or focus.

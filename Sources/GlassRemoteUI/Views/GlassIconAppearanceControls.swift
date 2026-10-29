@@ -45,27 +45,27 @@ struct GlassIconAppearanceControls: View {
                     Text(glassText("Clear")).tag(false)
                     Text(glassText("Frosted")).tag(true)
                 }.pickerStyle(.segmented)
-                slider("Frost blur", value: $blur, range: 0...6)
-                slider("Frost", value: $frost, range: 0...1, percent: true)
-                slider("Opacity", value: $opacity, range: 0.1...1, percent: true)
-                slider("Brightness", value: $brightness, range: 0...1, percent: true)
+                GlassTuningSlider("Frost blur", value: $blur, range: 0...6)
+                GlassTuningSlider("Frost", value: $frost, range: 0...1, unit: .percent)
+                GlassTuningSlider("Opacity", value: $opacity, range: 0.1...1, unit: .percent)
+                GlassTuningSlider("Brightness", value: $brightness, range: 0...1, unit: .percent)
             }.disabled(!glassEnabled)
             Divider()
             Text(glassText("Icon shadows")).font(.subheadline.weight(.semibold))
-            slider("Shadow strength", value: $shadowStrength, range: 0...0.65, percent: true)
-            slider("Shadow softness", value: $shadowSoftness, range: 0...32)
-            slider("Shadow offset", value: $shadowOffset, range: 0...24)
+            GlassTuningSlider("Shadow strength", value: $shadowStrength, range: 0...0.65, unit: .percent)
+            GlassTuningSlider("Shadow softness", value: $shadowSoftness, range: 0...32)
+            GlassTuningSlider("Shadow offset", value: $shadowOffset, range: 0...24)
             Divider()
             Group {
                 Text(glassText("Colour")).font(.subheadline.weight(.semibold))
                 ColorPicker("Tint", selection: tintColor, supportsOpacity: false)
-                slider("Tint strength", value: $tintStrength, range: 0...1, percent: true)
+                GlassTuningSlider("Tint strength", value: $tintStrength, range: 0...1, unit: .percent)
                 Divider()
                 Text(glassText("HDR reflections")).font(.subheadline.weight(.semibold))
-                slider("HDR brightness · light", value: $hdrLight, range: 0...3)
-                slider("HDR brightness · dark", value: $hdrDark, range: 0...3)
-                slider("HDR highlight softness", value: $hdrSoftness, range: 0...4)
-                slider("HDR highlight width", value: $hdrWidth, range: 0.5...3)
+                GlassTuningSlider("HDR brightness · light", value: $hdrLight, range: 0...3, unit: .decimal)
+                GlassTuningSlider("HDR brightness · dark", value: $hdrDark, range: 0...3, unit: .decimal)
+                GlassTuningSlider("HDR highlight softness", value: $hdrSoftness, range: 0...4)
+                GlassTuningSlider("HDR highlight width", value: $hdrWidth, range: 0.5...3)
                 Text(glassText("HDR brightens reflections. Extra brightness depends on your display."))
                     .font(.caption).foregroundStyle(.secondary)
             }.disabled(!glassEnabled)
@@ -77,15 +77,4 @@ struct GlassIconAppearanceControls: View {
         }
     }
 
-    private func slider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : formatNumber(value.wrappedValue))
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }.font(.caption)
-            Slider(value: value, in: range).accessibilityLabel(title)
-        }
-    }
 }

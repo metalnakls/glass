@@ -24,6 +24,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeInspectorHighlight = false
     @AppearanceStorage("GlassInspector.fileSideInset") private var inspectorSideInset = 18.0
     @AppearanceStorage("GlassInspector.permanentSearch") private var permanentInspectorSearch = true
+    @AppearanceStorage("GlassInspector.showPup") private var showInspectorPup = true
     @AppearanceStorage("GlassAdd.showIcon") private var addIcon = true
     @AppearanceStorage("GlassAdd.titleTopPadding") private var addTitleTopPadding = 20.0
     @AppearanceStorage("GlassAdd.titleLeftPadding") private var addTitleLeftPadding = 20.0
@@ -88,18 +89,10 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppearanceStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
     @AppearanceStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
-    @AppearanceStorage("GlassList.headerFadeColorLight") private var headerFadeColorLight = "FFFFFF"
-    @AppearanceStorage("GlassList.headerFadeColorDark") private var headerFadeColorDark = "0C0C0C"
     private func highlightColor(dark: Bool) -> Binding<Color> {
         Binding(get: { Color(nsColor: HeaderFadeColor.decode(dark ? highlightColorDark : highlightColorLight)) }, set: {
             let hex = HeaderFadeColor.encode(NSColor($0))
             if dark { highlightColorDark = hex } else { highlightColorLight = hex }
-        })
-    }
-    private func headerColor(dark: Bool) -> Binding<Color> {
-        Binding(get: { Color(nsColor: HeaderFadeColor.decode(dark ? headerFadeColorDark : headerFadeColorLight)) }, set: {
-            let hex = HeaderFadeColor.encode(NSColor($0))
-            if dark { headerFadeColorDark = hex } else { headerFadeColorLight = hex }
         })
     }
 
@@ -210,8 +203,8 @@ public struct SelectionAppearanceView: View {
                 Text(glassText("Personality")).font(.subheadline.weight(.semibold))
                 Toggle(glassText("Fun mode"), isOn: $funMode)
                 if funMode {
-                    shadowSlider("Icon scale", value: $funScale, range: 1...1.8, decimal: true)
-                    shadowSlider("Icon tilt", value: $funTilt, range: 0...16)
+                    GlassTuningSlider("Icon scale", value: $funScale, range: 1...1.8, unit: .multiplier)
+                    GlassTuningSlider("Icon tilt", value: $funTilt, range: 0...16, unit: .degrees)
                     Toggle(glassText("Coloured poster shadows"), isOn: $coloredShadows)
                 }
             }
@@ -220,24 +213,24 @@ public struct SelectionAppearanceView: View {
                 Text(glassText("Highlight")).font(.subheadline.weight(.semibold))
                 ColorPicker("Colour · light", selection: highlightColor(dark: false), supportsOpacity: false)
                 ColorPicker("Colour · dark", selection: highlightColor(dark: true), supportsOpacity: false)
-                shadowSlider("Width", value: $highlightWidth, range: -80...160)
-                hdrSlider("HDR brightness · light", value: $selectedHDRWhiteLight)
-                hdrSlider("HDR brightness · dark", value: $selectedHDRWhiteDark)
-                shadowSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
-                shadowSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
+                GlassTuningSlider("Width", value: $highlightWidth, range: -80...160)
+                GlassTuningSlider("HDR brightness · light", value: $selectedHDRWhiteLight, range: 0...3, unit: .decimal)
+                GlassTuningSlider("HDR brightness · dark", value: $selectedHDRWhiteDark, range: 0...3, unit: .decimal)
+                GlassTuningSlider("HDR glow softness", value: $selectedHDRSoftness, range: 0...32)
+                GlassTuningSlider("HDR glow spread", value: $selectedHDRSpread, range: 0...24)
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Shadow above")).font(.subheadline.weight(.semibold))
-                shadowSlider("Strength", value: $shadowTopStrength, range: 0...0.65, percent: true)
-                shadowSlider("Softness", value: $shadowTopSoftness, range: 0...32)
-                shadowSlider("Lift", value: $shadowTopLift, range: 0...24)
+                GlassTuningSlider("Strength", value: $shadowTopStrength, range: 0...0.65, unit: .percent)
+                GlassTuningSlider("Softness", value: $shadowTopSoftness, range: 0...32)
+                GlassTuningSlider("Lift", value: $shadowTopLift, range: 0...24)
             }
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Shadow below")).font(.subheadline.weight(.semibold))
-                shadowSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, percent: true)
-                shadowSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
-                shadowSlider("Lift", value: $shadowBottomLift, range: 0...24)
+                GlassTuningSlider("Strength", value: $shadowBottomStrength, range: 0...0.65, unit: .percent)
+                GlassTuningSlider("Softness", value: $shadowBottomSoftness, range: 0...32)
+                GlassTuningSlider("Lift", value: $shadowBottomLift, range: 0...24)
             }
         case .layout:
             VStack(alignment: .leading, spacing: 12) {
@@ -250,49 +243,51 @@ public struct SelectionAppearanceView: View {
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Spacing")).font(.subheadline.weight(.semibold))
-                shadowSlider("Left padding", value: $leftPadding, range: 0...160)
-                shadowSlider("Right padding", value: $rightPadding, range: 0...160)
-                shadowSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
-                shadowSlider("Between sections", value: $sectionSpacing, range: 0...120)
-                shadowSlider("Before first header", value: $initialPadding, range: 0...160)
-                shadowSlider("After last item", value: $endPadding, range: 0...160)
-                shadowSlider("Below headers", value: $headerBottomPadding, range: 0...120)
+                GlassTuningSlider("Left padding", value: $leftPadding, range: 0...160)
+                GlassTuningSlider("Right padding", value: $rightPadding, range: 0...160)
+                GlassTuningSlider("Item vertical padding", value: $itemVerticalPadding, range: -10...30)
+                GlassTuningSlider("Between sections", value: $sectionSpacing, range: 0...120)
+                GlassTuningSlider("Before first header", value: $initialPadding, range: 0...160)
+                GlassTuningSlider("After last item", value: $endPadding, range: 0...160)
+                GlassTuningSlider("Below headers", value: $headerBottomPadding, range: 0...120)
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Columns")).font(.subheadline.weight(.semibold))
-                shadowSlider("Brightness · light", value: $columnLightBrightness, range: 0...1, percent: true)
-                shadowSlider("Brightness · dark", value: $columnDarkBrightness, range: 0...1, percent: true)
+                GlassTuningSlider("Brightness · light", value: $columnLightBrightness, range: 0...1, unit: .percent)
+                GlassTuningSlider("Brightness · dark", value: $columnDarkBrightness, range: 0...1, unit: .percent)
             }
         case .headers:
             VStack(alignment: .leading, spacing: 12) {
-                Text(glassText("Fade")).font(.subheadline.weight(.semibold))
-                ColorPicker("Colour · light", selection: headerColor(dark: false), supportsOpacity: false)
-                ColorPicker("Colour · dark", selection: headerColor(dark: true), supportsOpacity: false)
-                shadowSlider("Strength · light", value: $headerFadeStrengthLight, range: 0...1, percent: true)
-                shadowSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, percent: true)
-                shadowSlider("Reach below title", value: $headerFadeReach, range: 0...240)
-                shadowSlider("Extra push lead", value: $headerPushLead, range: 0...120)
+                Text(glassText("Header backdrop")).font(.subheadline.weight(.semibold))
+                Text(glassText("The native material follows the window appearance and fades as a header leaves."))
+                    .font(.caption).foregroundStyle(.secondary)
+                GlassTuningSlider("Strength · light", value: $headerFadeStrengthLight, range: 0...1, unit: .percent)
+                GlassTuningSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, unit: .percent)
+                GlassTuningSlider("Reach below title", value: $headerFadeReach, range: 0...240)
+                GlassTuningSlider("Extra push lead", value: $headerPushLead, range: 0...120)
+                Text(glassText("Floating titles hide during fast scrolling. Inline section labels stay visible."))
+                    .font(.caption).foregroundStyle(.secondary)
             }
         case .progress:
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("State button")).font(.subheadline.weight(.semibold))
                 Toggle(glassText("Glass state button"), isOn: $stateGlass)
-                shadowSlider("Size / button spacing", value: $stateGap, range: 0...32)
-                shadowSlider("File priority spacing", value: $filePriorityGap, range: 0...32)
+                GlassTuningSlider("Size / button spacing", value: $stateGap, range: 0...32)
+                GlassTuningSlider("File priority spacing", value: $filePriorityGap, range: 0...32)
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Progress ring")).font(.subheadline.weight(.semibold))
                 Toggle(glassText("Fill circle with progress"), isOn: $progressFilled)
-                shadowSlider("Glow blur", value: $progressGlowBlur, range: 0...16)
-                shadowSlider("Glow strength", value: $progressGlowStrength, range: 0...2)
-                shadowSlider("Line width", value: $progressLineWidth, range: 0.5...5)
+                GlassTuningSlider("Glow blur", value: $progressGlowBlur, range: 0...16)
+                GlassTuningSlider("Glow strength", value: $progressGlowStrength, range: 0...2, unit: .percent)
+                GlassTuningSlider("Line width", value: $progressLineWidth, range: 0.5...5)
             }
         case .add:
             Toggle(glassText("Torrent icon"), isOn: $addIcon)
-            shadowSlider("Title top padding", value: $addTitleTopPadding, range: 0...80)
-            shadowSlider("Title left padding", value: $addTitleLeftPadding, range: 0...80)
+            GlassTuningSlider("Title top padding", value: $addTitleTopPadding, range: 0...80)
+            GlassTuningSlider("Title left padding", value: $addTitleLeftPadding, range: 0...80)
             Stepper(glassText("Location icons per row: \(locationColumns)"), value: $locationColumns, in: 1...6)
             Stepper(glassText("Recent folders: \(recentLocations)"), value: $recentLocations, in: 0...12)
         case .haptics:
@@ -314,70 +309,37 @@ public struct SelectionAppearanceView: View {
                 Text(glassText("Allow Glass in Login Items to finish enabling the worker.")).font(.caption)
             }
         case .inspector:
+            Toggle(glassText("Show pup"), isOn: $showInspectorPup)
+                .help(glassText("Show the decorative pup when the Inspector is empty."))
             Toggle(glassText("Permanent full-width search"), isOn: $permanentInspectorSearch)
             Toggle(glassText("Native selection highlight"), isOn: $nativeInspectorHighlight)
-            shadowSlider("File side padding", value: $inspectorSideInset, range: 8...40)
+            GlassTuningSlider("File side padding", value: $inspectorSideInset, range: 8...40)
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(glassText("Inspector blur enabled"), isOn: $inspectorBlurEnabled)
-                shadowSlider("Blur radius", value: $inspectorBlurRadius, range: 0...24)
-                durationSlider("Ease in", value: $inspectorBlurEaseIn)
-                durationSlider("Ease out", value: $inspectorBlurEaseOut)
+                GlassTuningSlider("Blur radius", value: $inspectorBlurRadius, range: 0...24)
+                GlassTuningSlider("Ease in", value: $inspectorBlurEaseIn, range: 0...1.5, unit: .seconds)
+                GlassTuningSlider("Ease out", value: $inspectorBlurEaseOut, range: 0...1.5, unit: .seconds)
             }
         case .motion:
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Selection")).font(.subheadline.weight(.semibold))
-                durationSlider("Ease in", value: $selectionEaseIn)
-                durationSlider("Ease out", value: $selectionEaseOut)
+                GlassTuningSlider("Ease in", value: $selectionEaseIn, range: 0...1.5, unit: .seconds)
+                GlassTuningSlider("Ease out", value: $selectionEaseOut, range: 0...1.5, unit: .seconds)
             }
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Text(glassText("Header transitions")).font(.subheadline.weight(.semibold))
-                durationSlider("Background fade in", value: $headerBackgroundIn)
-                durationSlider("Background fade out", value: $headerBackgroundOut)
-                durationSlider("Title fade in", value: $headerTitleIn)
-                durationSlider("Title fade out", value: $headerTitleOut)
+                GlassTuningSlider("Background fade in", value: $headerBackgroundIn, range: 0...1.5, unit: .seconds)
+                GlassTuningSlider("Background fade out", value: $headerBackgroundOut, range: 0...1.5, unit: .seconds)
+                GlassTuningSlider("Restore title after fast scrolling", value: $headerTitleIn, range: 0...1.5, unit: .seconds)
+                GlassTuningSlider("Removed title exit", value: $headerTitleOut, range: 0...1.5, unit: .seconds)
             }
             Divider()
-            shadowSlider("Drop blur", value: $dropBlurRadius, range: 0...32)
+            GlassTuningSlider("Drop blur", value: $dropBlurRadius, range: 0...32)
         }
     }
 
-    private func hdrSlider(_ title: String, value: Binding<Double>) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(value.wrappedValue, format: .number.precision(.fractionLength(2))).monospacedDigit().foregroundStyle(.secondary)
-            }.font(.caption)
-            Slider(value: value, in: 0...3).accessibilityLabel(title)
-        }
-    }
-
-    private func durationSlider(_ title: String, value: Binding<Double>) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text("\(formatNumber(value.wrappedValue)) s")
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }.font(.caption)
-            Slider(value: value, in: 0...1.5).accessibilityLabel(title)
-        }
-    }
-
-    private func shadowSlider(_ title: String, value: Binding<Double>, range: ClosedRange<Double>, percent: Bool = false, decimal: Bool = false) -> some View {
-        VStack(spacing: 3) {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(percent ? "\(Int((value.wrappedValue * 100).rounded()))%" : decimal ? formatNumber(value.wrappedValue) : "\(Int(value.wrappedValue.rounded()))")
-                    .monospacedDigit().foregroundStyle(.secondary)
-            }
-            .font(.caption)
-            Slider(value: value, in: range).accessibilityLabel(title)
-        }
-    }
 
 }
 
