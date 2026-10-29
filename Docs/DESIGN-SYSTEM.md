@@ -32,7 +32,7 @@ Add variants only for real callers.
 | Add presentation | `GlassAddCard`, `GlassAddHeader`, `GlassModalMetrics` | resolving, ready, failure; one or multiple imports | Stable dimensions, title/location/dock structure across states |
 | File browser | `TorrentFilesBrowser`, `TorrentFileRowLabel`, file-list layout support | inspector, add selection | Columns, insets, separators, file interaction, context-specific progress |
 | Torrent rows | `TorrentListView`, `TorrentRowView`, `TorrentDraftRow`, `TorrentListRowChrome`, `TorrentListLayout` | existing densities; single/group, selected/unselected, pending/active/completed | Shared row geometry and native separator policy |
-| Section titles | `TorrentStickyHeaders`, `StickyTitleLabel`, `TorrentHeaderScrollMotion` | inline, pinned, outgoing; short/long section; fast-scroll suppression | Measured position, pin inset, two-item release gap, continuous handoff and velocity policy |
+| Section titles | `TorrentStickyHeaders`, `StickyTitleLabel` | inline, pinned, outgoing; short/long section; large scroll jump | Measured position, pin inset, two-item release gap, visible current title and direct handoff |
 | Scroll effect | `glassScrollEdges`, `HeaderBackdrop` | floating controls; section titles | One native top effect, sharp foreground titles, interruptible exit |
 | Settings | `AppearancePreferences`, `GlassAppearanceDefaults`, `GlassTuningSlider`, Tune | saved override or default; explicit units | Native controls, accessible labels/values, key, meaning, units, range, default, owner |
 | Artwork | `NativeGlassIcon`, `NativeIconGeometry`, `TorrentGhostIcon`, preview owners | glass/original, document/folder, torrent ghost, artwork, unavailable | Native source, shared optical bounds, readable details, cached rendering, empty state |
@@ -57,7 +57,7 @@ Add variants only for real callers.
 | L2 | Rules start at the text column and end before the state-control column. Contents are centered vertically between row boundaries. | Each supported density and a narrow window. |
 | L3 | Pinned titles retain established breathing room. History before `d6cf155` used a 20-point pin inset, separate from the label's 8-point interior. These are historical app values, not Apple defaults. | Accepted reference compared against inline and pinned positions. |
 | L4 | An outgoing title begins clearing two displayed rows before the following section. Existing short-section eligibility is a separate rule and also survives. | Forward/reverse scrolling with 1-, 2-, 3-, and many-row sections; production controller policy exercised. |
-| L5 | Normal scrolling keeps one sharp, continuous title through inline, pinned and outgoing states. During a fast fling, titles fade across one title height approaching the pin line in either direction; floating titles stay suppressed and only the current title returns as scrolling settles. Inline labels below that zone remain visible. | Forward/reverse handoffs, velocity thresholds, idle recovery, native presentation opacity, Reduce Motion. |
+| L5 | Headers stay fully visible at every scroll speed. A large jump resolves directly to the current section without animating skipped headers through the pinned slot. Inline labels remain visible. | Forward/reverse jumps, native live scrolling, interrupted layout motion and short/long sections. |
 | L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material with a gradient and interruptible exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
 | L7 | Selection, keyboard, rename, group expansion, drag, row identity and state-button actions survive layout changes. | Native input checks with representative rows. |
 
@@ -143,27 +143,19 @@ Compilation and policy tests do not establish visual quality in every variant.
 
 ### Header and Tune follow-up
 
-The user requested fast-scroll title suppression and a gradual blur exit on
-29 October 2026. `TorrentHeaderScrollMotion` measures native live-scroll offsets;
-it never moves the document. Floating-title visibility follows current speed:
-fully visible below 0.8 viewport heights/second, fully faded above 2.5, with a
-continuous curve between. A 60 ms velocity filter smooths event jitter. Slowing
-restores titles during the same gesture; visibility is never locked until finger
-release. A 160 ms inactivity fallback handles a stationary finger and legacy
-wheels. The gesture-lock implementation was rejected because it hid titles
-through ordinary scrolling after any fast stroke.
-Restoration uses the saved title entrance duration; Reduce Motion restores
-immediately. Native labels remain accessible in their original list rows.
+The user clarified on 29 October 2026 that speed must never hide headers.
+The earlier velocity-based suppression/restoration policy is withdrawn. Native
+bounds notifications coalesce into the existing queued layout update, which reads
+the latest viewport instead of replaying intermediate section positions. Only
+headers intersecting that viewport are presented. Scroll offsets never animate;
+any unfinished inline-layout animation is cancelled when scrolling or pinning
+places the title. Structural layout motion remains separate. The 20-point pin
+inset, two-row release rule and short-section eligibility remain unchanged.
 
-Speed samples accumulate movement across sub-frame notifications instead of
-rounding each interval separately. Fast-scroll visibility follows a continuous
-curve across one measured title height approaching or leaving the pin line, so
-becoming inline or pinned cannot cause an opacity cut. Suppression uses a 0.12-second
-native fade; restoration retains its saved duration. Newly crossed floating
-titles receive their opacity before the next frame, preventing a flash of each
-section. Opacity animation runs outside the transaction that disables animation
-for scroll coordinates. Native scrolling and title pin/release positions remain
-unchanged.
+The old title-restoration Tune value remains saved for compatibility, but its
+inactive slider is removed. There is no speed threshold, idle timer or title
+opacity animation in the scroll path. Tests exercise the native fast/slow scroll
+notifications, forward/reverse jumps, and interruption of an inline animation.
 
 `glassScrollEdges(.sectionTitles)` disables the system edge effect only in the
 main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerView`
@@ -184,8 +176,8 @@ semantic text, visible units and an accessible label/value. Stored values and
 ranges are preserved. Header colour overrides remain saved for compatibility;
 their inactive controls are removed because the native material owns colour.
 The header strength, reach and background timing controls now affect that native
-backdrop. The title entrance label describes fast-scroll restoration, and the
-exit label describes section removal rather than promising an unrelated fade.
+backdrop. The title exit label describes section removal. Scroll speed has no title
+opacity control.
 
 `GlassInspector.showPup` is a Boolean, default `true`, exposed as **Show pup** in
 Tune → Inspector. It removes/recreates the decorative child panel immediately,

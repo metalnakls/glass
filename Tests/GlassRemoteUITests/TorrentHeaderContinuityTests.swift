@@ -140,7 +140,7 @@ struct TorrentHeaderContinuityTests {
             }
         }
     }
-    @Test("native live-scroll notifications suppress and restore the current floating title")
+    @Test("native live-scroll notifications keep the current floating title visible")
     func liveScrollVisibility() async throws {
         _ = NSApplication.shared
         let controller = TorrentStickyHeaders()
@@ -163,16 +163,16 @@ struct TorrentHeaderContinuityTests {
         scroll.contentView.scroll(to: .init(x: 0, y: 100))
         scroll.reflectScrolledClipView(scroll.contentView)
         NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
-        #expect(title.isScrollSuppressed)
+        #expect(title.alphaValue == 1)
         let pinnedFrame = title.frame
         NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         try await Task.sleep(for: .milliseconds(400))
-        #expect(!title.isScrollSuppressed)
+        #expect(title.alphaValue == 1)
         #expect(title.frame == pinnedFrame)
         #expect(scroll.contentView.bounds.minY == 100)
     }
 
-    @Test("headers recover during slow scrolling before the gesture ends", arguments: [true, false])
+    @Test("headers remain visible through fast and slow scrolling", arguments: [true, false])
     func slowScrollRestoresHeader(trackedGesture: Bool) async throws {
         _ = NSApplication.shared
         let controller = TorrentStickyHeaders()
@@ -201,7 +201,7 @@ struct TorrentHeaderContinuityTests {
             scroll.contentView.scroll(to: .init(x: 0, y: offset))
             scroll.reflectScrolledClipView(scroll.contentView)
             NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
-            #expect(title.isScrollSuppressed)
+            #expect(title.alphaValue == 1)
             for _ in 0..<20 {
                 try await Task.sleep(for: .milliseconds(20))
                 offset += 1
@@ -209,20 +209,20 @@ struct TorrentHeaderContinuityTests {
                 scroll.reflectScrolledClipView(scroll.contentView)
                 NotificationCenter.default.post(name: NSScrollView.didLiveScrollNotification, object: scroll)
             }
-            let suppressed = title.isScrollSuppressed
+            let suppressed = title.alphaValue < 1
             #expect(!suppressed, "header stayed invisible during the slow part of burst \(burst)")
             let opacity = try #require(title.layer?.presentation()?.opacity)
             #expect(opacity > 0.9, "header must be readable while slow scrolling continues")
         }
         // A stationary finger must not keep a title hidden either.
         try await Task.sleep(for: .milliseconds(220))
-        let suppressed = title.isScrollSuppressed
+        let suppressed = title.alphaValue < 1
         #expect(!suppressed)
         if trackedGesture {
             NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: scroll)
         }
         try await Task.sleep(for: .milliseconds(400))
-        #expect(!title.isScrollSuppressed)
+        #expect(title.alphaValue == 1)
         #expect(scroll.contentView.bounds.minY == offset)
     }
 

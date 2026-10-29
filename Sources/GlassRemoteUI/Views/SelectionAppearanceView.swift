@@ -86,7 +86,6 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassList.headerFadeReach") private var headerFadeReach = 48.0
     @AppearanceStorage("GlassList.headerBackgroundIn") private var headerBackgroundIn = 0.22
     @AppearanceStorage("GlassList.headerBackgroundOut") private var headerBackgroundOut = 0.28
-    @AppearanceStorage("GlassList.headerTitleIn") private var headerTitleIn = 0.18
     @AppearanceStorage("GlassList.headerTitleOut") private var headerTitleOut = 0.22
     @AppearanceStorage("GlassList.headerPushLead") private var headerPushLead = 0.0
     private func highlightColor(dark: Bool) -> Binding<Color> {
@@ -266,7 +265,7 @@ public struct SelectionAppearanceView: View {
                 GlassTuningSlider("Strength · dark", value: $headerFadeStrengthDark, range: 0...1, unit: .percent)
                 GlassTuningSlider("Reach below title", value: $headerFadeReach, range: 0...240)
                 GlassTuningSlider("Extra push lead", value: $headerPushLead, range: 0...120)
-                Text(glassText("During fast scrolling, section titles fade near the top and return as scrolling settles."))
+                Text(glassText("Section titles stay visible while scrolling. Large jumps go straight to the current section."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         case .progress:
@@ -332,7 +331,6 @@ public struct SelectionAppearanceView: View {
                 Text(glassText("Header transitions")).font(.subheadline.weight(.semibold))
                 GlassTuningSlider("Background fade in", value: $headerBackgroundIn, range: 0...1.5, unit: .seconds)
                 GlassTuningSlider("Background fade out", value: $headerBackgroundOut, range: 0...1.5, unit: .seconds)
-                GlassTuningSlider("Restore title after fast scrolling", value: $headerTitleIn, range: 0...1.5, unit: .seconds)
                 GlassTuningSlider("Removed title exit", value: $headerTitleOut, range: 0...1.5, unit: .seconds)
             }
             Divider()
