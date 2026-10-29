@@ -47,6 +47,27 @@ private struct GlassInspectorQuickLookActionKey: FocusedValueKey {
     typealias Value = @MainActor (NSWindow) -> Void
 }
 
+/// Focused values refresh during native scrolling. Keep that dependency on the
+/// key handler so it cannot rebuild the workspace, list, and inspector each frame.
+struct TorrentRootQuickLookKeyHandler: ViewModifier {
+    @FocusedValue(\.glassInspectorQuickLookAction) private var inspectorQuickLookAction
+
+    func body(content: Content) -> some View {
+        content.onKeyPress(.space, phases: [.down]) { _ in
+            guard let window = NSApp.keyWindow,
+                  TorrentKeyboardQuickLookPolicy.mayForwardFromRoot(
+                    actionAvailable: inspectorQuickLookAction != nil,
+                    firstResponder: window.firstResponder,
+                    keyWindow: window,
+                    applicationIsActive: NSApp.isActive
+                  ),
+                  let inspectorQuickLookAction else { return .ignored }
+            inspectorQuickLookAction(window)
+            return .handled
+        }
+    }
+}
+
 extension FocusedValues {
     var glassInspectorQuickLookAction: (@MainActor (NSWindow) -> Void)? {
         get { self[GlassInspectorQuickLookActionKey.self] }
