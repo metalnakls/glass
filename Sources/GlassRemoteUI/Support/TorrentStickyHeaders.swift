@@ -40,6 +40,9 @@ enum TorrentStickyHeaderGeometry {
     struct Layout: Equatable {
         let titles: [Placement]
         let backdropHeight: CGFloat
+        // Keep the owning header's geometry after its text leaves the viewport;
+        // the gradient below it still needs to travel the remaining distance.
+        var backdropTitle: Placement? = nil
     }
     static func displayLayout(frames: [CGRect], viewport: CGRect, sticky: Layout?) -> Layout {
         let visibleBounds = CGRect(origin: .zero, size: viewport.size)
@@ -48,7 +51,8 @@ enum TorrentStickyHeaderGeometry {
         for (index, frame) in frames.enumerated() where !placed.contains(index) && frame.intersects(viewport) {
             titles.append(Placement(index: index, frame: frame.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
         }
-        return Layout(titles: titles, backdropHeight: sticky?.backdropHeight ?? 0)
+        return Layout(titles: titles, backdropHeight: sticky?.backdropHeight ?? 0,
+                      backdropTitle: sticky?.backdropTitle)
     }
     static func layout(frames: [CGRect], viewport: CGRect, feather: CGFloat = 48, topInset: CGFloat = 0, releasePoints: [CGFloat]? = nil, stickyAllowed: [Bool]? = nil) -> Layout? {
         guard let index = frames.indices.last(where: { frames[$0].minY < viewport.minY + topInset }) else { return nil }
@@ -79,7 +83,7 @@ enum TorrentStickyHeaderGeometry {
         if let next, next.minY - viewport.minY < height {
             titles.append(Placement(index: index + 1, frame: next.offsetBy(dx: -viewport.minX, dy: -viewport.minY)))
         }
-        return Layout(titles: titles, backdropHeight: height)
+        return Layout(titles: titles, backdropHeight: height, backdropTitle: titles.first)
     }
 }
 
@@ -330,7 +334,6 @@ final class TorrentStickyHeaders: NSObject {
         overlay.attachViewport(to: scroll)
         overlay.isHidden = false
         overlay.present(layout: layout, headers: ordered, hosts: titleHosts,
-                        backdropActive: sticky?.titles.contains { !$0.retiring } == true,
                         viewport: viewport, animateInline: !didScroll && Date() < inlineMotionUntil && NSApp.currentEvent?.type != .scrollWheel)
     }
     isolated deinit {
@@ -347,6 +350,7 @@ final class HeaderBackdrop: NSView {
     private var titles: [String: TitleHost] = [:]
     private(set) var backdropIsActive = false
     private var settings = TorrentHeaderAppearance()
+    private var backdropHeaderID: String?
     func attachViewport(to scroll: NSScrollView) {
         guard !externallyHosted else { return }
         if pinnedSurface.superview !== scroll {
@@ -390,8 +394,8 @@ final class HeaderBackdrop: NSView {
         animateBackdrop(active)
     }
     private func animateBackdrop(_ active: Bool) {
-        // Only pin/unpin changes opacity. Scroll updates and section pushes
-        // never restart this native, interruptible time-based transition.
+        // Scroll travel moves the full material and gradient with their title.
+        // Opacity changes only when the surface enters/leaves use, not on push.
         // A live-scroll/layout caller can disable actions in its transaction.
         // Re-enable them only for this fade, then restore the caller's state.
         // NSAnimationContext's duration alone does not override that flag.
@@ -432,9 +436,16 @@ final class HeaderBackdrop: NSView {
         isHidden = true
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
-    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool = true, viewport: CGRect? = nil, animateInline: Bool = false) {
+    func present(layout: TorrentStickyHeaderGeometry.Layout, headers: [TorrentStickyHeaders.Header], hosts: [String: TitleHost], backdropActive: Bool? = nil, viewport: CGRect? = nil, animateInline: Bool = false) {
         isHidden = false
-        setBackdropActive(backdropActive)
+        let pinnedTitle = layout.backdropTitle ?? layout.titles.first { $0.pinned }
+        if let pinnedTitle { backdropHeaderID = headers[pinnedTitle.index].id }
+        // When scrolling back to inline, a finishing fade follows that same
+        // title rather than staying behind at the pin line.
+        let backdropTitle = pinnedTitle ?? layout.titles.first { headers[$0.index].id == backdropHeaderID }
+        let effectHeight = layout.backdropHeight > 0 ? layout.backdropHeight : effect.frame.height
+        let relativeTop = backdropTitle.map { $0.frame.minY - TorrentStickyHeaders.topInset }
+        setBackdropActive(backdropActive ?? (pinnedTitle != nil && (relativeTop ?? 0) + effectHeight > 0))
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         let viewport = viewport ?? bounds
@@ -442,17 +453,10 @@ final class HeaderBackdrop: NSView {
         if externallyHosted, let table = superview as? NSTableView, let clip = table.enclosingScrollView?.contentView {
             viewportOffset = pinnedSurface.convert(clip.bounds.origin, from: clip)
         } else { viewportOffset = .zero }
-        // The bar can sit below the window top. Anchor the fade to the window,
-        // independently of both the bar's local origin and the moving title.
-        let fadeTop: CGFloat
-        if externallyHosted, let window = pinnedSurface.window {
-            fadeTop = pinnedSurface.convert(window.convertFromScreen(window.frame), from: nil).minY
-        } else { fadeTop = viewportOffset.y }
-        // Preserve the reach below the title, including any space above the
-        // viewport. Keep the last extent while its time-based fade finishes.
-        let effectHeight = layout.backdropHeight > 0
-            ? layout.backdropHeight + max(0, viewportOffset.y - fadeTop)
-            : effect.frame.height
+        // One measured translation for title, material and gradient. Preserve
+        // the full gradient height; clipping at the viewport reveals its tail
+        // naturally as the complete surface scrolls out.
+        let fadeTop = relativeTop.map { viewportOffset.y + $0 } ?? effect.frame.minY
         let effectFrame = CGRect(x: viewportOffset.x, y: fadeTop, width: viewport.width, height: effectHeight)
         if effect.frame != effectFrame { effect.frame = effectFrame }
         if backdropSize != effect.bounds.size {

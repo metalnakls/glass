@@ -58,7 +58,7 @@ Add variants only for real callers.
 | L3 | Pinned titles retain established breathing room. History before `d6cf155` used a 20-point pin inset, separate from the label's 8-point interior. These are historical app values, not Apple defaults. | Accepted reference compared against inline and pinned positions. |
 | L4 | An outgoing title begins clearing two displayed rows before the following section. Existing short-section eligibility is a separate rule and also survives. | Forward/reverse scrolling with 1-, 2-, 3-, and many-row sections; production controller policy exercised. |
 | L5 | Headers stay fully visible at every scroll speed. A large jump resolves directly to the current section without animating skipped headers through the pinned slot. Inline labels remain visible. | Forward/reverse jumps, native live scrolling, interrupted layout motion and short/long sections. |
-| L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material with a gradient and interruptible exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
+| L6 | One native blur surface acts on content behind sharp titles. The main list uses an AppKit header material whose gradient moves with the owning title through exit; other floating controls retain the system scroll-edge effect. No duplicate backdrop or opaque replacement band. | Title exit, fade interruption, light/dark appearance and content passing beneath the title. |
 | L7 | Selection, keyboard, rename, group expansion, drag, row identity and state-button actions survive layout changes. | Native input checks with representative rows. |
 
 ### Distinct spacing quantities
@@ -161,14 +161,20 @@ notifications, forward/reverse jumps, and interruption of an inline animation.
 main list, whose `HeaderBackdrop` owns one `NSVisualEffectView` with `.headerView`
 material and `.withinWindow` blending. This is necessary because the system
 variable-blur filter disappeared at the outgoing title's last glyph in the
-native reproduction. The backdrop retains its full gradient extent through its
-saved exit duration. The opacity transition explicitly enables Core Animation
-layer actions inside its own transaction, then restores the caller's state.
-Native scroll/layout transactions can disable actions; inheriting that flag
-made the blur vanish immediately despite a nonzero saved exit duration. Tests
-cover that calling context, entrance, and reversal during an unfinished exit.
-Title coordinates retain their unanimated scroll transaction. No private
-rendering API is used in the application.
+native reproduction. The user subsequently requested that the material move with
+its header, replacing the previous window-top anchoring. Layout retains the
+owning title's geometry even after its last glyph is clipped, so the full
+material and gradient travel out together. Beginning the two-row release no
+longer starts an independent opacity exit. The gradient keeps its full height
+and clears the viewport through the same measured translation as the title.
+Reversing to inline also keeps any finishing fade attached to that title.
+
+Saved background durations remain for activation and removal. Their native
+opacity transition explicitly enables Core Animation actions in its own
+transaction, then restores the caller's state. Scroll coordinates remain
+unanimated. Tests cover bar/viewport offsets, complete exit, reversal, fast-scroll
+visibility and disabled-action calling contexts. No private rendering API is
+used in the application.
 Inspector, Add and Tune retain `glassScrollEdges(.floatingControls)`.
 
 Both Tune slider groups use `GlassTuningSlider`: native keyboard behavior,

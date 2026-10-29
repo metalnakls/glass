@@ -4,6 +4,41 @@ import Testing
 
 @MainActor @Suite("Native header backdrop", .serialized)
 struct TorrentHeaderBackdropTests {
+    @Test("outgoing blur follows its header until the whole gradient leaves, then reverses without a cut")
+    func outgoingSurfaceTravelsTogether() async throws {
+        _ = NSApplication.shared
+        let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: 400),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let backdrop = HeaderBackdrop(frame: .init(x: 0, y: 0, width: 500, height: 400))
+        backdrop.externallyHosted = true
+        window.contentView = backdrop.pinnedSurface
+        window.orderFront(nil)
+        var appearance = TorrentHeaderAppearance()
+        appearance.backgroundIn = 0
+        backdrop.configure(appearance)
+        let host = TitleHost(title: "Queue", inset: 16)
+        let headers = [TorrentStickyHeaders.Header(id: "queue", title: "Queue", index: 0, inset: 16)]
+        let frames = [CGRect(x: 0, y: 0, width: 500, height: 47)]
+        let offsets: [CGFloat] = [33, 34, 53, 73, 100, 120, 147, 120, 73, 33]
+        for offset in offsets {
+            let viewport = CGRect(x: 0, y: offset, width: 500, height: 400)
+            let sticky = try #require(TorrentStickyHeaders.stickyLayout(frames: frames, viewport: viewport,
+                appearance: appearance, releases: [100], stickyAllowed: [true]))
+            let title = try #require(sticky.titles.first)
+            let layout = TorrentStickyHeaderGeometry.displayLayout(frames: frames, viewport: viewport, sticky: sticky)
+            backdrop.present(layout: layout, headers: headers, hosts: ["queue": host], viewport: viewport)
+            try await Task.sleep(for: .milliseconds(20))
+            let effect = try #require(backdrop.pinnedSurface.subviews.compactMap { $0 as? NSVisualEffectView }.first)
+            #expect(effect.frame.minY == title.frame.minY - TorrentStickyHeaders.topInset)
+            #expect(effect.frame.height == 115)
+            #expect(effect.layer?.mask?.frame == effect.bounds)
+            #expect(backdrop.backdropIsActive == (effect.frame.maxY > 0))
+            if effect.frame.maxY > 0 { #expect(abs(effect.alphaValue - appearance.strength) < 0.001) }
+        }
+    }
+
     @Test("the blur fades after title exit even when the scroll transaction disables layer actions", arguments: [false, true])
     func gradualExit(scrollDisablesActions: Bool) async throws {
         _ = NSApplication.shared
@@ -96,8 +131,8 @@ struct TorrentHeaderBackdropTests {
         #expect(abs((effect.layer?.presentation()?.opacity ?? 0) - Float(appearance.strength)) < 0.01)
         #expect(effect.frame.height == 115)
     }
-    @Test("the header fade stays at the window top independently of bar, viewport and title positions", arguments: [0.0, 28.0, 44.0])
-    func windowTopAlignment(barInset: CGFloat) throws {
+    @Test("the blur and gradient move with the header independently of bar and viewport positions", arguments: [0.0, 28.0, 44.0])
+    func attachedHeaderAlignment(barInset: CGFloat) throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: 400),
                               styleMask: .borderless, backing: .buffered, defer: false)
@@ -115,7 +150,7 @@ struct TorrentHeaderBackdropTests {
         backdrop.externallyHosted = true
         table.addSubview(backdrop)
         // A safe-area bar can start below the clip viewport in a full-size-content
-        // window. Only the title follows the viewport; the fade starts at the window top.
+        // window. The title, native material and gradient must travel together.
         let bar = HeaderViewportSurface(frame: .init(x: 0, y: barInset, width: 500, height: 47))
         root.addSubview(bar)
         backdrop.pinnedSurface.frame = bar.bounds
@@ -130,11 +165,11 @@ struct TorrentHeaderBackdropTests {
                 frame: .init(x: 0, y: titleY, width: viewport.width, height: 47), pinned: true)], backdropHeight: 115),
                 headers: [header], hosts: ["finished": title], viewport: viewport)
             let effect = try #require(backdrop.pinnedSurface.subviews.compactMap { $0 as? NSVisualEffectView }.first)
-            let windowTop = root.convert(window.convertFromScreen(window.frame), from: nil).minY
+            let expectedBlurTop = root.convert(scroll.contentView.bounds, from: scroll.contentView).minY + titleY - TorrentStickyHeaders.topInset
             let viewportTop = root.convert(scroll.contentView.bounds, from: scroll.contentView).minY
-            #expect(abs(root.convert(effect.bounds, from: effect).minY - windowTop) < 1)
+            #expect(abs(root.convert(effect.bounds, from: effect).minY - expectedBlurTop) < 1)
             #expect(abs(root.convert(title.bounds, from: title).minY - viewportTop - titleY) < 1)
-            #expect(effect.frame.height == 115 + viewportInset)
+            #expect(effect.frame.height == 115)
             #expect(effect.layer?.mask?.frame == effect.bounds)
         }
     }
