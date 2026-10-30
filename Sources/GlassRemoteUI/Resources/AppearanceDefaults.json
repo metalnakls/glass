@@ -1,7 +1,10 @@
 {
+  "GlassAdd.actionLayout" : "wide",
   "GlassAdd.locationColumns" : 3,
   "GlassAdd.recentLocations" : 4,
   "GlassAdd.showIcon" : true,
+  "GlassAdd.titleLeftPadding" : 20,
+  "GlassAdd.titleTopPadding" : 20,
   "GlassHaptics.drag" : true,
   "GlassHaptics.enabled" : true,
   "GlassHaptics.playPause" : true,
@@ -14,6 +17,7 @@
   "GlassInspector.fileSideInset" : 26.028688524590162,
   "GlassInspector.nativeSelectionHighlight" : false,
   "GlassInspector.permanentSearch" : false,
+  "GlassInspector.showPup" : false,
   "GlassList.columnDarkBrightness" : 0.10843983208955224,
   "GlassList.columnLightBrightness" : 1,
   "GlassList.completedSort" : "lastDownloaded",
@@ -80,6 +84,6 @@
   "GlassList.shadowTopStrength" : 0.041013438666044788,
   "GlassList.stateGap" : 16.489272388059703,
   "GlassList.stateGlass" : true,
-  "GlassWindow.defaultHeight" : 434,
-  "GlassWindow.defaultWidth" : 836
+  "GlassWindow.defaultHeight" : 486,
+  "GlassWindow.defaultWidth" : 795
 }
