@@ -222,7 +222,7 @@ struct AddTorrentBatchView: View {
                 Text(glassText(startsPaused ? "Stall" : "Add"))
                     .id(startsPaused).transition(.blurReplace)
             }.keyboardShortcut(.defaultAction).disabled(!canAdd)
-                .animation(.smooth, value: startsPaused)
+                .glassMotion(.control, value: startsPaused)
         }
     }
 

@@ -5,6 +5,12 @@ import SwiftUI
 
 /// Local folders are choices. A share uses its server's configured download folder.
 struct TorrentDownloadLocationPicker: View {
+    enum Trigger: Equatable {
+        case full
+        /// A host capsule owns the surface and supplies the location text.
+        case compact
+    }
+
     let model: RemoteAppModel
     let platformIntegration: any GlassPlatformIntegrating
     @Binding var sourceID: UUID
@@ -13,6 +19,8 @@ struct TorrentDownloadLocationPicker: View {
     @Binding var errorMessage: String?
     var isDisabled = false
     var prefersMacDownloads = false
+    var trigger: Trigger = .full
+    var showsFreeSpace = true
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isEditingServer = false
@@ -28,17 +36,29 @@ struct TorrentDownloadLocationPicker: View {
 
     var body: some View {
         VStack(alignment: .trailing) {
-            GlassMorphingPicker(isPresented: $isPresented) {
-                HStack {
-                    NativeLocationIcon(path: nativeLocationPath,
-                        sourceID: sourceID == model.localSourceID ? nil : sourceID,
-                        serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
-                    BlurReplacementContent(identity: locationName) { Text(locationName).textCase(nil).lineLimit(1).truncationMode(.middle) }
-                    Image(systemName: "chevron.down").font(.caption)
-                }
-            } choices: { locationChoices }
-            .disabled(isDisabled || isChoosingFolder)
-            if let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
+            if trigger == .compact {
+                GlassMorphingPicker(isPresented: $isPresented, triggerStyle: .plain) {
+                    Image(systemName: "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .frame(width: 34, height: GlassControlMetrics.height)
+                        .contentShape(Rectangle())
+                } choices: { locationChoices }
+                .disabled(isDisabled || isChoosingFolder)
+                .accessibilityLabel(glassText("Download location: \(locationName)"))
+                .help(glassText("Download location: \(locationName)"))
+            } else {
+                GlassMorphingPicker(isPresented: $isPresented) {
+                    HStack {
+                        NativeLocationIcon(path: nativeLocationPath,
+                            sourceID: sourceID == model.localSourceID ? nil : sourceID,
+                            serverName: model.sourceName(for: sourceID), size: InspectorGlassPill.locationIconSize)
+                        BlurReplacementContent(identity: locationName) { Text(locationName).textCase(nil).lineLimit(1).truncationMode(.middle) }
+                        Image(systemName: "chevron.down").font(.caption)
+                    }
+                } choices: { locationChoices }
+                .disabled(isDisabled || isChoosingFolder)
+            }
+            if trigger == .full, showsFreeSpace, let bytes = model.serverFreeSpace[sourceID]?.availableBytes {
                 Text("\(formatBytes(bytes)) \(glassText("free"))")
                     .font(.caption2).padding(.horizontal)
                     .opacity(isPresented ? 0 : 1)
@@ -181,6 +201,7 @@ struct TorrentDownloadLocationPicker: View {
     }
 
     private var currentDirectory: String? { directory ?? defaultDirectory }
+    var resolvedLocationName: String { locationName }
     private var locationName: String {
         if sourceID != model.localSourceID { return shareName(for: sourceID) }
         guard let currentDirectory else { return "Default Folder" }
