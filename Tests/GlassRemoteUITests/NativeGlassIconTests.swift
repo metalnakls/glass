@@ -20,6 +20,12 @@ struct NativeGlassIconTests {
         let artwork = try #require(NativeIconGeometry.artwork(for: image, highResolution: highResolution))
         let mask = NSBitmapImageRep(cgImage: artwork.ink)
         let scale = highResolution ? 4 : 1
+        if !brightGlyph {
+            let ghost = try #require(NativeIconGeometry.rasterize(image, highResolution: highResolution, details: .dark))
+            let darkInk = NSBitmapImageRep(cgImage: ghost.ink)
+            #expect((darkInk.colorAt(x: 56 * scale, y: 64 * scale)?.alphaComponent ?? 1) < 0.03)
+            #expect((darkInk.colorAt(x: 48 * scale, y: 64 * scale)?.alphaComponent ?? 0) > 0.5)
+        }
         // These are smooth body-only areas away from the glyph and contour.
         for y in [24, 104] {
             for x in stride(from: 20, through: 108, by: 8) {

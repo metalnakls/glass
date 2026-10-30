@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 import GlassRemoteCore
 import GlassRemoteUI
 import QuickLookThumbnailing
@@ -7,6 +8,12 @@ final class ThumbnailProvider: QLThumbnailProvider {
     override func provideThumbnail(for request: QLFileThumbnailRequest,
                                    _ handler: @escaping (QLThumbnailReply?, Error?) -> Void) {
         let url = request.fileURL
+        // Respect Finder custom icons instead of replacing them with a
+        // document-decorated thumbnail. Quick Look can return its icon fallback.
+        if Self.hasCustomIcon(at: url) {
+            handler(nil, CocoaError(.featureUnsupported))
+            return
+        }
         let side = min(request.maximumSize.width, request.maximumSize.height)
         let pixels = Int(min(512, max(16, ceil(side * request.scale))))
         let completion = Completion(handler)
@@ -26,6 +33,16 @@ final class ThumbnailProvider: QLThumbnailProvider {
             reply.extensionBadge = ""
             completion.call(reply, nil)
         }
+    }
+
+    private static func hasCustomIcon(at url: URL) -> Bool {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        var info = [UInt8](repeating: 0, count: 32)
+        let count = info.withUnsafeMutableBytes {
+            getxattr(url.path, "com.apple.FinderInfo", $0.baseAddress, $0.count, 0, XATTR_NOFOLLOW)
+        }
+        return count >= 10 && info[8] & 0x04 != 0
     }
 
     @concurrent private static func load(url: URL) async -> TorrentIconContent? {

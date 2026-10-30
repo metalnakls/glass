@@ -14,8 +14,9 @@ struct TorrentGhostIconTests {
         #expect(folder.dataProvider?.data != movie.dataProvider?.data)
         let bitmap = NSBitmapImageRep(cgImage: movie)
         #expect(bitmap.colorAt(x: 0, y: 0)?.alphaComponent == 0)
-        // The sheet interior is ghosted, not an opaque Finder document.
-        #expect((bitmap.colorAt(x: size / 2, y: size / 3)?.alphaComponent ?? 1) < 0.5)
+        // The sheet is mostly opaque, but still lets some background through.
+        let bodyAlpha = try #require(bitmap.colorAt(x: size / 2, y: size / 3)?.alphaComponent)
+        #expect(bodyAlpha > 0.75 && bodyAlpha < 0.85)
         let ink = try #require(NativeIconGeometry.artwork(for: TorrentFileIconCache.icon(fileName: "Movie.mkv", isFolder: false)))
         let pixels = try #require(ink.ink.dataProvider?.data) as Data
         #expect(pixels.contains { $0 > 100 }) // file-type glyph/fold survive extraction

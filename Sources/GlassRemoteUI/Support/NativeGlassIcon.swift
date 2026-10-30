@@ -117,6 +117,7 @@ extension EnvironmentValues {
 }
 
 @MainActor enum NativeIconGeometry {
+    enum DetailPolarity: Sendable { case both, dark }
     final class Artwork {
         let image: CGImage
         let path: Path
@@ -147,7 +148,7 @@ extension EnvironmentValues {
 
     /// Also used by the Finder renderer on its own actor. The image and drawing
     /// context belong to the caller; this operation touches no shared cache/UI.
-    nonisolated static func rasterize(_ image: NSImage, highResolution: Bool) -> Artwork? {
+    nonisolated static func rasterize(_ image: NSImage, highResolution: Bool, details: DetailPolarity = .both) -> Artwork? {
         let size = highResolution ? 512 : 128
         let rect = CGRect(x: 0, y: 0, width: size, height: size)
         var pixels = [UInt8](repeating: 0, count: size * size * 4)
@@ -164,7 +165,7 @@ extension EnvironmentValues {
         }
         guard let original else { return nil }
         let path = outline(alpha: stride(from: 3, to: pixels.count, by: 4).map { pixels[$0] }, width: size, height: size)
-        guard let ink = detailMask(pixels: pixels, size: size) else { return nil }
+        guard let ink = detailMask(pixels: pixels, size: size, polarity: details) else { return nil }
         return Artwork(image: original, path: path, ink: ink)
     }
 
@@ -172,7 +173,7 @@ extension EnvironmentValues {
     /// as ink. Glass owns that body and its outside edge; Finder supplies the
     /// actual glyph, extension label, fold and seam. Integral sums keep this
     /// cached pass linear in the number of pixels, including large previews.
-    nonisolated private static func detailMask(pixels: [UInt8], size: Int) -> CGImage? {
+    nonisolated private static func detailMask(pixels: [UInt8], size: Int, polarity: DetailPolarity) -> CGImage? {
         let stride = size + 1
         var tones = [Double](repeating: 0, count: size * size)
         var sums = [Double](repeating: 0, count: stride * stride)
@@ -206,7 +207,9 @@ extension EnvironmentValues {
                 let count = box(counts, x: x, y: y, radius: radius)
                 guard count > 0 else { continue }
                 let mean = box(sums, x: x, y: y, radius: radius) / Double(count)
-                let contrast = abs(tones[y * size + x] - mean)
+                // Paper glyphs are dark; bright contrast is empty paper around them.
+                let difference = mean - tones[y * size + x]
+                let contrast = polarity == .dark ? max(0, difference) : abs(difference)
                 let coverage = min(1, max(0, (contrast - 0.06) * 5))
                 let byte = UInt8((coverage * 255).rounded()), offset = (y * size + x) * 4
                 ink[offset] = byte; ink[offset + 1] = byte; ink[offset + 2] = byte; ink[offset + 3] = byte

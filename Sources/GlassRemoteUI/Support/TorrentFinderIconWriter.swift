@@ -18,7 +18,7 @@ actor TorrentFinderIconWriter {
         case .file(let name): kind = "file:" + URL(fileURLWithPath: name).pathExtension.lowercased()
         case .unknown: return .preserved
         }
-        let version = "1:\(kind):"
+        let version = "6:\(kind):"
         if let result = existingResult(url: url, version: version) { return result }
         guard let image = await TorrentGhostIcon.image(content: content, pixelSize: 512) else { return .failed }
         // Recheck after the actor hop: another scan or the user may have changed
