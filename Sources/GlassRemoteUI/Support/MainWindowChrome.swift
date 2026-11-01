@@ -88,17 +88,27 @@ struct MainWindowChrome: NSViewRepresentable {
                 return
             }
 
+            // NSHostingView performs its own hit testing and can return list
+            // cells instead of an AppKit subview placed above them. Keep the
+            // drag surface outside that hosting subtree, in the native frame.
+            guard let frameView = contentView.superview else { return }
+            let overlayFrame = contentView.convert(contentView.bounds, to: frameView)
             let overlay: TitlebarDragOverlay
-            if let titlebarDragOverlay, titlebarDragOverlay.superview === contentView {
+            if let titlebarDragOverlay, titlebarDragOverlay.superview === frameView {
                 overlay = titlebarDragOverlay
             } else {
                 titlebarDragOverlay?.removeFromSuperview()
-                overlay = TitlebarDragOverlay(frame: contentView.bounds)
+                overlay = TitlebarDragOverlay(frame: overlayFrame)
                 overlay.autoresizingMask = [.width, .height]
-                contentView.addSubview(overlay, positioned: .above, relativeTo: nil)
+                frameView.addSubview(overlay, positioned: .above, relativeTo: nil)
                 titlebarDragOverlay = overlay
             }
-            overlay.frame = contentView.bounds
+            // Native frame changes may insert siblings too. Below the titlebar,
+            // hitTest passes input through to the original SwiftUI content.
+            if frameView.subviews.last !== overlay {
+                frameView.addSubview(overlay, positioned: .above, relativeTo: nil)
+            }
+            overlay.frame = overlayFrame
             overlay.titlebarBand = { [weak overlay, weak window] in
                 guard let overlay, let window else { return .zero }
                 return overlay.measuredTitlebarBand(in: window)
