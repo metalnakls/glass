@@ -8,6 +8,7 @@ struct RemovalUndoToast: View {
     let undo: () -> Void
     let dismiss: () -> Void
 
+    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @State private var countdownProgress = 1.0
     @State private var countdownTask: Task<Void, Never>?
@@ -75,11 +76,11 @@ struct RemovalUndoToast: View {
         toastContent
             .overlay(alignment: .bottomLeading) {
                 if !accessibilityReduceMotion {
-                    ToastCountdownContour()
-                        .trim(from: 0, to: max(0, countdownProgress))
-                        .stroke(Color.primary.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    ToastCountdownContour(progress: countdownProgress)
+                        .fill(.white.opacity(colorScheme == .light ? 1 : 0.7))
+                        .shadow(color: .black.opacity(colorScheme == .light ? 0.4 : 0), radius: 0.5, y: 0.5)
                         .padding(1)
-                    .allowsHitTesting(false)
+                        .allowsHitTesting(false)
                 }
             }
             .clipShape(Capsule())
@@ -198,21 +199,58 @@ struct RemovalUndoToast: View {
     }
 }
 
-/// The countdown follows the lower capsule edge, including its rounded ends.
-/// It is part of the toast's boundary, rather than another line beneath its label.
+/// A fine specular highlight on the lower glass edge. Only the tips taper;
+/// stretching the taper over the full countdown produces a broad underline.
 private struct ToastCountdownContour: Shape {
+    var progress: CGFloat
+
+    var animatableData: CGFloat {
+        get { progress }
+        set { progress = newValue }
+    }
+
     func path(in rect: CGRect) -> Path {
-        let radius = min(rect.height / 2, rect.width / 2)
-        let k: CGFloat = 0.5522847498
+        let radius = min(rect.height, rect.width) / 2
+        guard radius > 0, progress > 0 else { return Path() }
+        let arcLength = .pi * radius / 2
+        let straightLength = max(0, rect.width - 2 * radius)
+        let visibleLength = (2 * arcLength + straightLength) * min(1, progress)
+        // A one-point rim highlight, with tips no longer than a rounded end.
+        // Short remnants also thin out rather than ending in a bright dot.
+        let thickness = min(1, visibleLength / 12)
+        let tipLength = min(arcLength, visibleLength / 2)
+        let steps = max(2, Int(ceil(visibleLength)))
+        var outer: [CGPoint] = []
+        var inner: [CGPoint] = []
+
+        for step in 0...steps {
+            let fraction = CGFloat(step) / CGFloat(steps)
+            let distance = visibleLength * fraction
+            let point: CGPoint
+            let inward: CGVector
+            if distance < arcLength {
+                let angle = .pi - distance / radius
+                point = CGPoint(x: rect.minX + radius + radius * cos(angle),
+                                y: rect.midY + radius * sin(angle))
+                inward = CGVector(dx: -cos(angle), dy: -sin(angle))
+            } else if distance <= arcLength + straightLength {
+                point = CGPoint(x: rect.minX + radius + distance - arcLength, y: rect.maxY)
+                inward = CGVector(dx: 0, dy: -1)
+            } else {
+                let angle = .pi / 2 - (distance - arcLength - straightLength) / radius
+                point = CGPoint(x: rect.maxX - radius + radius * cos(angle),
+                                y: rect.midY + radius * sin(angle))
+                inward = CGVector(dx: -cos(angle), dy: -sin(angle))
+            }
+            let tipProgress = min(1, min(distance, visibleLength - distance) / tipLength)
+            let width = thickness * sin(.pi / 2 * tipProgress)
+            outer.append(point)
+            inner.append(CGPoint(x: point.x + inward.dx * width, y: point.y + inward.dy * width))
+        }
+
         var path = Path()
-        path.move(to: CGPoint(x: rect.minX, y: rect.maxY - radius))
-        path.addCurve(to: CGPoint(x: rect.minX + radius, y: rect.maxY),
-            control1: CGPoint(x: rect.minX, y: rect.maxY - radius + k * radius),
-            control2: CGPoint(x: rect.minX + radius - k * radius, y: rect.maxY))
-        path.addLine(to: CGPoint(x: rect.maxX - radius, y: rect.maxY))
-        path.addCurve(to: CGPoint(x: rect.maxX, y: rect.maxY - radius),
-            control1: CGPoint(x: rect.maxX - radius + k * radius, y: rect.maxY),
-            control2: CGPoint(x: rect.maxX, y: rect.maxY - radius + k * radius))
+        path.addLines(outer + inner.reversed())
+        path.closeSubpath()
         return path
     }
 }
