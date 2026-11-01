@@ -1302,6 +1302,19 @@ struct RemoteAppModelTests {
         #expect(store.torrentCacheSaveCount == 0)
     }
 
+    @Test("invalid filesystem rename is rejected before contacting Transmission", arguments: [" Either / Or ", ".", ".."])
+    func renameRejectsInvalidPath(name: String) async throws {
+        let factory = StubRPCClientFactory()
+        let model = makeModel(profile: makeProfile(), factory: factory)
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let client = try #require(factory.clients.first)
+        #expect(await model.rename(torrent, to: name) == false)
+        #expect(await client.renamedPaths.isEmpty)
+        #expect(model.torrents.first?.name == torrent.name)
+        #expect(model.errorMessage?.contains("cannot contain /") == true)
+    }
+
     @Test("rename accepts a confirmed change after an RPC error")
     func renameAcceptsConfirmedChangeAfterRPCError() async throws {
         let profile = makeProfile()

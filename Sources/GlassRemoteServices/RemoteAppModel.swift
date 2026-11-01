@@ -1783,6 +1783,11 @@ public final class RemoteAppModel {
             }
         }
 
+        guard !trimmedName.contains("/"), trimmedName != ".", trimmedName != ".." else {
+            errorMessage = "Torrent file and folder names cannot contain / or consist only of one or two dots. Use a dash instead of /."
+            return false
+        }
+
         let state = sourceState(for: sourceID)
         state.isLoading = true
         loadingProfileID = sourceID
