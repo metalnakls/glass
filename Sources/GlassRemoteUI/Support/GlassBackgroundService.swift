@@ -235,7 +235,12 @@ private actor GlassBackgroundWorker {
                     print("Worker icon or byte preservation failed: \(icon)")
                     exit(1)
                 }
-                print("Worker rename, ghost icon, and byte preservation passed: \(names[0])")
+                let policy = await MainActor.run { NSRunningApplication.current.activationPolicy }
+                guard policy == .prohibited else {
+                    print("Worker became a foreground-capable process after Finder icon work: \(policy.rawValue)")
+                    exit(1)
+                }
+                print("Worker rename, ghost icon, byte preservation, and prohibited activation passed: \(names[0])")
                 exit(0)
             } catch { print("Worker check failed: \(error.localizedDescription)"); exit(1) }
         }

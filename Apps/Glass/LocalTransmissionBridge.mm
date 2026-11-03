@@ -1,4 +1,5 @@
 #import "LocalTransmissionBridge.h"
+#include "PartialFileVisibility.h"
 
 #include <algorithm>
 #include <cerrno>
@@ -40,6 +41,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 @property(nonatomic) tr_session *session;
 @property(nonatomic, copy) NSString *configPath;
 @property(nonatomic, copy) NSString *downloadPath;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *partialVisibilityStates;
 @end
 
 @implementation LocalTransmissionBridge
@@ -55,6 +57,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 
     tr_lib_init();
 
+    _partialVisibilityStates = [NSMutableDictionary dictionary];
     _configPath = configDirectory.path;
     _downloadPath = downloadDirectory.path;
     NSFileManager *fileManager = NSFileManager.defaultManager;
@@ -289,6 +292,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 
 - (BOOL)removeTorrents:(NSArray<NSString *> *)hashes deleteLocalData:(BOOL)deleteLocalData error:(NSError **)error
 {
+    [self.partialVisibilityStates removeAllObjects];
     return [self applyToTorrents:hashes error:error action:^(tr_torrent *torrent) {
         tr_torrentRemove(torrent, deleteLocalData);
     }];
@@ -367,7 +371,16 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         return NO;
     }
     std::vector<tr_file_index_t> files = FileIndices(fileIndices);
+    // Restore visibility before the engine can finish/rename a reselected file.
+    if (wanted) {
+        for (auto index : files) {
+            if (index >= tr_torrentFileCount(torrent)) { continue; }
+            auto const path = tr_torrentFindFile(torrent, index);
+            if (!path.empty()) { GlassUpdatePartialFileVisibility(path.c_str(), true, true); }
+        }
+    }
     tr_torrentSetFileDLs(torrent, files.data(), static_cast<tr_file_index_t>(files.size()), wanted);
+    [self refreshPartialFileVisibility:torrent];
     return YES;
 }
 
@@ -435,8 +448,35 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     return array;
 }
 
+// Called on LocalTransmissionSession's actor, never the main/UI thread. Cache
+// unchanged states so stopped/complete torrents do not repeatedly touch disk.
+- (void)refreshPartialFileVisibility:(tr_torrent *)torrent
+{
+    auto const view = tr_torrentView(torrent);
+    NSString *hash = StringFromCString(view.hash_string);
+    NSString *directory = StringFromView(tr_torrentGetCurrentDir(torrent));
+    for (tr_file_index_t i = 0; i < tr_torrentFileCount(torrent); ++i) {
+        auto const file = tr_torrentFile(torrent, i);
+        if (file.have == 0) { continue; }
+        NSString *key = [NSString stringWithFormat:@"%@: %zu", hash, i];
+        NSString *state = [NSString stringWithFormat:@"%@/%s:%llu:%d", directory, file.name,
+            (unsigned long long)file.have, file.wanted];
+        if ([self.partialVisibilityStates[key] isEqualToString:state]) { continue; }
+        auto const path = tr_torrentFindFile(torrent, i);
+        if (path.empty()) { continue; } // A boundary write may appear on the next refresh.
+        // A legitimate payload filename may itself end in .part. Only the
+        // engine-added suffix counts as incomplete-file storage.
+        std::string const partialSuffix = std::string(file.name) + ".part";
+        bool const partial = path.ends_with("/" + partialSuffix);
+        if (GlassUpdatePartialFileVisibility(path.c_str(), file.wanted, partial)) {
+            self.partialVisibilityStates[key] = state;
+        }
+    }
+}
+
 - (NSDictionary *)dictionaryForTorrent:(tr_torrent *)torrent
 {
+    [self refreshPartialFileVisibility:torrent];
     tr_stat const stat = tr_torrentStat(torrent);
     tr_torrent_view const view = tr_torrentView(torrent);
     return @{
