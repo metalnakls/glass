@@ -27,11 +27,14 @@ struct TorrentRowColumns {
     static let horizontalInset: CGFloat = 16
     static let artworkWidth: CGFloat = 36
     static let artworkGap: CGFloat = 12
+    // Compact rows use Finder-sized glyphs with a small label gap.
+    static let compactArtworkWidth: CGFloat = 16
+    static let compactArtworkGap: CGFloat = 6
     static let statePadding: CGFloat = 2
     let showsArtwork: Bool
     let compact: Bool
     let stateGap: CGFloat
-    var textLeading: CGFloat { Self.horizontalInset + (showsArtwork ? Self.artworkWidth + Self.artworkGap : 0) }
+    var textLeading: CGFloat { Self.horizontalInset + (compact ? Self.compactArtworkWidth + Self.compactArtworkGap : (showsArtwork ? Self.artworkWidth + Self.artworkGap : 0)) }
     var textTrailing: CGFloat { Self.horizontalInset + GlassListMetrics.stateDiameter(compact: compact) + Self.statePadding * 2 + stateGap }
 }
 

@@ -1,10 +1,22 @@
 import SwiftUI
+import QuartzCore
 
 /// Semantic motion shared by controls and screens. Native presentation and
 /// saved Tune timings remain with their existing owners.
 enum GlassMotion {
     enum Role { case control, replacement, feedback, structure, selection, undo, progress, hover }
     enum Change { case replacement, leading, trailing, bottom, cardAdvance, notification }
+
+    static let viewModeDuration = 0.25
+    static let viewModeFadeDuration = 0.15
+    static let viewModeReducedDuration = 0.20
+    static var viewModeTiming: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.77, 0, 0.175, 1) }
+    static var viewModeFadeTiming: CAMediaTimingFunction { CAMediaTimingFunction(controlPoints: 0.23, 1, 0.32, 1) }
+
+    static func viewModeLabelAnimation(reduceMotion: Bool) -> Animation {
+        reduceMotion ? .linear(duration: viewModeReducedDuration)
+            : .timingCurve(0.23, 1, 0.32, 1, duration: viewModeFadeDuration)
+    }
 
     static let control: Animation = .smooth(duration: 0.35)
     static let replacement: Animation = .easeInOut(duration: 0.35)

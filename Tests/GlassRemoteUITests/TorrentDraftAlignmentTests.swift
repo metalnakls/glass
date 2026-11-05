@@ -31,7 +31,7 @@ struct TorrentDraftAlignmentTests {
 
     private func controlFrame<V: View>(_ view: V, compact: Bool, grid: Bool) async throws -> CGRect {
         _ = NSApplication.shared
-        let height: CGFloat = grid ? 164 : 64
+        let height: CGFloat = grid ? TorrentIconGridMetrics.height : 64
         let window = NSWindow(contentRect: .init(x: -2000, y: -2000, width: 500, height: height),
             styleMask: .borderless, backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
@@ -46,7 +46,7 @@ struct TorrentDraftAlignmentTests {
         }
         // Native glass is composited outside cached screenshots. Measure its
         // actual AppKit backing views, without relying on private class names.
-        let diameter = GlassListMetrics.stateDiameter(compact: compact && !grid)
+        let diameter = GlassListMetrics.stateDiameter(compact: compact || grid)
         func frames(in view: NSView) -> [CGRect] {
             let frame = host.convert(view.bounds, from: view)
             let matches = abs(frame.width - diameter) < 0.5 && abs(frame.height - diameter) < 0.5 && frame.midX > 400

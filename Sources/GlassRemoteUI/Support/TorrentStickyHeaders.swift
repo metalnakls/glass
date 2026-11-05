@@ -423,15 +423,7 @@ final class HeaderBackdrop: NSView {
         layer?.zPosition = TorrentListRenderOrder.sectionHeader
         layer?.masksToBounds = true
         effect.alphaValue = 0
-        effect.material = .headerView
-        effect.blendingMode = .withinWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        fadeMask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        fadeMask.locations = [0, 0.25, 1]
-        fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
-        fadeMask.endPoint = CGPoint(x: 0.5, y: 0)
-        effect.layer?.mask = fadeMask
+        TorrentHeaderMaterialStyle.configure(effect, mask: fadeMask)
         pinnedSurface.addSubview(effect)
         isHidden = true
     }

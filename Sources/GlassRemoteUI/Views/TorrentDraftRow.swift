@@ -18,7 +18,7 @@ struct TorrentDraftRow: View {
     @AppearanceStorage("GlassList.funMode") private var funMode = false
 
     private var name: String { draft.displayName ?? glassText("New Torrent") }
-    private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: columns.compact && !grid) }
+    private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: columns.compact || grid) }
 
     var body: some View {
         Group {
@@ -36,14 +36,20 @@ struct TorrentDraftRow: View {
 
     private var row: some View {
         HStack(spacing: 0) {
-            if columns.showsArtwork {
+            if columns.compact {
+                TorrentCompactIcon(name: name)
+                    .modifier(TorrentArtworkSurface())
+                    .padding(.trailing, TorrentRowColumns.compactArtworkGap)
+            } else if columns.showsArtwork {
                 TorrentFileIcon(fileName: name, isFolder: false)
                     .frame(width: TorrentRowColumns.artworkWidth, height: 42)
                     .modifier(TorrentIconPersonality(role: .document))
+                    .modifier(TorrentArtworkSurface())
                     .padding(.trailing, TorrentRowColumns.artworkGap)
             }
 
             Text(name)
+                .modifier(TorrentViewModeLabelFade())
                 .font(columns.compact ? .callout : .body)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -51,11 +57,13 @@ struct TorrentDraftRow: View {
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
             Text(glassText("Draft"))
+                .modifier(TorrentViewModeLabelFade())
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize()
 
             resumeButton
+                .modifier(TorrentViewModeLabelFade())
                 .padding(.leading, columns.stateGap)
         }
         .padding(.leading, leadingPadding)
@@ -64,26 +72,29 @@ struct TorrentDraftRow: View {
     }
 
     private var gridBody: some View {
-        VStack(spacing: 10) {
+        VStack(spacing: TorrentIconGridMetrics.spacing) {
             TorrentFileIcon(fileName: name, isFolder: false)
                 .modifier(TorrentIconPersonality(role: .document, grid: true))
-                .scaleEffect(1.7)
-                .frame(height: 76)
+                .scaleEffect(1.4)
+                .frame(width: 64, height: TorrentIconGridMetrics.artworkHeight)
+                .modifier(TorrentArtworkSurface())
             Text(name)
+                .modifier(TorrentViewModeLabelFade())
                 .font(.body)
                 .lineLimit(2)
                 .multilineTextAlignment(.center)
+                .frame(height: TorrentIconGridMetrics.titleHeight, alignment: .top)
             HStack {
                 Text(glassText("Draft"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
                 resumeButton
-            }
+            }.frame(height: TorrentIconGridMetrics.footerHeight).modifier(TorrentViewModeLabelFade())
         }
-        .padding(16)
+        .padding(TorrentIconGridMetrics.padding)
         .frame(maxWidth: .infinity)
-        .frame(height: 164)
+        .frame(height: TorrentIconGridMetrics.height)
     }
 
     private var resumeButton: some View {
@@ -94,7 +105,7 @@ struct TorrentDraftRow: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
-        .modifier(TorrentRowStateSlot(compact: columns.compact && !grid))
+        .modifier(TorrentRowStateSlot(compact: columns.compact || grid))
         .help(glassText("Resume Draft"))
         .accessibilityLabel(glassText("Resume Draft"))
     }

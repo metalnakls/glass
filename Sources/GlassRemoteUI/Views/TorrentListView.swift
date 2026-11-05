@@ -50,8 +50,15 @@ struct TorrentListView: View {
     @AppStorage("GlassList.density") private var storedDensityLevel = 1
     @AppStorage("GlassList.enableIconView") private var enableIconView = false
     @AppStorage("GlassList.enableCompactView") private var enableCompactView = false
-    private var grid: Bool { enableIconView && storedGrid }
-    private var densityLevel: Int { enableCompactView ? storedDensityLevel : max(1, storedDensityLevel) }
+    @State private var displayedPresentation: TorrentViewPresentation?
+    @State private var viewModeTransition = TorrentViewModeTransition()
+    private var requestedPresentation: TorrentViewPresentation {
+        .requested(grid: storedGrid, iconsEnabled: enableIconView, compactEnabled: enableCompactView, size: storedDensityLevel)
+    }
+    private var currentPresentation: TorrentViewPresentation { displayedPresentation ?? requestedPresentation }
+    private var currentMode: TorrentViewMode { currentPresentation.mode }
+    private var grid: Bool { currentMode == .icons }
+    private var densityLevel: Int { currentPresentation.sizeLevel }
     private struct RetryFailure {
         let id: UUID
         let message: String
@@ -83,6 +90,7 @@ struct TorrentListView: View {
     @State private var swipingRowID: String?
     @State private var searchPresented = false
     @State private var searchText = ""
+    @State private var gridHasScrolled = false
     @State private var updateButtonVisible = false
 
     private var visibleRecords: [TorrentRecord] {
@@ -124,10 +132,10 @@ struct TorrentListView: View {
     }
 
     private var density: TorrentRowDensity {
-        densityLevel == 0 ? .compact : (enableCompactView && columnWidth > 0 ? TorrentRowDensity(width: max(0, columnWidth - leftPadding - rightPadding)) : .regular)
+        currentMode == .compact ? .compact : .regular
     }
     private var listRowHeight: CGFloat {
-        let configuredHeight = max(0, (densityLevel == 0 ? 34 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
+        let configuredHeight = max(0, (currentMode == .compact ? 28 : densityLevel == 2 ? 76 : 60) + 2 * itemVerticalPadding)
         return max(density.showsIcon ? 48 : 28, configuredHeight)
     }
 
@@ -146,12 +154,14 @@ struct TorrentListView: View {
                     LazyVStack(spacing: 12, pinnedViews: .sectionHeaders) {
                         ForEach(sections) { section in
                             Section {
-                                LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 150 : densityLevel == 2 ? 240 : 190))], spacing: 12) {
+                                LazyVGrid(columns: [GridItem(.adaptive(minimum: densityLevel == 0 ? 112 : densityLevel == 2 ? 160 : 136))], spacing: 8) {
                                     ForEach(section.drafts) { draft in
                                         draftRow(for: draft, columns: columns)
+                            .environment(\.torrentArtworkTransition, TorrentArtworkTransitionContext(owner: viewModeTransition, id: draft.listID, mode: currentMode))
                                     }
                                     ForEach(section.rows) { row in
                                         liveRow(for: row).onTapGesture { selection = row.id }.id(row.id)
+                                            .environment(\.torrentArtworkTransition, TorrentArtworkTransitionContext(owner: viewModeTransition, id: row.id, mode: currentMode))
                                             .moveDisabled(rowIsAdding(row) || !rowUsesManualOrder(row))
                                             .onScrollVisibilityChange(threshold: 0.1) { visible in
                                                 guard visible,
@@ -160,12 +170,21 @@ struct TorrentListView: View {
                                             }
                                     }.reorderable(collectionID: section.id)
                                 }
+                                .glassContentMargins()
                             } header: {
-                                Text(section.title).font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8).background(listSurface)
+                                Text(section.title).font(.largeTitle.bold()).frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+                                    .glassContentMargins()
+                                    .background(alignment: .top) { TorrentGridHeaderMaterial() }
                             }
                         }
-                    }.padding(.leading, leftPadding + 16).padding(.trailing, rightPadding + 16)
+                    }
                 }.background(listSurface)
+                .coordinateSpace(name: TorrentGridHeaderMaterial.coordinateSpace)
+                .onScrollGeometryChange(for: Bool.self) { geometry in
+                    geometry.contentOffset.y + geometry.contentInsets.top > 0
+                } action: { _, value in gridHasScrolled = value }
+                .environment(\.torrentGridHasScrolled, gridHasScrolled)
+                .glassScrollEdges(.sectionTitles)
                 .reorderContainer(for: TorrentListRowPresentation.self, in: String.self) { difference in
                     let destination: TorrentListReorderPlan.Destination
                     switch difference.destination.position {
@@ -206,12 +225,14 @@ struct TorrentListView: View {
                                 beforeFirst: initialPadding, betweenSections: sectionSpacing, belowHeader: headerBottomPadding))
                     case let .draft(draft):
                         draftRow(for: draft, columns: columns)
+                            .environment(\.torrentArtworkTransition, TorrentArtworkTransitionContext(owner: viewModeTransition, id: draft.listID, mode: currentMode))
                             .listRowBackground(Color.clear)
                             .focusEffectDisabled()
                             .accessibilityElement(children: .contain)
                             .moveDisabled(true)
                     case let .torrent(row):
                         liveRow(for: row)
+                            .environment(\.torrentArtworkTransition, TorrentArtworkTransitionContext(owner: viewModeTransition, id: row.id, mode: currentMode))
                             .listRowBackground(Color.clear)
                             .listItemTint(.monochrome)
                             .tag(row.id)
@@ -272,6 +293,24 @@ struct TorrentListView: View {
             .background(listSurface)
             }
             }
+            .background { TorrentViewModeLayoutBarrier(owner: viewModeTransition, mode: currentMode, revision: viewModeTransition.generation) }
+            .overlay { TorrentViewModeViewport(owner: viewModeTransition).allowsHitTesting(false) }
+            .onAppear { if displayedPresentation == nil { displayedPresentation = requestedPresentation } }
+            .onChange(of: requestedPresentation) { _, presentation in
+                viewModeTransition.prepare(to: presentation.mode, selection: selection, reduceMotion: accessibilityReduceMotion)
+                var transaction = Transaction(); transaction.disablesAnimations = true
+                withTransaction(transaction) { displayedPresentation = presentation }
+            }
+            .task(id: currentPresentation) {
+                guard viewModeTransition.pending else { return }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                if let anchor = viewModeTransition.scrollAnchor { scrollProxy.scrollTo(anchor, anchor: .top) }
+                await Task.yield()
+                guard !Task.isCancelled else { return }
+                viewModeTransition.didSubmitScrollRestoration()
+            }
+            .onDisappear { viewModeTransition.cancel() }
         }
         .alert(glassText("Couldn’t Add Torrent"), isPresented: Binding(
             get: { retryFailure != nil }, set: { if !$0 { retryFailure = nil } }
@@ -361,6 +400,7 @@ struct TorrentListView: View {
             case .initial, .active:
                 let dragged = Set(session.draggedItemIDs(for: String.self))
                 if reorderingIDs != dragged, !dragged.isEmpty { GlassHaptics.perform(.drag) }
+                if !dragged.isEmpty { viewModeTransition.cancel() }
                 reorderingIDs = dragged
                 elevationController.setReordering(!reorderingIDs.isEmpty)
                 TorrentInternalDragState.active = !reorderingIDs.isEmpty
@@ -377,7 +417,10 @@ struct TorrentListView: View {
             elevationController.configure(settings)
         }
         .onChange(of: cardGeometry, initial: true) { _, geometry in elevationController.configureGeometry(geometry) }
-        .onChange(of: swipingRowID) { _, id in elevationController.setSwiping(id) }
+        .onChange(of: swipingRowID) { _, id in
+            if id != nil { viewModeTransition.cancel() }
+            elevationController.setSwiping(id)
+        }
         .onChange(of: selection, initial: true) { _, value in
             elevationController.setSelection(value)
         }
@@ -545,6 +588,7 @@ struct TorrentListView: View {
     }
 
     private func toggleAutoGroup(_ row: TorrentListRowPresentation) {
+        viewModeTransition.cancel()
         guard let memberIDs = row.groupMemberIDs else { return }
         // Selection and expansion begin in the same event; neither waits for the other's animation.
         selection = row.id

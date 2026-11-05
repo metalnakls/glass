@@ -16,7 +16,7 @@ struct TorrentListRowChrome: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .frame(height: grid ? 164 : rowHeight, alignment: .center)
+            .frame(height: grid ? TorrentIconGridMetrics.height : rowHeight, alignment: .center)
             .background {
                 if isReordering || (isSelected && isSwiping) {
                     RoundedRectangle(cornerRadius: 12)

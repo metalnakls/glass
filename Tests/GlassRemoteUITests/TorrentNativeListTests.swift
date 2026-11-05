@@ -37,6 +37,7 @@ struct TorrentNativeListTests {
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         } else {
                             HStack(spacing: 0) {
+                                if compact { TorrentCompactIcon(name: "Movie.mkv").padding(.trailing, TorrentRowColumns.compactArtworkGap) }
                                 if !compact { Color.blue.frame(width: TorrentRowColumns.artworkWidth, height: 42).padding(.trailing, TorrentRowColumns.artworkGap) }
                                 Text("Torrent \(entry.id)").frame(maxWidth: .infinity, alignment: .leading)
                                     .background(FrameProbe(id: entry.id, slot: .text))

@@ -258,3 +258,43 @@ search, priority actions and Tune overrides. Test actual presentation frames wit
 an app test host, WindowServer access and explicit
 `GLASS_TEST_PRESENTATION_ANIMATIONS=1`; ordinary test runs do not present the new
 file-browser fixture windows. Model frames alone miss AppKit animation.
+
+### Compact rows and icon view — 5 November 2026
+
+Compact mode retains the sectioned native List and existing main-list margins.
+`TorrentCompactIcon` supplies a straight 16 pt Finder file-type glyph; shared
+`TorrentRowColumns` supplies its 6 pt name gap and separator offset. Compact rows
+have a 28 pt base height (the native state control plus its interior), retaining
+saved vertical Tune adjustments and the existing minimum. Drafts share columns.
+Regular rows, artwork overflow, group actions and sticky timing are unchanged.
+
+Icon cards and drafts use `TorrentIconGridMetrics` for their artwork, two title
+lines, footer and native interior padding. The prior fixed 164 pt frame could not
+contain all those elements. Grid titles now use a full-width native header
+material with the same gradient configuration as `HeaderBackdrop`, replacing the
+opaque rectangle. Material appears only for a pinned header while content has
+scrolled underneath, never behind an inline header or at scroll origin. Native
+material remains behind sharp titles and passes input through; saved header reach
+controls its extension below the title.
+
+`TorrentViewModeTransition` retains live artwork renderers in one pass-through
+native viewport overlay. It captures visible source frames before changing the
+complete displayed presentation (mode and size), waits for destination layout,
+and pairs only visible measured endpoints with matching stable row IDs. Compact,
+Regular and Icons are explicit presentations; width no longer silently turns a
+requested Regular view into Compact. Main-list margins remain unchanged; only the
+icon grid uses `GlassContentMargins`, avoiding legacy centered-list padding.
+
+Movement uses a shared 250 ms timing curve (0.77, 0, 0.175, 1); labels/artwork
+crossfade for 150 ms with (0.23, 1, 0.32, 1). Reduce Motion uses 200 ms opacity only.
+A mode reversal retains current presentation geometry. Native scroll, resize,
+drag, swipe and group expansion settle the overlay into current destinations
+immediately, so a flight cannot land at stale coordinates. Generation checks
+reject old anchors; absent destinations release retained artwork. Live refreshes
+update borrowed renderers when ownership returns instead of creating duplicates.
+Native List continues to own selection, keyboard, rename and scrolling.
+
+Compilation and motion-policy checks do not establish visual transition quality.
+The user authorized one isolated sample-data demo for review; the main app must
+not be restarted or unsolicited test windows opened. Native presentation,
+interrupted switching and live drag/rename remain unverified until that review.

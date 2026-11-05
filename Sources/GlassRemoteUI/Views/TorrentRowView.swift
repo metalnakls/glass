@@ -50,11 +50,14 @@ struct TorrentRowView: View, Equatable {
     var body: some View {
         Group {
             if grid {
-                VStack(spacing: 10) {
-                    leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil, grid: true)).scaleEffect(1.7).frame(height: 76)
+                VStack(spacing: TorrentIconGridMetrics.spacing) {
+                    leadingIcon.modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil, grid: true)).scaleEffect(1.4).frame(width: 64, height: TorrentIconGridMetrics.artworkHeight)
+                        .modifier(TorrentArtworkSurface())
                     Text(displayName(torrent.name)).textCase(nil).font(.body).lineLimit(2).multilineTextAlignment(.center)
-                    HStack { sizeLabel; Spacer(); transferButton }
-                }.padding(16).frame(maxWidth: .infinity).frame(height: 164)
+                        .frame(height: TorrentIconGridMetrics.titleHeight, alignment: .top)
+                        .modifier(TorrentViewModeLabelFade())
+                    HStack { sizeLabel; Spacer(); transferButton }.frame(height: TorrentIconGridMetrics.footerHeight).modifier(TorrentViewModeLabelFade())
+                }.padding(TorrentIconGridMetrics.padding).frame(maxWidth: .infinity).frame(height: TorrentIconGridMetrics.height)
             } else { row }
         }
         .opacity(isAdding ? 0.45 : 1)
@@ -85,10 +88,13 @@ struct TorrentRowView: View, Equatable {
 
     private var row: some View {
         HStack(alignment: .center, spacing: 0) {
-            if density.showsIcon {
+            if density == .compact {
+                compactIcon.modifier(TorrentArtworkSurface()).padding(.trailing, TorrentRowColumns.compactArtworkGap)
+            } else if density.showsIcon {
                 interactiveLeadingIcon
                     .frame(width: TorrentRowColumns.artworkWidth)
                     .modifier(TorrentIconPersonality(role: iconRole, position: iconPosition, enabled: groupIsExpanded == nil))
+                    .modifier(TorrentArtworkSurface())
                     .background {
                         if let folderMotion, groupIsExpanded != nil || folderID != nil {
                             TorrentFolderLandingAnchor(controller: folderMotion, id: folderID ?? torrentGroupLandingID, pose: TorrentIconPose.forRole(iconRole, position: iconPosition))
@@ -98,14 +104,32 @@ struct TorrentRowView: View, Equatable {
             }
 
             torrentContent
+                .modifier(TorrentViewModeLabelFade())
                 .contentShape(Rectangle())
                 .simultaneousGesture(TapGesture().onEnded {
                     if !isEditingTitle, NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
                 })
             transferButton
+                .modifier(TorrentViewModeLabelFade())
                 .padding(.leading, stateGap)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder private var compactIcon: some View {
+        if let groupIsExpanded {
+            Button { toggleGroupExpansion?() } label: {
+                Image(systemName: groupIsExpanded ? "chevron.down" : "folder.fill")
+                    .frame(width: TorrentRowColumns.compactArtworkWidth, height: TorrentRowColumns.compactArtworkWidth)
+            }.buttonStyle(.plain)
+                .accessibilityLabel(groupIsExpanded ? "Collapse Group" : "Expand Group")
+        } else {
+            TorrentCompactIcon(name: torrent.name, folder: isFolderLike)
+                .onTapGesture(count: 2) { fileAction?(.open) }
+                .simultaneousGesture(TapGesture().onEnded {
+                    if NSEvent.modifierFlags.contains(.command) { fileAction?(.reveal) }
+                })
+        }
     }
 
     nonisolated static func == (lhs: TorrentRowView, rhs: TorrentRowView) -> Bool {
@@ -146,6 +170,7 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var leadingIcon: some View {
+        Group {
         if let groupIsExpanded {
             Button {
                 toggleGroupExpansion?()
@@ -184,6 +209,7 @@ struct TorrentRowView: View, Equatable {
         } else {
             TorrentFileIcon(fileName: torrent.name, isFolder: isFolderLike, thumbnailInput: thumbnailInput)
                 .frame(width: 36, height: 42, alignment: .center)
+        }
         }
     }
 
@@ -363,7 +389,7 @@ struct TorrentRowView: View, Equatable {
         }
     }
 
-    private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: density == .compact && !grid) }
+    private var stateDiameter: CGFloat { GlassListMetrics.stateDiameter(compact: density == .compact || grid) }
 
     private var transferButton: some View {
         ZStack {
@@ -386,7 +412,7 @@ struct TorrentRowView: View, Equatable {
                 .accessibilityLabel(stateLabel)
                 .accessibilityValue("\(formatPercent(progress)) downloaded")
         }
-        .modifier(TorrentRowStateSlot(compact: density == .compact && !grid))
+        .modifier(TorrentRowStateSlot(compact: density == .compact || grid))
         .glassMotion(.progress, value: progress)
     }
 
@@ -447,7 +473,7 @@ struct TorrentRowView: View, Equatable {
                 stateGlyph.foregroundStyle(.white).mask(ProgressDisc(progress: progress))
             }
         }
-        .frame(width: density == .compact && !grid ? 20 : 28, height: density == .compact && !grid ? 20 : 28)
+        .frame(width: density == .compact || grid ? 20 : 28, height: density == .compact || grid ? 20 : 28)
         .phaseAnimator([false, true], trigger: clickRevision) { view, pressed in
             view.scaleEffect(pressed && !reduceMotion ? 0.96 : 1)
         } animation: { _ in GlassMotion.feedback }
@@ -621,6 +647,8 @@ struct TorrentFileIcon: View {
             if let displayedThumbnail {
                 let wide = displayedThumbnail.size.width > displayedThumbnail.size.height * 1.3
                 Image(nsImage: displayedThumbnail).resizable().aspectRatio(contentMode: .fit)
+                    .contentTransition(.opacity)
+                    .glassMotion(.replacement, value: displayedThumbnail)
                     // Spend the extra width into the outer gutter, preserving title alignment.
                     .frame(width: wide ? size * 1.22 : size, height: size)
                     .frame(width: size, height: size)
