@@ -162,10 +162,10 @@ struct RemovalUndoToast: View {
     }
 
     private func finishGesture(_ action: @escaping () -> Void) {
-        // Removing this toast in its own recognizer callback can deallocate
-        // SwiftUI's gesture source while AppKit is still hit testing it.
-        Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(160))
+        // Let the current input callback unwind before removing its gesture host.
+        // A timed sleep parks the toast at the release position; one main-queue
+        // turn provides the same reentrancy boundary without a visible pause.
+        DispatchQueue.main.async {
             action()
         }
     }
