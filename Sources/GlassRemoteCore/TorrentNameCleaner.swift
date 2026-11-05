@@ -325,8 +325,10 @@ public enum TorrentNameCleaner {
         return String(text[range])
     }
 
+    // Releases also spell out “Series 1 episode 01” or “Season 1 Episode 01”.
+    // Keep the same capture pairs so filename cleanup and season inference agree.
     private static let episodeRegex = try! NSRegularExpression(
-        pattern: #"(?i)(?:s(\d{1,2})[\s._-]*e(\d{1,3})|(\d{1,2})x(\d{1,3}))"#
+        pattern: #"(?i)(?:(?:s(?:eason)?|series)[\s._-]*(\d{1,2})[\s._-]*e(?:pisode)?[\s._-]*(\d{1,3})|(\d{1,2})x(\d{1,3}))"#
     )
 
     private static let plainSeasonRegex = try! NSRegularExpression(
