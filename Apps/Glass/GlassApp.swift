@@ -6,17 +6,13 @@ import Sparkle
 import SwiftUI
 import UserNotifications
 
-/// The worker may use AppKit for Finder icons, but must never become a Dock app
-/// or register a SwiftUI scene. Set its policy before lazy AppKit initialization
-/// during icon rendering can register the shared executable as a foreground app.
+/// The background process handles launch events without creating SwiftUI scenes.
 @main
 private enum GlassEntryPoint {
     @MainActor static func main() {
         if GlassBackgroundService.isWorker {
             guard GlassBackgroundService.isAvailable else { return }
-            guard NSApplication.shared.setActivationPolicy(.prohibited) else { return }
-            Task { await GlassBackgroundService.run() }
-            RunLoop.main.run()
+            GlassBackgroundApplication.run { await GlassBackgroundService.run() }
         } else {
             GlassApp.main()
         }
