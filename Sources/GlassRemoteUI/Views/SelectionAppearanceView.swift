@@ -22,7 +22,9 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassInspector.blurEaseIn") private var inspectorBlurEaseIn = 0.25
     @AppearanceStorage("GlassInspector.blurEaseOut") private var inspectorBlurEaseOut = 0.35
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeInspectorHighlight = false
-    @AppearanceStorage("GlassInspector.fileSideInset") private var inspectorSideInset = 18.0
+    @AppearanceStorage("GlassLayout.customSideMargins") private var customSideMargins = false
+    @AppearanceStorage("GlassLayout.sideMargin") private var sideMargin = 16.0
+    @AppearanceStorage("GlassScroll.hideScrollbars") private var hideScrollbars = true
     @AppearanceStorage("GlassInspector.permanentSearch") private var permanentInspectorSearch = true
     @AppearanceStorage("GlassInspector.showPup") private var showInspectorPup = true
     @AppearanceStorage("GlassAdd.showIcon") private var addIcon = true
@@ -95,6 +97,16 @@ public struct SelectionAppearanceView: View {
         })
     }
 
+    private var sharedSideMargins: some View {
+        VStack(alignment: .leading) {
+            Toggle(glassText("Custom side margins"), isOn: $customSideMargins)
+                .help(glassText("Use one margin for file lists and floating controls. Turn off for system spacing."))
+            if customSideMargins {
+                GlassTuningSlider("Shared side margin", value: $sideMargin, range: 0...40)
+            }
+        }
+    }
+
     @State private var sectionPickerPresented = false
 
     public var body: some View {
@@ -105,7 +117,7 @@ public struct SelectionAppearanceView: View {
             .id(section.rawValue)
             .glassTransition()
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal)
+            .glassContentMargins()
         }
         .glassFloatingChrome(top: {
             HStack {
@@ -237,6 +249,8 @@ public struct SelectionAppearanceView: View {
                 Toggle(glassText("Enable icon view (⌘1)"), isOn: $enableIconView)
                 Toggle(glassText("Enable compact list"), isOn: $enableCompactView)
                 Toggle(glassText("Lowercase style"), isOn: $lowercaseTitles)
+                Toggle(glassText("Hide scrollbars"), isOn: $hideScrollbars)
+                    .help(glassText("Hide scrollbars throughout Glass. Trackpad, mouse wheel and keyboard scrolling stay available."))
                 LocaleOverrideControl()
             }
             Divider()
@@ -312,7 +326,7 @@ public struct SelectionAppearanceView: View {
                 .help(glassText("Show the decorative pup when the Inspector is empty."))
             Toggle(glassText("Permanent full-width search"), isOn: $permanentInspectorSearch)
             Toggle(glassText("Native selection highlight"), isOn: $nativeInspectorHighlight)
-            GlassTuningSlider("File side padding", value: $inspectorSideInset, range: 8...40)
+            sharedSideMargins
             Divider()
             VStack(alignment: .leading, spacing: 12) {
                 Toggle(glassText("Inspector blur enabled"), isOn: $inspectorBlurEnabled)

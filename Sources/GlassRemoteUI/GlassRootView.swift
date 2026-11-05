@@ -285,6 +285,7 @@ public struct GlassRootView: View {
             await loadSelectedTorrentDetails()
         }
         .glassTextStyle()
+        .glassScrollbarVisibility()
         .modifier(TorrentRootQuickLookKeyHandler())
         .focusedSceneValue(\.glassTuningPresented, tuningPresentation)
         .focusedSceneValue(\.glassCommandActions, isTestWorkspace ? nil : commandActions)

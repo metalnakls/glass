@@ -46,6 +46,7 @@ private struct GlassScrollEdges: ViewModifier {
     let variant: GlassScrollEdgeVariant
     func body(content: Content) -> some View {
         content
+            .glassScrollbarVisibility()
             .scrollEdgeEffectStyle(.soft, for: .top)
             .scrollEdgeEffectHidden(variant == .sectionTitles, for: .top)
             .scrollEdgeEffectHidden(true, for: .bottom)

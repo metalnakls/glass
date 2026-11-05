@@ -194,3 +194,67 @@ opacity control.
 Tune → Inspector. It removes/recreates the decorative child panel immediately,
 and participates in save/reset through the existing appearance owner. It does
 not change Inspector selection, layout or focus.
+
+### File browser margins and hierarchy — 5 November 2026
+
+`GlassContentMargins` owns the horizontal document margin for file browsers,
+Inspector group headings, Quick Look, Tune and floating docks. Its default is
+measured from SwiftUI's native horizontal padding. Native glass buttons continue
+to own their interior padding; file-row geometry does not size location labels.
+The main torrent list retains its existing left/right Tune values, native table
+style, artwork overflow, header anchors and separator geometry. The attempted
+main-list migration was withdrawn after the user's visual review.
+
+`GlassLayout.customSideMargins` defaults to `false`. When enabled,
+`GlassLayout.sideMargin` applies the same 0–40 pt margin on both sides immediately;
+the initial custom value is 16 pt. Inspector Tune exposes the shared binding.
+Save/reset includes both keys. `GlassInspector.fileSideInset` remains stored for
+compatibility but no longer adds another inset to file content. Other saved
+appearance values are preserved.
+
+Native measurement exposed another 8 pt cell inset in SwiftUI's plain List:
+AppKit was using its full-width table style. For file lists only,
+`GlassContentMargins.prepare` selects native plain rows, clears horizontal
+intercell spacing and fits the column once. Native List still owns selection,
+keyboard, scrolling and swipe actions. No main-list table style is changed.
+
+`TorrentFileTreeLabel` owns native disclosure buttons, cached Finder file-type
+icons and indentation. A flat file list omits the empty disclosure slot, so its
+checkbox sits next to the icon and name. Real trees retain the shared hierarchy
+column. `TorrentFileListLayout` owns columns and row height.
+
+`TorrentFileMetadata` has size-only, inline-progress and stacked-progress variants.
+Inspector progress shares a line with size when font metrics, hierarchy depth,
+Tune and width leave at least 18 average body characters for the name. Otherwise
+it stacks beneath size, with a 6 pt interline gap and larger vertical row insets.
+The embedded list uses the same computed height, keeping the final row visible.
+Add omits download progress. Resizing retains native List identity, selection and
+collapsed folders.
+
+File separators remain native, spanning from the actual identity-icon column to
+the content trailing edge. They do not run to the viewport edge. The selection
+shape extends halfway into the document margin on each side, as requested in the
+preview review. That decoration does not move content, separators or hit targets.
+A small row interior keeps controls clear of the selection edge. Contiguous
+selection and the saved native-highlight preference remain supported.
+
+Folder changes use `GlassMotion.structure` on the collapsed state. The shared
+transaction animates both embedded-list height and native scrolling-row positions.
+Reduce Motion removes movement. The former whole-row tap haptic is removed from
+file browsers, so disclosure clicks do not vibrate.
+
+`GlassScroll.hideScrollbars` is a Boolean, default `true`, exposed as **Hide
+scrollbars** in Tune → Layout. `GlassScrollbarVisibility` applies the live setting
+throughout Glass, including the main window, Inspector, Add, Tune, preferences
+and Quick Look. Trackpad, wheel and keyboard scrolling remain native. Turning the
+setting off restores automatic native indicators. The setting participates in
+save/reset without clearing other preferences.
+
+The file layout follows Apple's [layout guidance](https://developer.apple.com/design/human-interface-guidelines/layout)
+on system margins, alignment and hierarchy. Explicit file-column dimensions are
+app geometry, not claims about prescribed HIG values. Check Inspector and Add at
+narrow/wide widths in light/dark, including live resize, folder motion, selection,
+search, priority actions and Tune overrides. Test actual presentation frames with
+an app test host, WindowServer access and explicit
+`GLASS_TEST_PRESENTATION_ANIMATIONS=1`; ordinary test runs do not present the new
+file-browser fixture windows. Model frames alone miss AppKit animation.

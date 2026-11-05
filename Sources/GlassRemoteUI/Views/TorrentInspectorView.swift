@@ -273,7 +273,7 @@ private struct TorrentInspectorContent: View {
     @State private var keyboardPreviewGeneration = 0
     @FocusState private var searchFocused: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    private let fileLayout = TorrentFileListLayout.inspector
+    private let fileLayout = TorrentFileListLayout.shared
     private var sourceID: UUID { snapshot.sourceID }
     private var groupDetails: [String: TorrentDetails] { snapshot.groupDetails }
 
@@ -343,8 +343,10 @@ private struct TorrentInspectorContent: View {
                                     Spacer()
                                     Text(formatPercent(members.first { $0.hashString == torrent.hashString }?.percentDone ?? torrent.percentDone)).font(.caption).foregroundStyle(.secondary)
                                 }
-                                .padding(.leading, fileLayout.textLeadingInset)
-                                .padding(.trailing, fileLayout.outerInset)
+                                .padding(.leading, fileLayout.textLeadingInset(hierarchical:
+                                    fileEntries(for: details).contains { $0.displayName.contains("/") }))
+                                .padding(.horizontal, fileLayout.selectionInterior)
+                                .glassContentMargins()
                                 .padding(.vertical, 8)
                                 .frame(maxWidth: .infinity)
                                 .glassTextStyle()
@@ -487,7 +489,6 @@ private struct TorrentInspectorContent: View {
             }
         )
         .id(details.hashString)
-        .padding(.horizontal, fileLayout.contentInset)
     }
 
     private var widestFileSize: String {

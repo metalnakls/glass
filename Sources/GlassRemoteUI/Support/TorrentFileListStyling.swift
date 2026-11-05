@@ -4,14 +4,12 @@ import SwiftUI
 /// Keep native selection and keyboard navigation, with the foreground owning its highlight.
 struct TorrentFileListStyling: NSViewRepresentable {
     var onDeselect: (Int) -> Void = { _ in }
-    var controlInset: CGFloat = 0
     var nativeHighlight = false
     func makeNSView(context: Context) -> Anchor { Anchor() }
-    func updateNSView(_ view: Anchor, context: Context) { view.onDeselect = onDeselect; view.controlInset = controlInset; view.nativeHighlight = nativeHighlight; view.apply() }
+    func updateNSView(_ view: Anchor, context: Context) { view.onDeselect = onDeselect; view.nativeHighlight = nativeHighlight; view.apply() }
 
     final class Anchor: NSView {
         var onDeselect: (Int) -> Void = { _ in }
-        var controlInset: CGFloat = 0
         var nativeHighlight = false
         private weak var table: NSTableView?
         private var monitor: Any?
@@ -29,6 +27,7 @@ struct TorrentFileListStyling: NSViewRepresentable {
             while let view = ancestor {
                 if let table = view as? NSTableView {
                     self.table = table
+                    GlassContentMargins.prepare(table)
                     table.selectionHighlightStyle = nativeHighlight ? .regular : .none
                     table.focusRingType = .none
                     if window != nil && monitor == nil {
@@ -49,11 +48,18 @@ struct TorrentFileListStyling: NSViewRepresentable {
             if event.type == .leftMouseDown {
                 selectedClick = nil
                 guard event.clickCount == 1, event.modifierFlags.intersection([.command, .shift, .option, .control]).isEmpty,
-                      table.visibleRect.contains(point), point.x > controlInset else { return }
+                      table.visibleRect.contains(point) else { return }
+                // Native checkbox/disclosure controls own their click. Do not
+                // approximate their hit areas from a document margin or depth.
+                let location = table.superview?.convert(event.locationInWindow, from: nil) ?? point
+                var hit = table.hitTest(location)
+                while let view = hit, view !== table {
+                    if view is NSButton { return }
+                    hit = view.superview
+                }
                 let row = table.row(at: point)
                 guard row >= 0, table.selectedRowIndexes.contains(row) else { return }
-                // The leading checkbox is excluded by controlInset; hosted text
-                // may itself be an NSControl and must still allow deselection.
+                // Hosted text can be an NSControl and still allows deselection.
                 selectedClick = (row, point)
             } else if let click = selectedClick {
                 selectedClick = nil

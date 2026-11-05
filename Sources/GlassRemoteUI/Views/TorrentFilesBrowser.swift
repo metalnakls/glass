@@ -25,7 +25,7 @@ struct TorrentFilesBrowser: View {
     @AppStorage("GlassList.showExtensions") private var showsExtensions = false
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeHighlight = false
-    @AppearanceStorage("GlassInspector.fileSideInset") private var fileSideInset = 18.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var collapsed = Set<String>()
     @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
@@ -44,6 +44,7 @@ struct TorrentFilesBrowser: View {
     }
     @State private var nativeSelection = Set<String>()
     @State private var keyboardPreviewGeneration = 0
+    @State private var availableWidth: CGFloat = 0
     @State private var localSelection = Set<Int>()
     @State private var localWanted: [Int: Bool] = [:]
     private var selection: Set<Int> {
@@ -58,7 +59,7 @@ struct TorrentFilesBrowser: View {
     private func wanted(_ entry: TorrentFileBrowserEntry) -> Bool { optimisticWanted[entry.index] ?? pendingWanted[entry.index] ?? entry.isWanted }
 
     var body: some View {
-        let layout = TorrentFileListLayout(isInspector: isCompact)
+        let layout = TorrentFileListLayout.shared
         let byIndex = Dictionary(uniqueKeysWithValues: entries.map { ($0.index, $0) })
         let rows = treeCache.rows(entries: entries, byIndex: byIndex, collapsed: collapsed, query: searchText)
         let nextRowIDs = Dictionary(uniqueKeysWithValues: zip(rows.map(\.id), rows.dropFirst().map(\.id)))
@@ -68,6 +69,10 @@ struct TorrentFilesBrowser: View {
             $0.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
                 < $1.size(withAttributes: [.font: NSFont.preferredFont(forTextStyle: .caption1)]).width
         } ?? "0 KB"
+        let inlineProgress = layout.canShowInlineProgress(width: availableWidth, sizeText: widestSize,
+            depth: entries.map { max(0, $0.displayName.split(separator: "/").count - 1) }.max() ?? 0)
+        let showsHierarchy = rows.contains(where: \.isFolder)
+        let stacked = showsCompletion && !inlineProgress
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
@@ -81,7 +86,7 @@ struct TorrentFilesBrowser: View {
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
                 }
-                .padding(.horizontal, 8)
+                .glassContentMargins()
                 .padding(.bottom, 6)
             }
             List(selection: Binding<Set<String>>(get: { nativeSelection }, set: { ids in
@@ -91,6 +96,7 @@ struct TorrentFilesBrowser: View {
             })) {
                 ForEach(rows) { row in
                     let completed = !row.indices.isEmpty && row.indices.allSatisfy { byIndex[$0]?.isComplete == true }
+                    let separatorLeading = layout.iconLeadingInset(hierarchical: showsHierarchy) + CGFloat(row.depth) * layout.indent
                     HStack(spacing: layout.columnGap) {
                         Toggle(isOn: Binding(
                             get: { (isCompact && completed) || row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
@@ -101,16 +107,13 @@ struct TorrentFilesBrowser: View {
                         .disabled(isCompact && completed)
                         .accessibilityLabel(glassText("Download \(displayName(row, hiding: hiddenExtension))"))
                         HStack(spacing: 0) {
-                            if row.isFolder {
-                                Button {
-                                    if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
-                                } label: {
-                                    Image(systemName: collapsed.contains(row.id) ? "chevron.right" : "chevron.down")
-                                        .font(.system(size: 9, weight: .semibold)).frame(width: 12)
-                                }.buttonStyle(.plain).padding(.trailing, 4)
+                            TorrentFileTreeLabel(row: row, name: displayName(row, hiding: hiddenExtension),
+                                isExpanded: !collapsed.contains(row.id) || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                                showsHierarchy: showsHierarchy) {
+                                    withAnimation(GlassMotion.animation(.structure, reduceMotion: reduceMotion)) {
+                                        if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
+                                    }
                             }
-                            Text(displayName(row, hiding: hiddenExtension)).textCase(nil)
-                                .lineLimit(1).truncationMode(.middle)
                             if row.indices.contains(where: { wantedRequests[$0] != nil }) {
                                 ProgressView().controlSize(.mini).padding(.leading, 6)
                             }
@@ -130,61 +133,34 @@ struct TorrentFilesBrowser: View {
                             }
                             Spacer(minLength: 0)
                         }
-                        .padding(.leading, CGFloat(row.depth) * layout.indent)
-                        Group {
-                            if isCompact {
-                                HStack(alignment: .center, spacing: layout.metadataGap) {
-                                    if showsCompletion {
-                                    Text("100%").hidden().overlay(alignment: .trailing) {
-                                      if !completed && row.indices.allSatisfy({ byIndex[$0].map(wanted) ?? false }) {
-                                        Text(formatPercent(progress(row, byIndex: byIndex)))
-                                            .foregroundStyle(.secondary)
-                                      }
-                                    }
-                                    }
-                                    ZStack(alignment: .trailing) {
-                                        Text(widestSize).textCase(nil).hidden()
-                                        Text(formatBytes(row.size)).textCase(nil).fixedSize()
-                                    }
-                                }
-                            } else {
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    Text(formatBytes(row.size)).textCase(nil)
-                                    if showsCompletion {
-                                    Text(formatPercent(progress(row, byIndex: byIndex)))
-                                        .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                        }
-                        .font(.caption).monospacedDigit()
-                        .fixedSize(horizontal: true, vertical: false)
+                        TorrentFileMetadata(size: formatBytes(row.size), sizeColumnText: widestSize,
+                            progress: showsCompletion && !completed && row.indices.allSatisfy({ byIndex[$0].map(wanted) ?? false })
+                                ? formatPercent(progress(row, byIndex: byIndex)) : nil,
+                            presentation: !showsCompletion ? .sizeOnly : (inlineProgress ? .inline : .stacked))
                     }
-                    .frame(minHeight: layout.contentHeight)
+                    .frame(minHeight: layout.contentHeight(stacked: stacked))
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in separatorLeading }
                     .alignmentGuide(.listRowSeparatorTrailing) { $0[.trailing] }
-                    .padding(.horizontal, scrolls ? nil : 0)
+                    .padding(.horizontal, layout.selectionInterior)
+                    .padding(.vertical, layout.verticalInset(stacked: stacked))
                     .background {
                         if isCompact && !nativeHighlight && nativeSelection.contains(row.id) {
                             let above = previousRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
                             let below = nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false
-                            UnevenRoundedRectangle(topLeadingRadius: above ? 0 : 12, bottomLeadingRadius: below ? 0 : 12, bottomTrailingRadius: below ? 0 : 12, topTrailingRadius: above ? 0 : 12)
+                            TorrentFileSelectionShape(horizontalOutset: layout.selectionOutset, joinsAbove: above, joinsBelow: below)
                                 .fill(Color.primary.opacity(0.07))
-                                .padding(.horizontal, -layout.selectionOutset)
-                                .padding(.vertical, -layout.verticalInset)
                         }
                         if isCompact && row.id == rows.first?.id {
                             TorrentFileListStyling(onDeselect: { index in
                                 guard rows.indices.contains(index) else { return }
                                 nativeSelection.remove(rows[index].id)
                                 selection.subtract(rows[index].indices)
-                            }, controlInset: layout.nativeCellInset + layout.leadingIconWidth + layout.columnGap, nativeHighlight: nativeHighlight)
+                            }, nativeHighlight: nativeHighlight)
                         }
                     }
+                    .contentShape(.focusEffect, TorrentFileContextShape(horizontalOutset: layout.selectionOutset))
+                    .glassContentMargins()
                     .contentShape(Rectangle())
-                    .contentShape(.focusEffect, TorrentFileContextShape(horizontalOutset: layout.horizontalInset))
-                    .simultaneousGesture(TapGesture().onEnded {
-                        GlassHaptics.perform(.selection)
-                    })
                     .swipeActions(edge: .leading, allowsFullSwipe: true) {
                         Button { adjustPriority(row, byIndex: byIndex, higher: true) } label: {
                             Image(nsImage: FilePriorityGlyph.swipeImage(high: true)).renderingMode(.original)
@@ -196,8 +172,8 @@ struct TorrentFilesBrowser: View {
                         }.tint(.gray).accessibilityLabel("Lower priority").help("Lower priority")
                     }
                     .tag(row.id)
-                    .listRowInsets(.vertical, layout.verticalInset)
-                    .listRowInsets(.horizontal, nil)
+                    .listRowInsets(.vertical, 0)
+                    .listRowInsets(.horizontal, 0)
                     .listRowSeparator(!TorrentInternalDragState.active && isCompact && (row.id == rows.last?.id
                         || nativeSelection.contains(row.id)
                         || (nextRowIDs[row.id].map { nativeSelection.contains($0) } ?? false)) ? .hidden : (isCompact ? .visible : .automatic), edges: .bottom)
@@ -240,15 +216,17 @@ struct TorrentFilesBrowser: View {
                 }
             }
             .listStyle(.plain)
-            .contentMargins(.horizontal, nil, for: .scrollContent)
+            .contentMargins(.horizontal, 0, for: .scrollContent)
             .scrollEdgeEffectStyle(.soft, for: .all)
             .scrollContentBackground(.hidden)
             .scrollDisabled(!scrolls)
-            .scrollIndicators(scrolls ? .automatic : .hidden)
-            .environment(\.defaultMinListRowHeight, layout.rowHeight)
+            .scrollIndicators(scrolls ? GlassScrollbarVisibility.visibility : .hidden)
+            .environment(\.defaultMinListRowHeight, layout.rowHeight(stacked: stacked))
             .font(isCompact ? .body : .system(size: 12))
-            .frame(height: scrolls ? nil : CGFloat(max(rows.count, 1)) * layout.rowHeight)
+            .frame(height: scrolls ? nil : CGFloat(max(rows.count, 1)) * layout.rowHeight(stacked: stacked))
+            .glassMotion(.structure, value: collapsed)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
                 HStack(spacing: 8) {

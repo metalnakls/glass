@@ -38,6 +38,7 @@ public struct PreferencesView: View {
         }
         .formStyle(.grouped)
         .glassTextStyle()
+        .glassScrollbarVisibility()
         .frame(width: 420)
         .onChange(of: isTorrentCachingEnabled) { _, _ in save() }
         .onChange(of: cachedServerLimit) { _, _ in save() }

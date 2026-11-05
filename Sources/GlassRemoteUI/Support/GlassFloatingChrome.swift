@@ -6,7 +6,8 @@ struct GlassFloatingDock<Content: View>: View {
     var body: some View {
         GlassEffectContainer() {
             content()
-                .padding()
+                .glassContentMargins()
+                .padding(.vertical)
         }
     }
 }

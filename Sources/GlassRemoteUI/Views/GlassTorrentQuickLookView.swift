@@ -26,6 +26,7 @@ public struct GlassTorrentQuickLookView: View {
                 Spacer(minLength: 20)
                 if let preview { Text(formatBytes(preview.size)).textCase(nil).font(.title3).monospacedDigit() }
             }
+            .glassContentMargins()
             if let preview {
                 ScrollView {
                 TorrentFilesBrowser(entries: originalNames ? preview.files.enumerated().map {
@@ -38,7 +39,8 @@ public struct GlassTorrentQuickLookView: View {
                 ContentUnavailableView(glassText("No data found"), systemImage: "questionmark.folder")
             } else { Spacer(); ProgressView(); Spacer() }
         }
-        .padding(28)
+        .padding(.vertical)
+        .glassScrollbarVisibility()
         .task(id: url) {
             let result = await Task.detached(priority: .userInitiated) {
                 let scoped = url.startAccessingSecurityScopedResource()

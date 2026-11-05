@@ -71,7 +71,7 @@ struct TorrentDownloadLocationView: View {
                         } catch { feedback = "Unavailable"; feedbackID = UUID() }
                     }
                 } label: {
-                    HStack(spacing: TorrentFileListLayout.inspector.columnGap) {
+                    HStack {
                         NativeLocationIcon(path: location.directoryURL?.path, sourceID: isLocal ? nil : sourceID, serverName: serverName, size: InspectorGlassPill.locationIconSize)
                         TransientStatusText(text: location.sourceName, message: feedback)
                             .font(.headline)
