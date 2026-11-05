@@ -148,7 +148,7 @@ struct TorrentListView: View {
         let separatorLeading = CGFloat(leftPadding) + columns.textLeading
         let separatorTrailing = CGFloat(rightPadding) + columns.textTrailing
         ScrollViewReader { scrollProxy in
-            Group {
+            ZStack(alignment: .topLeading) {
             if grid {
                 ScrollView {
                     LazyVStack(spacing: 12, pinnedViews: .sectionHeaders) {
@@ -293,11 +293,13 @@ struct TorrentListView: View {
             .background(listSurface)
             }
             }
-            .background { TorrentViewModeLayoutBarrier(owner: viewModeTransition, mode: currentMode, revision: viewModeTransition.generation) }
+            .background { TorrentViewModeLayoutBarrier(owner: viewModeTransition, mode: currentMode,
+                revision: viewModeTransition.generation, contentIDs: Set(layout.nativeRowIDs.compactMap { $0 })) }
             .overlay { TorrentViewModeViewport(owner: viewModeTransition).allowsHitTesting(false) }
             .onAppear { if displayedPresentation == nil { displayedPresentation = requestedPresentation } }
             .onChange(of: requestedPresentation) { _, presentation in
-                viewModeTransition.prepare(to: presentation.mode, selection: selection, reduceMotion: accessibilityReduceMotion)
+                viewModeTransition.prepare(to: presentation.mode, selection: selection,
+                    reduceMotion: accessibilityReduceMotion, destinationIDs: Set(layout.nativeRowIDs.compactMap { $0 }))
                 var transaction = Transaction(); transaction.disablesAnimations = true
                 withTransaction(transaction) { displayedPresentation = presentation }
             }

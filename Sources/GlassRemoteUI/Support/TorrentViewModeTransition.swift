@@ -34,6 +34,27 @@ enum TorrentViewModeGeometry {
     }
 }
 
+
+/// A container can lay out before its native artwork rows exist. Empty visible
+/// endpoint maps are therefore not an empty data set and must not consume sources.
+enum TorrentViewModeReadiness {
+    enum Decision { case wait, ready, settle }
+    static func decision(containerLaidOut: Bool, scrollSubmitted: Bool,
+                         sourceIDs: Set<String>, destinationIDs: Set<String>,
+                         visibleDestinationIDs: Set<String>, hasPendingVisibleLayout: Bool,
+                         requiredAnchorID: String? = nil) -> Decision {
+        guard containerLaidOut, scrollSubmitted else { return .wait }
+        guard !sourceIDs.isEmpty, !destinationIDs.isEmpty,
+              !sourceIDs.isDisjoint(with: destinationIDs) else { return .settle }
+        if let requiredAnchorID, destinationIDs.contains(requiredAnchorID),
+           !visibleDestinationIDs.contains(requiredAnchorID) { return .wait }
+        guard !visibleDestinationIDs.intersection(destinationIDs).isEmpty, !hasPendingVisibleLayout else { return .wait }
+        // Do not wait for every old source: some legitimately lie outside the
+        // destination viewport after reflow. Only measured visible pairs fly.
+        return .ready
+    }
+}
+
 struct TorrentArtworkTransitionContext {
     let owner: TorrentViewModeTransition
     let id: String
@@ -160,11 +181,11 @@ struct TorrentViewModeViewport: NSViewRepresentable {
     func makeNSView(context: Context) -> ViewModeViewportView {
         let view = ViewModeViewportView()
         view.owner = owner
-        owner.viewport = view
+        owner.attachViewport(view)
         return view
     }
-    func updateNSView(_ view: ViewModeViewportView, context: Context) { view.owner = owner; owner.viewport = view }
-    static func dismantleNSView(_ view: ViewModeViewportView, coordinator: ()) { view.owner?.cancel() }
+    func updateNSView(_ view: ViewModeViewportView, context: Context) { view.owner = owner; owner.attachViewport(view) }
+    static func dismantleNSView(_ view: ViewModeViewportView, coordinator: ()) { view.owner?.detachViewport(view) }
 }
 
 @MainActor
@@ -238,7 +259,9 @@ private final class ArtworkFlight: NSView {
 @MainActor
 final class TorrentViewModeTransition {
     let labels = TorrentViewModeLabels()
-    weak var viewport: ViewModeViewportView?
+    private(set) weak var viewport: ViewModeViewportView?
+    private weak var layoutBarrier: TorrentViewModeLayoutBarrier.Barrier?
+    private var destinationIDs = Set<String>()
     private var anchors: [String: WeakArtworkAnchor] = [:]
     private var sources: [String: (view: NSView, frame: CGRect)] = [:]
     private var flights: [String: ArtworkFlight] = [:]
@@ -254,12 +277,24 @@ final class TorrentViewModeTransition {
     private var restoredScroll = false
     private var viewportSize = CGSize.zero
     private var scrollObservers: [NSObjectProtocol] = []
+    private var pendingScrolls = Set<ObjectIdentifier>()
     isolated deinit { removeScrollObservers() }
 
     private final class WeakArtworkAnchor {
         weak var value: ArtworkAnchorView?
         init(_ value: ArtworkAnchorView) { self.value = value }
     }
+    func attachViewport(_ view: ViewModeViewportView) { viewport = view }
+    func detachViewport(_ view: ViewModeViewportView) {
+        guard viewport === view else { return }
+        cancel()
+        viewport = nil
+    }
+    func registerLayoutBarrier(_ barrier: TorrentViewModeLayoutBarrier.Barrier) {
+        guard barrier.revision == generation else { return }
+        layoutBarrier = barrier
+    }
+
     var pending: Bool { requested != nil }
     func accepts(_ context: TorrentArtworkTransitionContext) -> Bool {
         context.revision == generation && (activeMode == nil || context.mode == activeMode)
@@ -269,6 +304,7 @@ final class TorrentViewModeTransition {
         activeMode = context.mode
         anchors[context.id] = WeakArtworkAnchor(anchor)
         if pending, context.mode == requested, sources[context.id] != nil, anchor.host?.superview === anchor { anchor.host?.layer?.opacity = 0 }
+        if pending { observePendingUserScroll(anchor) }
         scheduleResolution()
     }
     func unregister(_ anchor: ArtworkAnchorView) {
@@ -285,13 +321,25 @@ final class TorrentViewModeTransition {
         register(anchor)
     }
     func viewportDidLayout(_ size: CGSize) {
-        if viewportSize != .zero, viewportSize != size, !flights.isEmpty { cancel() }
+        if viewportSize != .zero, viewportSize != size, (pending || !flights.isEmpty) { cancel() }
         viewportSize = size
         scheduleResolution()
     }
     private func removeScrollObservers() {
         for observer in scrollObservers { NotificationCenter.default.removeObserver(observer) }
         scrollObservers.removeAll()
+        pendingScrolls.removeAll()
+    }
+    private func observePendingUserScroll(_ anchor: ArtworkAnchorView) {
+        guard let scroll = anchor.enclosingScrollView,
+              pendingScrolls.insert(ObjectIdentifier(scroll)).inserted else { return }
+        // Direct user input abandons the pending visual handoff. Programmatic
+        // scroll restoration emits bounds changes, not native live-scroll events.
+        for name in [NSScrollView.willStartLiveScrollNotification, NSScrollView.didLiveScrollNotification] {
+            scrollObservers.append(NotificationCenter.default.addObserver(forName: name, object: scroll, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { self?.cancel() }
+            })
+        }
     }
     private func observeDirectScroll(_ destinations: [ArtworkAnchorView]) {
         removeScrollObservers()
@@ -312,8 +360,11 @@ final class TorrentViewModeTransition {
         }
     }
 
-    func prepare(to mode: TorrentViewMode, selection: String?, reduceMotion: Bool) {
+    func prepare(to mode: TorrentViewMode, selection: String?, reduceMotion: Bool, destinationIDs: Set<String>) {
+        let sourceRevision = generation
+        let sourceMode = activeMode
         generation += 1
+        self.destinationIDs = destinationIDs
         removeScrollObservers()
         guard let viewport, viewport.window != nil else { cancel(); activeMode = mode; return }
         let interrupted = flights.mapValues { $0.interruptedVisual() }
@@ -324,28 +375,34 @@ final class TorrentViewModeTransition {
             sources[id] = (value.0, value.1)
         }
         for (id, weak) in anchors {
-            guard sources[id] == nil, let anchor = weak.value, let rect = visibleFrame(anchor),
+            guard sources[id] == nil, let anchor = weak.value,
+                  anchor.context?.revision == sourceRevision, anchor.context?.mode == sourceMode,
+                  let rect = visibleFrame(anchor),
                   let renderer = anchor.takeRenderer() else { continue }
             let visual = ArtworkFlight.normalized(renderer, size: rect.size)
             visual.frame.origin = rect.origin
             viewport.addSubview(visual)
             sources[id] = (visual, rect)
         }
-        scrollAnchor = selection.flatMap { sources[$0] == nil ? nil : $0 }
-            ?? sources.min(by: { $0.value.frame.minY < $1.value.frame.minY })?.key
+        scrollAnchor = selection.flatMap { sources[$0] != nil && destinationIDs.contains($0) ? $0 : nil }
+            ?? sources.filter { destinationIDs.contains($0.key) }.min(by: { $0.value.frame.minY < $1.value.frame.minY })?.key
         scrollAnchorY = scrollAnchor.flatMap { sources[$0]?.frame.minY }
         activeMode = mode
         labels.visible = false
         requested = mode; destinationReady = false; scrollPrepared = false; restoredScroll = false; reduced = reduceMotion
     }
-    func destinationDidLayout(_ mode: TorrentViewMode, revision: Int) {
+    func destinationDidLayout(_ mode: TorrentViewMode, revision: Int, contentIDs: Set<String>) {
         guard mode == requested, revision == generation else { return }
+        destinationIDs = contentIDs
         destinationReady = true
         scheduleResolution()
     }
     func didSubmitScrollRestoration() {
         scrollPrepared = true
-        scheduleResolution()
+        // Submission is not layout completion. Require a native layout pass
+        // after the scroll request before measuring endpoints or starting flights.
+        destinationReady = false
+        layoutBarrier?.needsLayout = true
     }
     func scheduleResolution() {
         guard pending, destinationReady, scrollPrepared, !resolutionQueued else { return }
@@ -374,9 +431,24 @@ final class TorrentViewModeTransition {
     private func resolve() {
         guard let viewport, let requested else { return }
         let destinations = anchors.compactMapValues { weak -> ArtworkAnchorView? in
-            guard let value = weak.value, value.context?.mode == requested, value.context?.revision == generation, visibleFrame(value) != nil else { return nil }
+            guard let value = weak.value, let context = value.context,
+                  context.mode == requested, context.revision == generation,
+                  destinationIDs.contains(context.id), visibleFrame(value) != nil else { return nil }
             return value
         }
+        let hasPendingVisibleLayout = anchors.values.contains { weak in
+            guard let anchor = weak.value, let context = anchor.context, accepts(context),
+                  context.mode == requested, destinationIDs.contains(context.id), anchor.window === viewport.window,
+                  !anchor.laidOut, !anchor.isHiddenOrHasHiddenAncestor else { return false }
+            return TorrentViewModeGeometry.usable(anchor.convert(anchor.bounds, to: viewport), in: viewport.bounds)
+        }
+        let readiness = TorrentViewModeReadiness.decision(
+            containerLaidOut: destinationReady, scrollSubmitted: scrollPrepared,
+            sourceIDs: Set(sources.keys), destinationIDs: destinationIDs,
+            visibleDestinationIDs: Set(destinations.keys), hasPendingVisibleLayout: hasPendingVisibleLayout,
+            requiredAnchorID: scrollAnchor)
+        guard readiness != .wait else { return }
+        if readiness == .settle { cancel(); return }
         if !restoredScroll {
             restoredScroll = true
             if let id = scrollAnchor, let anchor = destinations[id], let targetY = scrollAnchorY,
@@ -384,10 +456,14 @@ final class TorrentViewModeTransition {
                 let clip = scroll.contentView
                 let maximum = max(0, (scroll.documentView?.bounds.height ?? 0) - clip.bounds.height)
                 let y = max(0, min(maximum, clip.bounds.origin.y + frame.minY - targetY))
-                clip.scroll(to: CGPoint(x: clip.bounds.origin.x, y: y))
-                scroll.reflectScrolledClipView(clip)
-                scheduleResolution()
-                return
+                let target = CGPoint(x: clip.bounds.origin.x, y: y)
+                if target != clip.bounds.origin {
+                    destinationReady = false
+                    clip.scroll(to: target)
+                    scroll.reflectScrolledClipView(clip)
+                    layoutBarrier?.needsLayout = true
+                    return
+                }
             }
         }
         let token = generation
@@ -486,19 +562,24 @@ struct TorrentViewModeLayoutBarrier: NSViewRepresentable {
     let owner: TorrentViewModeTransition
     let mode: TorrentViewMode
     let revision: Int
+    let contentIDs: Set<String>
     func makeNSView(context: Context) -> Barrier { Barrier() }
     func updateNSView(_ view: Barrier, context: Context) {
-        view.owner = owner; view.mode = mode; view.revision = revision; view.needsLayout = true
+        view.owner = owner; view.mode = mode; view.revision = revision
+        view.contentIDs = contentIDs
+        owner.registerLayoutBarrier(view)
+        view.needsLayout = true
     }
     final class Barrier: NSView {
         weak var owner: TorrentViewModeTransition?
         var mode: TorrentViewMode?
         var revision = 0
+        var contentIDs = Set<String>()
         override func hitTest(_ point: NSPoint) -> NSView? { nil }
         override func viewDidMoveToWindow() { super.viewDidMoveToWindow(); needsLayout = true }
         override func layout() {
             super.layout()
-            if window != nil, let mode { owner?.destinationDidLayout(mode, revision: revision) }
+            if window != nil, let mode { owner?.destinationDidLayout(mode, revision: revision, contentIDs: contentIDs) }
         }
     }
 }
