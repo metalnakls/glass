@@ -62,8 +62,8 @@ struct AddMagnetView: View {
             if let draft {
                 AddTorrentBatchView(model: model, platformIntegration: platformIntegration,
                     drafts: [draft], restore: nil, draftID: draftID,
-                    initialSourceID: destinationID,
-                    initialDirectory: downloadDirectory ?? defaultDownloadDirectory,
+                    initialSourceID: selectedDestinationID,
+                    initialDirectory: downloadDirectory,
                     capture: capture, discardDraft: discardDraft,
                     submit: submit, didFinishAdding: didFinishAdding)
             } else {

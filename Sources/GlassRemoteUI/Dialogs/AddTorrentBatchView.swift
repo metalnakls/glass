@@ -32,6 +32,7 @@ struct AddTorrentBatchView: View {
     @State private var selectedGroupID: String
     @State private var groupNamesByID: [String: String]
     @State private var smartNamesByGroupID: [String: Bool]
+    @State private var followsContent: Bool
     @State private var sourceID: UUID
     @State private var downloadDirectory: String?
     @State private var defaultDownloadDirectory: String?
@@ -102,9 +103,15 @@ struct AddTorrentBatchView: View {
         _smartNamesByGroupID = State(initialValue: Dictionary(
             uniqueKeysWithValues: groups.map { ($0.id, true) }
         ))
+        _followsContent = State(initialValue: restore == nil && initialSourceID == nil && initialDirectory == nil)
+        let names = drafts.first?.preview.files.map(\.name) ?? []
+        let preferredSource = TorrentDownloadDirectoryPolicy.source(for: names, selected: model.selectedSourceID,
+            local: model.localSourceID, remotes: model.profiles.map(\.id))
+        let localDefault = TorrentDownloadDirectoryPolicy.prefersMacDownloads(fileNames: names)
+            ? TorrentDownloadDirectoryPolicy.downloadsDirectory : nil
         _sourceID = State(initialValue: TorrentAddDraftRestore.sourceID(restore?.sourceID, in: model)
-            ?? initialSourceID ?? model.selectedSourceID)
-        _downloadDirectory = State(initialValue: restore?.downloadDirectory ?? initialDirectory)
+            ?? initialSourceID ?? preferredSource)
+        _downloadDirectory = State(initialValue: restore?.downloadDirectory ?? initialDirectory ?? (restore == nil && initialSourceID == nil ? localDefault : nil))
     }
 
     var body: some View {
@@ -161,7 +168,18 @@ struct AddTorrentBatchView: View {
         .onChange(of: pendingURLs) { captureDraft() }
         .onChange(of: sourceID) { captureDraft() }
         .onChange(of: downloadDirectory) { captureDraft() }
-        .onChange(of: selectedGroupID) { captureDraft() }
+        .onChange(of: selectedGroupID) {
+            if followsContent, let group = groups.first(where: { $0.id == selectedGroupID }) {
+                let names = group.itemIndices.flatMap { items[$0].draft.preview.files.map(\.name) }
+                let preferred = TorrentDownloadDirectoryPolicy.source(for: names, selected: model.selectedSourceID,
+                    local: model.localSourceID, remotes: model.profiles.map(\.id))
+                if sourceID != preferred { defaultDownloadDirectory = nil }
+                sourceID = preferred
+                downloadDirectory = TorrentDownloadDirectoryPolicy.prefersMacDownloads(fileNames: names)
+                    ? TorrentDownloadDirectoryPolicy.downloadsDirectory : nil
+            }
+            captureDraft()
+        }
         .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
     }
 
@@ -230,7 +248,7 @@ struct AddTorrentBatchView: View {
     private func header(for group: TorrentBatchGroup) -> some View {
         let showsIcon = showsTitleIcon && hasMultipleFiles(in: group)
         let locationPicker = TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
-            sourceID: $sourceID, directory: $downloadDirectory,
+            sourceID: chosenSource, directory: $downloadDirectory,
             defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
             isDisabled: isAdding,
             prefersMacDownloads: TorrentDownloadDirectoryPolicy.prefersMacDownloads(
@@ -435,6 +453,10 @@ struct AddTorrentBatchView: View {
         if let addedHash { didFinishAdding(destinationSource, addedHash) }
         if !failures.isEmpty { model.errorMessage = failures.joined(separator: "\n") }
         captureDraft()
+    }
+
+    private var chosenSource: Binding<UUID> {
+        Binding(get: { sourceID }, set: { followsContent = false; sourceID = $0 })
     }
 
     private var resolvedBaseDownloadDirectory: String? {
