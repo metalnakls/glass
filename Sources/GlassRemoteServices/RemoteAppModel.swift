@@ -8,16 +8,31 @@ import UIKit
 #endif
 
 public protocol TorrentSourceFileDisposing: Sendable {
-    func trashTorrentFileIfNeeded(_ url: URL?)
+    func trashTorrentFileIfNeeded(_ url: URL?, matching data: Data?)
 }
 
 public struct SystemTorrentSourceFileDisposer: TorrentSourceFileDisposing {
     public init() {}
 
-    public func trashTorrentFileIfNeeded(_ url: URL?) {
+    public func trashTorrentFileIfNeeded(_ url: URL?, matching data: Data?) {
         guard let url, url.isFileURL, url.pathExtension.lowercased() == "torrent" else { return }
         #if os(macOS)
-        try? FileManager.default.trashItem(at: url, resultingItemURL: nil)
+        guard let data else { return }
+        Task.detached(priority: .utility) {
+            let scope = url.startAccessingSecurityScopedResource()
+            defer { if scope { url.stopAccessingSecurityScopedResource() } }
+            let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first
+            let current = FileManager.default.fileExists(atPath: url.path) ? url : downloads.flatMap {
+                try? DownloadsTorrentRename.currentURL(forMissing: url, in: $0)
+            }
+            // Pin the inode across verification and Trash. A reused name must
+            // never cause a different torrent to be discarded after an add.
+            guard let current, let reference = (current as NSURL).fileReferenceURL(),
+                  let handle = try? FileHandle(forReadingFrom: reference) else { return }
+            defer { try? handle.close() }
+            guard (try? handle.read(upToCount: data.count + 1)) == data else { return }
+            try? FileManager.default.trashItem(at: reference, resultingItemURL: nil)
+        }
         #endif
     }
 }
@@ -306,7 +321,7 @@ public final class RemoteAppModel {
         catch { pendingAdditions.insert(pending, at: index); throw error }
         pendingAdditionRevision &+= 1
         if pending.entry.trashSourceOnSuccess {
-            torrentSourceFileDisposer.trashTorrentFileIfNeeded(pending.entry.sourceURL)
+            torrentSourceFileDisposer.trashTorrentFileIfNeeded(pending.entry.sourceURL, matching: pending.entry.data)
         }
     }
 

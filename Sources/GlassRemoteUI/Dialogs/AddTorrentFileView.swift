@@ -510,18 +510,27 @@ struct TorrentFileAddDraft: Identifiable, Sendable {
     }
 
     @concurrent
-    static func load(from url: URL) async throws -> Self {
+    static func load(from url: URL, downloadsDirectory: URL? = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first) async throws -> Self {
         try Task.checkCancellation()
         let didAccess = url.startAccessingSecurityScopedResource()
         defer { if didAccess { url.stopAccessingSecurityScopedResource() } }
         // Metainfo is metadata, never payload. Bound malicious/accidental huge inputs
         // before parsing while allowing large real-world file collections.
-        let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-        guard size <= 64 * 1_024 * 1_024 else { throw CocoaError(.fileReadTooLarge) }
-        let data = try Data(contentsOf: url, options: .mappedIfSafe)
-        let preview = TorrentFilePreview(data: data, fallbackURL: url)
+        var current = url
+        let handle: FileHandle
+        do { handle = try FileHandle(forReadingFrom: url) }
+        catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            guard let downloads = downloadsDirectory else { throw error }
+            current = try DownloadsTorrentRename.currentURL(forMissing: url, in: downloads)
+            handle = try FileHandle(forReadingFrom: current)
+        }
+        defer { try? handle.close() }
+        let limit = 64 * 1_024 * 1_024
+        let data = try handle.read(upToCount: limit + 1) ?? Data()
+        guard data.count <= limit else { throw CocoaError(.fileReadTooLarge) }
+        let preview = TorrentFilePreview(data: data, fallbackURL: current)
         try Task.checkCancellation()
-        return Self(data: data, preview: preview, sourceURL: url)
+        return Self(data: data, preview: preview, sourceURL: current)
     }
 }
 

@@ -316,7 +316,7 @@ public struct SelectionAppearanceView: View {
                 do { try GlassBackgroundService.setEnabled(enabled); backgroundEnabled = enabled }
                 catch { saveStatus = error.localizedDescription }
             }))
-            Text(glassText("Smart Rename torrent files in Downloads and check saved servers for completed downloads while Glass is closed."))
+            Text(glassText("Smart Rename torrent files in Downloads, even while Glass is closed."))
                 .font(.caption).foregroundStyle(.secondary)
             if GlassBackgroundService.requiresApproval {
                 Text(glassText("Allow Glass in Login Items to finish enabling the worker.")).font(.caption)

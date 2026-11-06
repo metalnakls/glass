@@ -44,8 +44,8 @@ Two native surfaces use that renderer:
 - The existing Downloads worker adds per-file Finder custom icons while doing
   its existing scan. It uses the same authorized folder and service lifecycle.
   It changes resource-fork/Finder metadata only, leaving metainfo bytes and
-  info hashes intact. The foreground watcher works while Glass is open; the
-  existing standalone background agent remains a debug-only feature.
+  info hashes intact. GlassWorker owns this scan with the UI open or closed. Only debug builds
+  currently register this login item.
 
 `TorrentFinderIconWriter` serializes custom-icon writes. A versioned marker and
 resource-fork digest make repeat scans idempotent. Existing custom icons, later

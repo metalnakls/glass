@@ -1,21 +1,14 @@
 #!/usr/bin/env bash
-# Native integration check; run outside the sandbox in a logged-in macOS session.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-FIXTURE="$(mktemp -d /tmp/glass-background-launch.XXXXXX)"
-trap 'rm -rf "$FIXTURE"' EXIT
-mkdir -p "$FIXTURE/Probe.app/Contents/MacOS"
-cat > "$FIXTURE/Probe.app/Contents/Info.plist" <<PLIST
-<?xml version="1.0"?><plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>tsmc.glass.launch-test.$(basename "$FIXTURE")</string>
-<key>CFBundleExecutable</key><string>Probe</string>
-<key>CFBundlePackageType</key><string>APPL</string>
-</dict></plist>
-PLIST
-swiftc -swift-version 6 -parse-as-library \
-    "$ROOT/Sources/GlassRemoteUI/Support/GlassBackgroundApplication.swift" \
-    "$ROOT/Tests/Fixtures/BackgroundLaunch/Fixture.swift" \
-    -o "$FIXTURE/Probe.app/Contents/MacOS/Probe"
-codesign --force --sign - "$FIXTURE/Probe.app"
-swiftc -swift-version 6 -parse-as-library "$ROOT/Tests/Fixtures/BackgroundLaunch/Driver.swift" -o "$FIXTURE/Driver"
-"$FIXTURE/Driver" "$FIXTURE"
+app="${1:-/Applications/Glass.app}"
+worker="$app/Contents/Library/LoginItems/GlassWorker.app"
+[[ "$(plutil -extract CFBundleIdentifier raw "$worker/Contents/Info.plist")" == "tsmc.glass.worker" ]]
+[[ "$(plutil -extract LSBackgroundOnly raw "$worker/Contents/Info.plist")" == true ]]
+for key in CFBundleDocumentTypes CFBundleURLTypes; do
+    if plutil -extract "$key" xml1 -o /dev/null "$worker/Contents/Info.plist" >/dev/null 2>&1; then
+        echo "Worker claims a document or URL handler" >&2
+        exit 1
+    fi
+done
+codesign --verify --deep --strict "$app"
+"$worker/Contents/MacOS/GlassWorker" --background-worker-self-test

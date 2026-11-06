@@ -2,15 +2,11 @@ import AppKit
 import Foundation
 import OSLog
 import GlassRemoteCore
-import GlassRemoteServices
 import ServiceManagement
-import UserNotifications
 
-/// A user-approved launch agent uses the app's executable and sandbox identity.
-/// No credentials or access bookmarks are copied into another container.
+/// Register the independent Downloads helper with Service Management.
 @MainActor
 public enum GlassBackgroundService {
-    public static let isWorker = CommandLine.arguments.contains("--background-worker")
     public static var isAvailable: Bool {
         #if DEBUG
         true
@@ -18,38 +14,42 @@ public enum GlassBackgroundService {
         false
         #endif
     }
-    private static var service: SMAppService { .agent(plistName: "tsmc.glass.background.plist") }
+    private static var service: SMAppService { .loginItem(identifier: "tsmc.glass.worker") }
+    private static var version: String? { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String }
+    private static var previousService: SMAppService { .agent(plistName: "tsmc.glass.background.plist") }
     public static var isEnabled: Bool { isAvailable && service.status == .enabled }
     public static var requiresApproval: Bool { isAvailable && service.status == .requiresApproval }
 
     public static func setEnabled(_ enabled: Bool) throws {
         guard !enabled || isAvailable else { return }
-        if enabled { try BackgroundDownloadsAccess.authorize() }
         if enabled, service.status != .enabled { try service.register() }
         else if !enabled, service.status != .notRegistered { try service.unregister() }
         UserDefaults.standard.set(enabled, forKey: "GlassBackground.enabled")
-        if enabled { UserDefaults.standard.set(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String,
-            forKey: "GlassBackground.registeredVersion") }
+        if enabled { UserDefaults.standard.set(version, forKey: "GlassBackground.workerVersion") }
         if requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
 
     public static func offerIfNeeded() {
+        // Retire the legacy launchd job explicitly. Reusing its label also
+        // reuses the saved signing requirement for the old UI executable.
+        let migrateEnabledJob = previousService.status == .enabled
+        if previousService.status != .notRegistered && previousService.status != .notFound {
+            do { try previousService.unregister() }
+            catch {
+                Logger(subsystem: "tsmc.glass", category: "background").error("Retire old worker: \(error.localizedDescription)")
+                return
+            }
+        }
         guard isAvailable else {
             // A release upgrade retires a previously approved debug agent.
             if service.status != .notRegistered { try? service.unregister() }
             UserDefaults.standard.set(false, forKey: "GlassBackground.enabled")
             return
         }
-        guard !isWorker else { return }
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
-        if isEnabled || UserDefaults.standard.bool(forKey: "GlassBackground.enabled") {
-            // Obtain access before changing an approved registration, so canceling
-            // a folder grant leaves the existing agent intact.
+        let installedUpdate = isEnabled && UserDefaults.standard.string(forKey: "GlassBackground.workerVersion") != version
+        if migrateEnabledJob || installedUpdate || (service.status == .notRegistered && UserDefaults.standard.bool(forKey: "GlassBackground.enabled")) {
             do {
-                try BackgroundDownloadsAccess.authorize()
-                if isEnabled, UserDefaults.standard.string(forKey: "GlassBackground.registeredVersion") != version {
-                    try service.unregister()
-                }
+                if installedUpdate { try service.unregister() }
                 try setEnabled(true)
             } catch {
                 Logger(subsystem: "tsmc.glass", category: "background")
@@ -60,29 +60,16 @@ public enum GlassBackgroundService {
         UserDefaults.standard.set(true, forKey: "GlassBackground.offered")
         let alert = NSAlert()
         alert.messageText = glassText("Allow background work?")
-        alert.informativeText = glassText("Glass can Smart Rename torrent files in Downloads and check your saved servers for completed downloads while the app is closed. You can disable this in Tune or Login Items.")
+        alert.informativeText = glassText("Glass can Smart Rename torrent files in Downloads even while the app is closed. You can disable this in Tune or Login Items.")
         alert.addButton(withTitle: glassText("Allow"))
         alert.addButton(withTitle: glassText("Not now"))
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         do {
             try setEnabled(true)
-            Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
         } catch {
             let failure = NSAlert(error: error)
             failure.runModal()
         }
-    }
-
-    /// Foreground file renaming does not require a registered login agent.
-    public static func renameDownloadsWhileOpen() async {
-        do {
-            try BackgroundDownloadsAccess.ensureForegroundAccess()
-        } catch {
-            Logger(subsystem: "tsmc.glass", category: "background")
-                .error("Smart Rename needs Downloads access: \(error.localizedDescription, privacy: .public)")
-            return
-        }
-        await GlassBackgroundWorker.shared.runForeground()
     }
 
     public static func run() async {
@@ -92,77 +79,11 @@ public enum GlassBackgroundService {
 }
 
 
-/// The foreground app retains its authorized folder access for the launch agent.
-/// Bookmark storage remains inside the shared app container, without changing permissions.
-private enum BackgroundDownloadsAccess {
-    static var storage: URL? {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
-            .appendingPathComponent("GlassBackground", isDirectory: true)
-            .appendingPathComponent("Downloads.bookmark")
-    }
-
-    /// The Downloads entitlement does not override macOS privacy restrictions.
-    /// Check access in the app process before starting a watcher that cannot read.
-    @MainActor static func ensureForegroundAccess() throws {
-        if let scoped = try? resolve() {
-            defer { scoped.stopAccessingSecurityScopedResource() }
-            if (try? FileManager.default.contentsOfDirectory(atPath: scoped.path)) != nil { return }
-        }
-        if let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
-           (try? FileManager.default.contentsOfDirectory(atPath: downloads.path)) != nil { return }
-        try authorize()
-    }
-
-    @MainActor static func authorize() throws {
-        if let url = try? resolve() {
-            let readable = (try? FileManager.default.contentsOfDirectory(atPath: url.path)) != nil
-            url.stopAccessingSecurityScopedResource()
-            if readable { return }
-        }
-        guard let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first,
-              let storage else { throw CocoaError(.fileNoSuchFile) }
-        // Standard-folder entitlement access does not produce a transferable scope
-        // for an independently launched agent. The native picker grants that scope.
-        let panel = NSOpenPanel()
-        panel.title = glassText("Allow Downloads access")
-        panel.message = glassText("Choose Downloads to allow Glass to Smart Rename torrent files.")
-        panel.prompt = glassText("Allow")
-        panel.directoryURL = downloads
-        panel.canChooseDirectories = true
-        panel.canChooseFiles = false
-        panel.allowsMultipleSelection = false
-        guard panel.runModal() == .OK, let chosen = panel.url else { throw CocoaError(.userCancelled) }
-        guard chosen.resolvingSymlinksInPath().standardizedFileURL == downloads.resolvingSymlinksInPath().standardizedFileURL else {
-            throw CocoaError(.fileReadNoPermission)
-        }
-        let accessing = chosen.startAccessingSecurityScopedResource()
-        defer { if accessing { chosen.stopAccessingSecurityScopedResource() } }
-        let data = try chosen.bookmarkData(options: .withSecurityScope)
-        try FileManager.default.createDirectory(at: storage.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: storage, options: .atomic)
-    }
-
-    static func resolve() throws -> URL? {
-        guard let storage, FileManager.default.fileExists(atPath: storage.path) else { return nil }
-        let data = try Data(contentsOf: storage)
-        var stale = false
-        let url = try URL(resolvingBookmarkData: data, options: [.withSecurityScope, .withoutUI], bookmarkDataIsStale: &stale)
-        guard url.startAccessingSecurityScopedResource() else { throw CocoaError(.fileReadNoPermission) }
-        do {
-            if stale { try url.bookmarkData(options: .withSecurityScope).write(to: storage, options: .atomic) }
-        } catch {
-            url.stopAccessingSecurityScopedResource()
-            throw error
-        }
-        return url
-    }
-}
-
 private actor GlassBackgroundWorker {
     static let shared = GlassBackgroundWorker()
-    private var observed: [String: Double] = [:]
     private var fingerprints: [String: Date] = [:]
     private var directorySource: DispatchSourceFileSystemObject?
+    private var scanning = false
     private var scanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "tsmc.glass", category: "background")
     // Debug-only isolation permits exercising the real watcher without renaming user files or polling servers.
@@ -178,31 +99,7 @@ private actor GlassBackgroundWorker {
         #endif
         return nil
     }()
-    private var scopedDownloads: URL?
-    private var downloads: URL? { diagnosticDirectory ?? scopedDownloads ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
-    private let defaults = UserDefaults.standard
-
-    private var foregroundOwner = false
-
-    func runForeground() async {
-        guard !foregroundOwner else { return }
-        foregroundOwner = true
-        do { scopedDownloads = try BackgroundDownloadsAccess.resolve() }
-        catch { logger.error("Downloads access: \(error.localizedDescription, privacy: .public)") }
-        watchDownloads()
-        defer {
-            scanTask?.cancel()
-            directorySource?.cancel()
-            directorySource = nil
-            scopedDownloads?.stopAccessingSecurityScopedResource()
-            scopedDownloads = nil
-            foregroundOwner = false
-        }
-        while !Task.isCancelled {
-            await scanDownloads()
-            do { try await Task.sleep(for: .seconds(30)) } catch { return }
-        }
-    }
+    private var downloads: URL? { diagnosticDirectory ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
 
     func run() async {
         #if DEBUG
@@ -245,22 +142,10 @@ private actor GlassBackgroundWorker {
             } catch { print("Worker check failed: \(error.localizedDescription)"); exit(1) }
         }
         #endif
-        if diagnosticDirectory == nil {
-            do { scopedDownloads = try BackgroundDownloadsAccess.resolve() }
-            catch { logger.error("Could not restore Downloads access: \(error.localizedDescription, privacy: .public)") }
-        }
-        defer { scopedDownloads?.stopAccessingSecurityScopedResource() }
-        observed = defaults.dictionary(forKey: "GlassBackground.observed") as? [String: Double] ?? [:]
-        watchDownloads()
-        await scanDownloads()
         while !Task.isCancelled {
-            // A visible Glass process owns completion notifications while running.
-            let foregroundRunning = await MainActor.run {
-                NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass")
-                    .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-            }
-            if diagnosticDirectory == nil, !foregroundRunning || observed.isEmpty { await checkServers(notify: !foregroundRunning) }
-            try? await Task.sleep(for: .seconds(30))
+            if directorySource == nil { watchDownloads() }
+            await scanDownloads()
+            do { try await Task.sleep(for: .seconds(30)) } catch { return }
         }
     }
 
@@ -285,19 +170,16 @@ private actor GlassBackgroundWorker {
         scanTask?.cancel()
         scanTask = Task {
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            scanTask = nil
             await scanDownloads()
         }
     }
 
     private func scanDownloads() async {
-        if !foregroundOwner && diagnosticDirectory == nil {
-            let foregroundRunning = await MainActor.run {
-                NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass")
-                    .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
-            }
-            guard !foregroundRunning else { return }
-        }
         guard let downloads = downloads?.resolvingSymlinksInPath() else { return }
+        guard !scanning else { scheduleScan(); return }
+        scanning = true
+        defer { scanning = false }
         let entries: [URL]
         do {
             // This is a flat scan. The sandbox's standard Downloads URL is a
@@ -354,17 +236,21 @@ private actor GlassBackgroundWorker {
                 .replacingOccurrences(of: ":", with: "-").prefix(180))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
             guard !safeTitle.isEmpty, safeTitle != ".", safeTitle != ".." else { continue }
-            let target = downloads.appendingPathComponent(safeTitle).appendingPathExtension("torrent")
+            var target = downloads.appendingPathComponent(safeTitle).appendingPathExtension("torrent")
+            var copy = 1
+            while target != url && FileManager.default.fileExists(atPath: target.path) {
+                copy += 1
+                target = downloads.appendingPathComponent("\(safeTitle) (\(copy))").appendingPathExtension("torrent")
+            }
             do {
                 if target != url {
-                    guard !FileManager.default.fileExists(atPath: target.path) else { continue }
-                    try FileManager.default.moveItem(at: url, to: target)
+                    try DownloadsTorrentRename.move(url, to: target)
                 }
                 var values = URLResourceValues()
                 values.hasHiddenExtension = true
                 var mutableTarget = target
                 try mutableTarget.setResourceValues(values)
-                fingerprints[target.path] = modified
+                if result != .failed { fingerprints[target.path] = modified }
                 present.insert(target.path)
                 processed += 1
             } catch { logger.error("Torrent rename failed: \(error.localizedDescription, privacy: .public)") }
@@ -372,40 +258,5 @@ private actor GlassBackgroundWorker {
         }
         fingerprints = fingerprints.filter { present.contains($0.key) }
         logger.info("Downloads scan: \(candidates) torrents, \(readable) read, \(processed) processed")
-    }
-
-    private func checkServers(notify: Bool) async {
-        guard let store = try? FileProfileStore.applicationSupportStore(),
-              let profiles = try? store.loadProfiles() else { return }
-        let credentials = KeychainCredentialStore()
-        var seen = Set<String>()
-        for profile in profiles {
-            guard let password = try? credentials.password(for: profile.id) else { continue }
-            let rpc = TransmissionRPCClient(config: .init(profile: profile, password: password, timeout: 8))
-            guard let torrents = try? await rpc.fetchTorrents() else { continue }
-            let displayNames = (try? store.loadTorrentDisplayNames()) ?? [:]
-            let siblingTitles = torrents.map { torrent in
-                TorrentCompletionTitle(name: torrent.name, storedName: displayNames["\(profile.id.uuidString):\(torrent.hashString)"],
-                    downloadDirectory: torrent.downloadDir)
-            }
-            for torrent in torrents {
-                let key = "\(profile.id.uuidString):\(torrent.hashString)"
-                seen.insert(key)
-                if notify, let previous = observed[key], previous < 1, torrent.percentDone >= 1 {
-                    let details = try? await rpc.fetchTorrentDetails(hashString: torrent.hashString)
-                    let title = TorrentCompletionTitle(name: torrent.name, storedName: displayNames[key],
-                        downloadDirectory: torrent.downloadDir, files: details?.files ?? []).resolved(among: siblingTitles)
-                    await GlassCompletionNotificationCenter.shared.notifyTorrentCompleted(name: torrent.name,
-                        displayName: title,
-                        fileCount: torrent.fileCount,
-                        filePath: details?.files.first?.name.split(separator: "/").first.map(String.init), sourceID: profile.id, hashString: torrent.hashString,
-                        downloadDirectory: torrent.downloadDir, completionDate: details?.doneDate ?? torrent.doneDate)
-                }
-                observed[key] = torrent.percentDone
-            }
-        }
-        // Cap stale records but retain reconnect history through temporary RPC failure.
-        if observed.count > 10_000 { observed = observed.filter { seen.contains($0.key) } }
-        defaults.set(observed, forKey: "GlassBackground.observed")
     }
 }

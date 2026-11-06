@@ -2206,7 +2206,7 @@ private final class RecordingTorrentSourceFileDisposer: TorrentSourceFileDisposi
     private let lock = NSLock()
     private(set) var trashedURLs: [URL] = []
 
-    func trashTorrentFileIfNeeded(_ url: URL?) {
+    func trashTorrentFileIfNeeded(_ url: URL?, matching data: Data?) {
         guard let url else { return }
         lock.withLock {
             trashedURLs.append(url)

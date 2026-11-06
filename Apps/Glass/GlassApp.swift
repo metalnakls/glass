@@ -6,16 +6,13 @@ import Sparkle
 import SwiftUI
 import UserNotifications
 
-/// The background process handles launch events without creating SwiftUI scenes.
+// An agent registered by an older install may briefly use its cached command
+// during upgrade. Never let that command create a window or a second watcher.
 @main
 private enum GlassEntryPoint {
     @MainActor static func main() {
-        if GlassBackgroundService.isWorker {
-            guard GlassBackgroundService.isAvailable else { return }
-            GlassBackgroundApplication.run { await GlassBackgroundService.run() }
-        } else {
-            GlassApp.main()
-        }
+        guard !CommandLine.arguments.contains("--background-worker") else { return }
+        GlassApp.main()
     }
 }
 
@@ -31,7 +28,7 @@ struct GlassApp: App {
         GlassAppearanceDefaults.register()
         ReduceMotion.startObserving()
         let sparklePublicKey = Bundle.main.object(forInfoDictionaryKey: "SUPublicEDKey") as? String
-        if !GlassBackgroundService.isWorker, let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
+        if let sparklePublicKey, !sparklePublicKey.isEmpty, !sparklePublicKey.contains("$(") {
             let delegate = GlassUpdaterDelegate()
             // SPUStandardUpdaterController keeps its updater delegate weakly referenced.
             updaterDelegate = delegate

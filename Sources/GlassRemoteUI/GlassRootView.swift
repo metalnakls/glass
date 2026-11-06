@@ -251,7 +251,6 @@ public struct GlassRootView: View {
             }
         }
         .task { GlassBackgroundService.offerIfNeeded() }
-        .task { await GlassBackgroundService.renameDownloadsWhileOpen() }
         .task(id: ObjectIdentifier(model)) {
             guard !isTestWorkspace, !usesTestModel else { return }
             await TorrentFinderMetadata().run(model: model)

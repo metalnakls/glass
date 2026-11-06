@@ -35,9 +35,12 @@ extensions preference can override the individual file flag.
 
 ## Downloads worker
 
-The background worker selects prohibited activation before Finder artwork work
-initializes AppKit. It does not create a SwiftUI scene. The foreground app retains
-its normal activation and document-opening behavior.
+The registered login item runs the embedded GlassWorker.app with its own
+bundle identifier, a background-only Info.plist and Downloads read/write access.
+It owns the directory watcher and a periodic retry while Glass is open or closed.
+Only Glass declares torrent and magnet handlers. Before moving a torrent, the
+worker records its previous name on the file so a pending Finder open can
+resolve the same inode. Import keeps one open descriptor while reading metainfo.
 
 ## Validation
 
@@ -50,5 +53,5 @@ its normal activation and document-opening behavior.
   eligibility, mapped paths, unchanged names/bytes, icon preservation. Set
   `GLASS_TEST_SMB_ROOTS` to colon-separated mounted roots to exercise temporary
   fixtures on real shares; without it the SMB test does not access a share.
-- The signed app's `--background-worker --background-worker-self-test` checks
+- `Scripts/test-background-launch.sh` verifies the installed bundle identities and checks
   rename/icon work, unchanged torrent bytes and prohibited activation together.

@@ -26,16 +26,14 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
         center.setNotificationCategories([UNNotificationCategory(identifier: Self.category,
             actions: [UNNotificationAction(identifier: Self.openAction, title: "Open", options: [])],
             intentIdentifiers: [], options: [.customDismissAction])])
-        if !GlassBackgroundService.isWorker {
-            NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
+        NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
                 name: NSApplication.didBecomeActiveNotification, object: nil)
-            NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
+        NotificationCenter.default.addObserver(self, selector: #selector(acknowledgeVisible),
                 name: NSWindow.didBecomeKeyNotification, object: nil)
-        }
         serialize {
             let delivered = await self.center.deliveredNotifications().map(\.request)
             delivered.forEach { self.deliveries.record($0) }
-            if !GlassBackgroundService.isWorker { await self.updateBadge(clearAcknowledged: true) }
+            await self.updateBadge(clearAcknowledged: true)
         }
     }
 
@@ -161,9 +159,7 @@ public final class GlassCompletionNotificationCenter: NSObject, TorrentCompletio
             center.removePendingNotificationRequests(withIdentifiers: readIDs)
         }
         let count = Self.unreadCount(requests: requests, visibleKeys: activeVisibleKeys, acknowledgements: acknowledgements)
-        if !GlassBackgroundService.isWorker {
-            NSApp?.dockTile.badgeLabel = count == 0 ? nil : count.formatted()
-        }
+        NSApp?.dockTile.badgeLabel = count == 0 ? nil : count.formatted()
         try? await center.setBadgeCount(count)
     }
     private func serialize(_ work: @escaping @MainActor () async -> Void) {
