@@ -533,6 +533,18 @@ struct TorrentFileBrowserEntry: Identifiable, Hashable {
         self.wasCompleted = wasCompleted
     }
 
+    /// Grouping an already prepared entry must preserve its relative display path.
+    init(grouping entry: Self, index: Int, prefix: String) {
+        self.index = index
+        originalPath = entry.originalPath
+        displayName = prefix + entry.displayName
+        size = entry.size
+        completedBytes = entry.completedBytes
+        priority = entry.priority
+        isWanted = entry.isWanted
+        wasCompleted = entry.wasCompleted
+    }
+
     static func commonRoot(paths: [String]) -> String? {
         guard let first = paths.first?.split(separator: "/").first, !paths.isEmpty,
               paths.allSatisfy({ path in

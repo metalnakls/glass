@@ -218,10 +218,11 @@ AppKit was using its full-width table style. For file lists only,
 intercell spacing and fits the column once. Native List still owns selection,
 keyboard, scrolling and swipe actions. No main-list table style is changed.
 
-`TorrentFileTreeLabel` owns native disclosure buttons, cached Finder file-type
-icons and indentation. A flat file list omits the empty disclosure slot, so its
-checkbox sits next to the icon and name. Real trees retain the shared hierarchy
-column. `TorrentFileListLayout` owns columns and row height.
+`TorrentFileTreeLabel` puts the filename beside its checkbox. The title above
+the list represents the payload root. Add and Inspector show its contents at
+depth zero, preserving real subfolders and season groups. Only hierarchies
+reserve a disclosure column. Each level indents by one disclosure width.
+Original file indices, paths, track numbers and extensions retain their meaning.
 
 `TorrentFileMetadata` has size-only, inline-progress and stacked-progress variants.
 Inspector progress shares a line with size when font metrics, hierarchy depth,
@@ -231,7 +232,7 @@ The embedded list uses the same computed height, keeping the final row visible.
 Add omits download progress. Resizing retains native List identity, selection and
 collapsed folders.
 
-File separators remain native, spanning from the actual identity-icon column to
+File separators remain native, spanning from the name column to
 the content trailing edge. They do not run to the viewport edge. The selection
 shape extends halfway into the document margin on each side, as requested in the
 preview review. That decoration does not move content, separators or hit targets.

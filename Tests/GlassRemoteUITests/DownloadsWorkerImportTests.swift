@@ -24,4 +24,19 @@ struct DownloadsWorkerImportTests {
             try DownloadsTorrentRename.currentURL(forMissing: original, in: folder)
         }
     }
+
+    @Test func albumRowsBeginAtContentsAndKeepActualSubfolders() {
+        let root = "[2026-05-15] Drake - HABIBTI"
+        let paths = ["01. Drake - Rusty Intro.flac", "02. Drake - WNBA.flac", "Artwork/Cover.jpg"]
+        let entries = paths.enumerated().map { index, path in
+            let entry = TorrentFileBrowserEntry(index: index,
+                file: TorrentFile(name: root + "/" + path, length: 100, bytesCompleted: 0), rootName: root)
+            return TorrentFileBrowserEntry(grouping: entry, index: index, prefix: "")
+        }
+        let rows = TorrentFileTreeRow.rows(entries: entries, collapsed: [], query: "")
+        #expect(rows.filter(\.isFolder).map(\.name) == ["Artwork"])
+        #expect(rows.filter { !$0.isFolder }.map(\.depth) == [0, 0, 1])
+        #expect(entries.map(\.originalPath) == paths.map { root + "/" + $0 })
+        #expect(TorrentFileBrowserEntry(grouping: entries[0], index: 4, prefix: "Season 1/").displayName == "Season 1/" + paths[0])
+    }
 }

@@ -5,12 +5,10 @@ import SwiftUI
 @MainActor
 struct TorrentFileListLayout {
     static let shared = Self()
-    // Finder-sized identity glyphs; one glyph plus its gap is one hierarchy level.
     var leadingIconWidth: CGFloat { 16 }
     var disclosureWidth: CGFloat { 12 }
-    var identityIconWidth: CGFloat { 16 }
     var metadataGap: CGFloat { 6 }
-    var textLeadingInset: CGFloat { leadingIconWidth + columnGap + disclosureWidth + columnGap + identityIconWidth + columnGap }
+    var textLeadingInset: CGFloat { leadingIconWidth + columnGap + disclosureWidth + columnGap }
     var verticalInset: CGFloat { 4 }
     // Row interior, distinct from the document margin: keep native controls and
     // metadata off the rounded selection edge on all four sides.
@@ -37,9 +35,9 @@ struct TorrentFileListLayout {
         iconLeadingInset - (hierarchical ? 0 : disclosureWidth + columnGap)
     }
     func textLeadingInset(hierarchical: Bool) -> CGFloat {
-        iconLeadingInset(hierarchical: hierarchical) + identityIconWidth + columnGap
+        iconLeadingInset(hierarchical: hierarchical)
     }
-    var indent: CGFloat { identityIconWidth + columnGap }
+    var indent: CGFloat { disclosureWidth }
     var insets: EdgeInsets {
         // Horizontal document margins belong solely to GlassContentMargins.
         EdgeInsets(top: verticalInset, leading: 0, bottom: verticalInset, trailing: 0)

@@ -556,9 +556,7 @@ private struct TorrentBatchGroupEditor: View {
             let item = items[itemIndex]
             let prefix = group.isSeasonGroup ? "Season \(group.seasons[offset])/" : ""
             for entry in fileEntries(for: item) {
-                let combined = TorrentFileBrowserEntry(index: result.count,
-                    file: TorrentFile(name: prefix + entry.originalPath, length: entry.size, bytesCompleted: entry.completedBytes), rootName: "",
-                    displayName: prefix + entry.displayName, isWanted: entry.isWanted, priority: entry.priority)
+                let combined = TorrentFileBrowserEntry(grouping: entry, index: result.count, prefix: prefix)
                 result.append((item, entry.index, combined))
             }
         }
