@@ -114,6 +114,25 @@ DIST="$ROOT_DIR/.build/release"
 rm -rf "$DIST"
 mkdir -p "$DIST"
 ZIP="$DIST/Glass.zip"
+INSTALLER="$DIST/install-background-worker.sh"
+cp "$ROOT_DIR/Scripts/install-background-worker.sh" "$INSTALLER"
+NOTES="$DIST/release-notes.md"
+cat > "$NOTES" <<'NOTES'
+For background renaming with the unsigned app, place Glass.app in /Applications,
+download `install-background-worker.sh` from the assets below, and run:
+
+```sh
+bash install-background-worker.sh install /Applications/Glass.app
+```
+
+This applies ad-hoc signing locally and installs the separate Downloads worker
+as a per-user LaunchAgent. It continues working when Glass is closed. No sudo
+or Finder access is needed. To uninstall the worker:
+
+```sh
+bash install-background-worker.sh uninstall
+```
+NOTES
 
 # The asset name is stable so the download button never needs updating.
 ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ZIP"
@@ -170,11 +189,11 @@ while :; do
     sleep 1
 done
 
-gh release create "$TAG" "$ZIP" "$APPCAST" \
+gh release create "$TAG" "$ZIP" "$APPCAST" "$INSTALLER" \
     --repo "$REPO" \
     --target "$RELEASE_COMMIT" \
     --title "$VERSION" \
-    --notes ""
+    --notes-file "$NOTES"
 
 echo ""
 echo "Published Glass ${VERSION}"

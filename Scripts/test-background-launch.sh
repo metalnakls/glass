@@ -11,4 +11,6 @@ for key in CFBundleDocumentTypes CFBundleURLTypes; do
     fi
 done
 codesign --verify --deep --strict "$app"
-"$worker/Contents/MacOS/GlassWorker" --background-worker-self-test
+result="$("$worker/Contents/MacOS/GlassWorker" --background-worker-self-test)"
+printf '%s\n' "$result"
+[[ "$result" == *"Worker rename, ghost icon, byte preservation, and prohibited activation passed:"* ]]

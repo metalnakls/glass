@@ -160,3 +160,30 @@ signed application updates.
 Older app versions that read the former `tunes` branch need the 4.2 app update
 to switch to the config on `main`. The old branch is retained for compatibility. Publishing config requires an explicit invocation;
 building, saving, and committing do not publish it.
+
+## Unsigned background worker installation
+
+Unsigned releases use a per-user LaunchAgent for the separate, sandboxed
+Downloads worker. macOS rejects an ad-hoc helper launched through SMAppService,
+even when registration reports success. The main app does not run the watcher.
+
+After installing Glass.app in /Applications, download
+`install-background-worker.sh` from the same GitHub release and run:
+
+```sh
+bash install-background-worker.sh install /Applications/Glass.app
+```
+
+The script verifies the app, refreshes its ad-hoc signature while preserving
+sandbox entitlements, retires the old Service Management worker, and registers
+`~/Library/LaunchAgents/tsmc.glass.downloads.plist`. It requires no sudo and
+checks that the worker remains running. Re-run it after replacing the app if
+the worker is not running. It is safe to repeat. Remove the worker with:
+
+```sh
+bash install-background-worker.sh uninstall
+```
+
+Release validation must exercise this installed LaunchAgent with Glass both
+open and closed. A successful registration or direct helper self-test alone
+is insufficient.

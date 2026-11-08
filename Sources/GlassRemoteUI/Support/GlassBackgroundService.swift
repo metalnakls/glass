@@ -4,24 +4,29 @@ import OSLog
 import GlassRemoteCore
 import ServiceManagement
 
-/// Register the independent Downloads helper with Service Management.
+/// Coordinate the independent Downloads helper and its installation mode.
 @MainActor
 public enum GlassBackgroundService {
-    public static var isAvailable: Bool {
-        #if DEBUG
-        true
-        #else
-        false
-        #endif
-    }
+    public static let isAvailable = true
     private static var service: SMAppService { .loginItem(identifier: "tsmc.glass.worker") }
     private static var version: String? { Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String }
     private static var previousService: SMAppService { .agent(plistName: "tsmc.glass.background.plist") }
-    public static var isEnabled: Bool { isAvailable && service.status == .enabled }
+    public static var isEnabled: Bool {
+        if UserDefaults.standard.bool(forKey: "GlassBackground.launchAgentInstalled") {
+            return UserDefaults.standard.bool(forKey: "GlassBackground.enabled")
+                && !NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass.worker").isEmpty
+        }
+        return service.status == .enabled
+    }
     public static var requiresApproval: Bool { isAvailable && service.status == .requiresApproval }
 
     public static func setEnabled(_ enabled: Bool) throws {
-        guard !enabled || isAvailable else { return }
+        if UserDefaults.standard.bool(forKey: "GlassBackground.launchAgentInstalled") {
+            DistributedNotificationCenter.default().postNotificationName(
+                .init("tsmc.glass.worker.enabled"), object: enabled ? "true" : "false", deliverImmediately: true)
+            UserDefaults.standard.set(enabled, forKey: "GlassBackground.enabled")
+            return
+        }
         if enabled, service.status != .enabled { try service.register() }
         else if !enabled, service.status != .notRegistered { try service.unregister() }
         UserDefaults.standard.set(enabled, forKey: "GlassBackground.enabled")
@@ -29,7 +34,20 @@ public enum GlassBackgroundService {
         if requiresApproval { SMAppService.openSystemSettingsLoginItems() }
     }
 
+    public static func useLaunchAgent() throws {
+        if service.status != .notRegistered && service.status != .notFound { try service.unregister() }
+        if previousService.status != .notRegistered && previousService.status != .notFound { try previousService.unregister() }
+        UserDefaults.standard.set(true, forKey: "GlassBackground.launchAgentInstalled")
+        UserDefaults.standard.set(true, forKey: "GlassBackground.enabled")
+    }
+
     public static func offerIfNeeded() {
+        if UserDefaults.standard.bool(forKey: "GlassBackground.launchAgentInstalled") { return }
+        #if !DEBUG
+        // Unsigned distribution uses the user-installed LaunchAgent. SMAppService
+        // accepts registration but launchd rejects its ad-hoc executable.
+        return
+        #endif
         // Retire the legacy launchd job explicitly. Reusing its label also
         // reuses the saved signing requirement for the old UI executable.
         let migrateEnabledJob = previousService.status == .enabled
@@ -39,12 +57,6 @@ public enum GlassBackgroundService {
                 Logger(subsystem: "tsmc.glass", category: "background").error("Retire old worker: \(error.localizedDescription)")
                 return
             }
-        }
-        guard isAvailable else {
-            // A release upgrade retires a previously approved debug agent.
-            if service.status != .notRegistered { try? service.unregister() }
-            UserDefaults.standard.set(false, forKey: "GlassBackground.enabled")
-            return
         }
         let installedUpdate = isEnabled && UserDefaults.standard.string(forKey: "GlassBackground.workerVersion") != version
         if migrateEnabledJob || installedUpdate || (service.status == .notRegistered && UserDefaults.standard.bool(forKey: "GlassBackground.enabled")) {
@@ -86,13 +98,13 @@ private actor GlassBackgroundWorker {
     private var scanning = false
     private var scanTask: Task<Void, Never>?
     private let logger = Logger(subsystem: "tsmc.glass", category: "background")
-    // Debug-only isolation permits exercising the real watcher without renaming user files or polling servers.
+    // The bounded self-test also ships in releases; arbitrary watch-directory overrides remain debug-only.
     private let diagnosticDirectory: URL? = {
-        #if DEBUG
         let arguments = CommandLine.arguments
         if arguments.contains("--background-worker-self-test") {
             return FileManager.default.temporaryDirectory.appendingPathComponent("GlassWorkerCheck-" + UUID().uuidString, isDirectory: true)
         }
+        #if DEBUG
         if let index = arguments.firstIndex(of: "--background-worker-directory"), arguments.indices.contains(index + 1) {
             return URL(fileURLWithPath: arguments[index + 1], isDirectory: true)
         }
@@ -102,7 +114,6 @@ private actor GlassBackgroundWorker {
     private var downloads: URL? { diagnosticDirectory ?? FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first }
 
     func run() async {
-        #if DEBUG
         if CommandLine.arguments.contains("--background-worker-self-test"), let diagnosticDirectory {
             do {
                 let contents = diagnosticDirectory.appendingPathExtension("contents")
@@ -141,8 +152,16 @@ private actor GlassBackgroundWorker {
                 exit(0)
             } catch { print("Worker check failed: \(error.localizedDescription)"); exit(1) }
         }
-        #endif
+        let launchedVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
         while !Task.isCancelled {
+            // The installer points launchd at the stable app path. After an
+            // update, let KeepAlive start the new executable rather than leaving
+            // the old worker resident until the next login.
+            if ProcessInfo.processInfo.environment["XPC_SERVICE_NAME"] == "tsmc.glass.downloads",
+               let data = try? Data(contentsOf: Bundle.main.bundleURL.appendingPathComponent("Contents/Info.plist")),
+               let info = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+               let installedVersion = info["CFBundleVersion"] as? String,
+               installedVersion != launchedVersion { exit(0) }
             if directorySource == nil { watchDownloads() }
             await scanDownloads()
             do { try await Task.sleep(for: .seconds(30)) } catch { return }
@@ -176,7 +195,8 @@ private actor GlassBackgroundWorker {
     }
 
     private func scanDownloads() async {
-        guard let downloads = downloads?.resolvingSymlinksInPath() else { return }
+        guard UserDefaults.standard.object(forKey: "GlassWorker.enabled") as? Bool != false,
+              let downloads = downloads?.resolvingSymlinksInPath() else { return }
         guard !scanning else { scheduleScan(); return }
         scanning = true
         defer { scanning = false }

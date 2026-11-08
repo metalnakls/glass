@@ -12,6 +12,20 @@ import UserNotifications
 private enum GlassEntryPoint {
     @MainActor static func main() {
         guard !CommandLine.arguments.contains("--background-worker") else { return }
+        if CommandLine.arguments.contains("--use-background-launch-agent") {
+            do { try GlassBackgroundService.useLaunchAgent() }
+            catch { print("Worker migration failed: \(error)"); exit(1) }
+            return
+        }
+        if CommandLine.arguments.contains("--enable-background-worker") || CommandLine.arguments.contains("--disable-background-worker") {
+            do {
+                if CommandLine.arguments.contains("--restart-background-worker") { try GlassBackgroundService.setEnabled(false) }
+                try GlassBackgroundService.setEnabled(!CommandLine.arguments.contains("--disable-background-worker"))
+            }
+            catch { print("Worker registration failed: \(error)"); exit(1) }
+            print("Worker enabled: \(GlassBackgroundService.isEnabled); approval required: \(GlassBackgroundService.requiresApproval)")
+            return
+        }
         #if DEBUG
         if runSeasonNamingCommand() { return }
         #endif
