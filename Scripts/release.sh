@@ -118,20 +118,17 @@ INSTALLER="$DIST/install-background-worker.sh"
 cp "$ROOT_DIR/Scripts/install-background-worker.sh" "$INSTALLER"
 NOTES="$DIST/release-notes.md"
 cat > "$NOTES" <<'NOTES'
-For background renaming with the unsigned app, place Glass.app in /Applications,
-download `install-background-worker.sh` from the assets below, and run:
+Install Glass and its background worker with one command:
 
 ```sh
-bash install-background-worker.sh install /Applications/Glass.app
+curl -fsSL https://metalnakls.github.io/glass/install.sh | sh
 ```
 
-This applies ad-hoc signing locally and installs the separate Downloads worker
-as a per-user LaunchAgent. It continues working when Glass is closed. No sudo
-or Finder access is needed. To uninstall the worker:
+Requires Apple silicon and macOS 27 or later. The installer verifies downloads,
+backs up an existing app, applies ad-hoc signing, installs the separate Downloads
+worker, and opens Glass. No sudo or Finder automation is needed.
 
-```sh
-bash install-background-worker.sh uninstall
-```
+[Installation page](https://metalnakls.github.io/glass/)
 NOTES
 
 # The asset name is stable so the download button never needs updating.
@@ -198,3 +195,9 @@ gh release create "$TAG" "$ZIP" "$APPCAST" "$INSTALLER" \
 echo ""
 echo "Published Glass ${VERSION}"
 echo "  $DOWNLOAD_URL"
+
+# Pin the public one-command installer to the assets just published. Keep old
+# content-addressed installers so already-downloaded bootstraps remain valid.
+python3 "$ROOT_DIR/Scripts/prepare-pages-installer.py" "$TAG"
+python3 "$ROOT_DIR/Scripts/check-pages-installer.py"
+echo "Installer pins prepared in site/. Commit and publish these Pages changes."

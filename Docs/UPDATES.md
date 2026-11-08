@@ -161,29 +161,49 @@ Older app versions that read the former `tunes` branch need the 4.2 app update
 to switch to the config on `main`. The old branch is retained for compatibility. Publishing config requires an explicit invocation;
 building, saving, and committing do not publish it.
 
-## Unsigned background worker installation
+## One-command installation
 
-Unsigned releases use a per-user LaunchAgent for the separate, sandboxed
-Downloads worker. macOS rejects an ad-hoc helper launched through SMAppService,
-even when registration reports success. The main app does not run the watcher.
-
-After installing Glass.app in /Applications, download
-`install-background-worker.sh` from the same GitHub release and run:
+The public page follows the Minecraft installer flow:
 
 ```sh
-bash install-background-worker.sh install /Applications/Glass.app
+curl -fsSL https://metalnakls.github.io/glass/install.sh | sh
 ```
 
-The script verifies the app, refreshes its ad-hoc signature while preserving
-sandbox entitlements, retires the old Service Management worker, and registers
-`~/Library/LaunchAgents/tsmc.glass.downloads.plist`. It requires no sudo and
-checks that the worker remains running. Re-run it after replacing the app if
-the worker is not running. It is safe to repeat. Remove the worker with:
+The bootstrap verifies the SHA-256 of a content-addressed installer. That
+installer pins one published release and verifies the app archive and worker
+installer before changing the installation. It uses only macOS built-in tools,
+backs up an existing app, installs to /Applications/Glass.app, applies ad-hoc
+signing through the worker installer, registers the per-user LaunchAgent, and
+opens Glass. Failed replacement restores the previous app and worker plist.
+Verified downloads are cached for retries. No sudo or Finder automation is used.
+
+The release script refreshes the Pages pins after publication. To regenerate
+them independently:
+
+```sh
+python3 Scripts/prepare-pages-installer.py v10.1  # use the newly published tag
+```
+
+Commit `site/install.sh` and the newly generated `site/installers/<sha256>.sh`
+together. Existing content-addressed installers stay available to bootstraps
+that were already downloaded. Pages deployment verifies these pins before
+uploading the site. This changes installer distribution, not the app version.
+
+Unsigned releases use a separate, sandboxed Downloads worker. macOS rejects an
+ad-hoc helper launched through SMAppService even when registration reports
+success, so the installer uses `~/Library/LaunchAgents/tsmc.glass.downloads.plist`.
+The main app does not run the watcher. Its enable/disable control communicates
+with the worker. The worker continues when Glass closes.
+
+The standalone `install-background-worker.sh` release asset remains available
+for existing app installations and supports removal:
 
 ```sh
 bash install-background-worker.sh uninstall
 ```
 
-Release validation must exercise this installed LaunchAgent with Glass both
-open and closed. A successful registration or direct helper self-test alone
-is insufficient.
+Release validation must exercise the installed LaunchAgent with Glass both open
+and closed. A successful registration or direct helper self-test alone is
+insufficient. `--verify-only` on the unified installer checks downloads without
+changing the app; `--release-dir` accepts already-downloaded, checksum-matching
+release assets for offline verification.
