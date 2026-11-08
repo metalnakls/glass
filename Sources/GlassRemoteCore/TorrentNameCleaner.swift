@@ -261,6 +261,7 @@ public enum TorrentNameCleaner {
         let code = String(format: "S%02dE%02d", season, episode)
         guard let matchRange = Range(match.range, in: stem) else { return code }
         let suffix = String(stem[matchRange.upperBound...])
+            .replacingOccurrences(of: #"^[\s._–—\-\]\)}]+"#, with: "", options: .regularExpression)
         let title = releaseTitle(from: suffix, removingTokens: removingTokens)
         return title.isEmpty ? code : "\(code) — \(title)"
     }
@@ -302,7 +303,7 @@ public enum TorrentNameCleaner {
             $0.lowercased().replacingOccurrences(of: "-", with: "")
         })
         if normalized.range(of: #"^(19|20)\d{2}$"#, options: .regularExpression) != nil { return true }
-        if normalized.range(of: #"^\d{3,4}p$"#, options: .regularExpression) != nil { return true }
+        if normalized.range(of: #"^(?:\d{3,4}p|(?:hd|fhd|uhd)\d{3,4}[pi]?)$"#, options: .regularExpression) != nil { return true }
         if normalized.range(of: #"^s\d{1,2}$"#, options: .regularExpression) != nil { return true }
         return customTokens.contains(normalized)
             || releaseNoiseTokens.contains(normalized)
