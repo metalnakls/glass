@@ -30,6 +30,22 @@ if [[ -n "${GLASS_REQUESTED_RELEASE_VERSION:-}" ]]; then
 fi
 python3 "$ROOT_DIR/Scripts/check-release-version.py" "${VERSION_CHECK_ARGS[@]}"
 
+# Build the exact published commit. Unfinished local edits must never leak into
+# the binary, and the release tag must not silently point at an older main.
+if [[ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=normal)" ]]; then
+    echo "Release from a clean checkout; commit or isolate the intended source first." >&2
+    exit 1
+fi
+RELEASE_COMMIT="$(git -C "$ROOT_DIR" rev-parse HEAD)"
+if ! gh api "repos/$REPO/commits/$RELEASE_COMMIT" --silent; then
+    echo "The release commit must be available in $REPO before publication." >&2
+    exit 1
+fi
+if gh release view "v$VERSION" --repo "$REPO" >/dev/null 2>&1; then
+    echo "Release v$VERSION already exists; published releases cannot be replaced." >&2
+    exit 1
+fi
+
 GLASS_VERSION="$VERSION" GLASS_SKIP_INSTALL=1 "$ROOT_DIR/Scripts/build-mac-app.sh" release
 
 APP_DIR="$ROOT_DIR/.build/Xcode/Build/Products/Release/Glass.app"
@@ -138,9 +154,6 @@ cat > "$APPCAST" <<XML
 </rss>
 XML
 
-if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-    gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
-fi
 
 # Publish near the start of an allowed even minute, leaving upload time within it.
 while :; do
@@ -159,6 +172,7 @@ done
 
 gh release create "$TAG" "$ZIP" "$APPCAST" \
     --repo "$REPO" \
+    --target "$RELEASE_COMMIT" \
     --title "$VERSION" \
     --notes ""
 
