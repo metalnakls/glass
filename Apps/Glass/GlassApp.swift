@@ -12,9 +12,73 @@ import UserNotifications
 private enum GlassEntryPoint {
     @MainActor static func main() {
         guard !CommandLine.arguments.contains("--background-worker") else { return }
+        #if DEBUG
+        if runSeasonNamingCommand() { return }
+        #endif
         GlassApp.main()
     }
 }
+
+#if DEBUG
+/// A bounded maintenance entry point using the owning app's sandbox and store.
+/// Queue writes require the UI process to be closed so its in-memory queue
+/// cannot overwrite the saved request.
+extension GlassEntryPoint {
+    @MainActor static func runSeasonNamingCommand() -> Bool {
+        let arguments = CommandLine.arguments
+        guard let index = arguments.firstIndex(of: "--repair-season-file-names") else { return false }
+        do {
+            guard arguments.indices.contains(index + 2), let number = Int(arguments[index + 2]) else {
+                throw NSError(domain: "GlassNaming", code: 1, userInfo: [NSLocalizedDescriptionKey: "Supply series title and season number."])
+            }
+            let title = TorrentSeriesIdentity.key(for: arguments[index + 1])
+            let store = try FileProfileStore.applicationSupportStore()
+            let names = try store.loadTorrentDisplayNames()
+            let matches = try store.loadTorrentCache().flatMap { cached in
+                cached.torrents.compactMap { torrent -> (UUID, TorrentSummary)? in
+                    let key = TorrentRecord.identity(sourceID: cached.profileID, hashString: torrent.hashString)
+                    let season = names[key]?.season ?? TorrentNameCleaner.seasonDescriptor(for: .init(rootName: torrent.name, files: []))
+                    guard season?.season == number, season.map({ TorrentSeriesIdentity.key(for: $0.title) }) == title else { return nil }
+                    return (cached.profileID, torrent)
+                }
+            }
+            guard matches.count == 1, let (source, torrent) = matches.first else {
+                throw NSError(domain: "GlassNaming", code: 2, userInfo: [NSLocalizedDescriptionKey: "Expected exactly one cached season; found \(matches.count)."])
+            }
+            let sourceName = try store.loadProfiles().first { $0.id == source }?.name ?? "This Mac"
+            print("Target: \(sourceName) / \(torrent.name), season \(number), hash \(torrent.hashString)")
+            if arguments.contains("--inspect") {
+                let jobs = try store.loadTorrentAddQueue().filter {
+                    $0.fileNameRepair == true && $0.sourceID == source && $0.receipt?.hashString == torrent.hashString
+                }
+                for job in jobs { print("Saved repair: \(job.id), \(job.phase.rawValue), \(job.completedRenames.count) paths completed") }
+                return true
+            }
+            guard !NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass").contains(where: {
+                $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+            }) else {
+                throw NSError(domain: "GlassNaming", code: 3, userInfo: [NSLocalizedDescriptionKey: "Close Glass before writing its queue."])
+            }
+            var queue = try store.loadTorrentAddQueue()
+            if let existing = queue.first(where: { $0.fileNameRepair == true && $0.sourceID == source && $0.receipt?.hashString == torrent.hashString }) {
+                print("Already queued: \(existing.id)")
+            } else {
+                let entry = TorrentAddQueueEntry.repairingFileNames(of: torrent, sourceID: source)
+                queue.append(entry)
+                try store.saveTorrentAddQueue(queue)
+                guard try store.loadTorrentAddQueue().contains(where: { $0.id == entry.id }) else {
+                    throw NSError(domain: "GlassNaming", code: 4)
+                }
+                print("Saved repair: \(entry.id). It will retry when this source refreshes.")
+            }
+        } catch {
+            print("Naming repair failed: \(error.localizedDescription)")
+            exit(1)
+        }
+        return true
+    }
+}
+#endif
 
 struct GlassApp: App {
     @NSApplicationDelegateAdaptor(GlassAppDelegate.self) private var appDelegate

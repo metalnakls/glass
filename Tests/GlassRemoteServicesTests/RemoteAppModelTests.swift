@@ -1713,6 +1713,9 @@ private actor StubRPCClient: TransmissionRPCServicing {
     private var torrentHash = "hash-1"
     private var torrentVisible = true
     private var acceptsAddBeforeThrow = false
+    private var repairFiles: [String]?
+    private var repairFilesOffline = false
+    func setRepairFiles(_ files: [String], offline: Bool = false) { repairFiles = files; repairFilesOffline = offline }
     private var renameFailurePath: String?
     private var holdingAdd = false
     private var addContinuation: CheckedContinuation<Void, Never>?
@@ -1879,6 +1882,11 @@ private actor StubRPCClient: TransmissionRPCServicing {
 
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
         fetchTorrentFilesCount += 1
+        if repairFilesOffline { throw URLError(.notConnectedToInternet) }
+        if let repairFiles {
+            return TorrentDetails(id: 1, hashString: hashString, name: torrentName,
+                files: repairFiles.map { TorrentFile(name: $0, length: 100, bytesCompleted: 50) })
+        }
         return TorrentDetails(
             id: 1,
             hashString: hashString,
@@ -1938,6 +1946,12 @@ private actor StubRPCClient: TransmissionRPCServicing {
         renamedPaths.append(TorrentPathRename(path: path, name: name))
         renameWaiter?.resume(); renameWaiter = nil
         if renameFailurePath == path { throw TestError.failed }
+        if let files = repairFiles, renameError == nil || renameAppliesBeforeThrow {
+            let parent = (path as NSString).deletingLastPathComponent
+            repairFiles = files.map { $0 == path ? (parent.isEmpty ? name : parent + "/" + name) : $0 }
+            if let renameError { throw renameError }
+            return
+        }
         if renameAppliesBeforeThrow {
             torrentName = name
         }
@@ -2211,5 +2225,70 @@ private final class RecordingTorrentSourceFileDisposer: TorrentSourceFileDisposi
         lock.withLock {
             trashedURLs.append(url)
         }
+    }
+}
+
+
+@MainActor @Suite("Queued existing-file naming repairs", .serialized)
+struct ExistingFileNameRepairTests {
+    @Test func sourceRefreshAutomaticallyResumesRepairWithLostReply() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = FileProfileStore(fileURL: folder.appendingPathComponent("profiles.json"))
+        try store.saveProfiles([profile])
+        await client.setRepairFiles(["The Walking Dead/S07E01 — ] Hd1080.mkv", "The Walking Dead/S07E02.mkv"])
+        await client.setRenameBehavior(error: URLError(.timedOut), appliesBeforeThrow: true)
+        let initial = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""), rpcClientFactory: { _ in client })
+        let torrent = try #require(try await client.fetchTorrents().first)
+        _ = try initial.queueFileNameRepair(torrent, sourceID: profile.id)
+        let restarted = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""), rpcClientFactory: { _ in client })
+        await restarted.refresh(sourceID: profile.id)
+        for _ in 0..<100 {
+            if try store.loadTorrentAddQueue().isEmpty { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try store.loadTorrentAddQueue().isEmpty)
+        #expect(await client.renamedPaths.count == 1)
+        #expect(await client.addedFiles.isEmpty)
+        #expect(await client.startRequests.isEmpty)
+    }
+
+
+    @Test func offlineAndPartialRepairSurviveRelaunchWithoutAddingOrStarting() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let store = FileProfileStore(fileURL: folder.appendingPathComponent("profiles.json"))
+        try store.saveProfiles([profile])
+        let files = ["The Walking Dead/S07E01 — ] Hd1080.mkv", "The Walking Dead/S07E02 — ] Hd1080.mkv"]
+        await client.setRepairFiles(files, offline: true)
+        func model() -> RemoteAppModel {
+            RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+                rpcClientFactory: { _ in client })
+        }
+        let initial = model()
+        let torrent = TorrentSummary(id: 1, hashString: "hash-1", name: "The Walking Dead", status: 0,
+            percentDone: 0.5, rateDownload: 0, rateUpload: 0, sizeWhenDone: 200, leftUntilDone: 100,
+            eta: -1, uploadRatio: 0, peersConnected: nil, downloadDir: "/share")
+        let id = try initial.queueFileNameRepair(torrent, sourceID: profile.id)
+        #expect(try initial.queueFileNameRepair(torrent, sourceID: profile.id) == id)
+        #expect(!(await initial.retryTorrentAddition(id)))
+        #expect(try store.loadTorrentAddQueue().first?.fileNameRepair == true)
+        #expect(await client.addedFiles.isEmpty)
+        await client.setRepairFiles(files)
+        await client.setRenameFailurePath(files[1])
+        let retry = model()
+        #expect(!(await retry.retryTorrentAddition(id)))
+        #expect(try store.loadTorrentAddQueue().first?.completedRenames.count == 1)
+        await client.setRenameFailurePath(nil)
+        let recovered = model()
+        #expect(await recovered.retryTorrentAddition(id))
+        #expect(try store.loadTorrentAddQueue().isEmpty)
+        #expect(await client.renamedPaths.filter { $0.path == files[0] }.count == 1)
+        #expect(await client.startRequests.isEmpty)
+        #expect(await client.stopRequests.isEmpty)
+        #expect(await client.removedIDs.isEmpty)
+        #expect(await client.addedFiles.isEmpty)
     }
 }

@@ -142,6 +142,7 @@ public final class RemoteAppModel {
     public private(set) var acceptedAdditionIDs: Set<UUID> = []
     @ObservationIgnored private var discardedAdditionIDs: Set<UUID> = []
     private var pendingAdditionRevision = 0
+    @ObservationIgnored private var lastFileNameRepairAttempt: [UUID: Date] = [:]
     @ObservationIgnored private var additionTasks: [UUID: Task<Bool, Never>] = [:]
     private struct MagnetResolution {
         let id: UUID
@@ -156,11 +157,11 @@ public final class RemoteAppModel {
     public var allTorrentRecords: [TorrentRecord] {
         // A confirmed submission and its server record are one visible item while
         // the rename plan finishes. Never show a second, untracked download row.
-        let owned = Set(pendingAdditions.compactMap { pending -> String? in
+        let owned = Set(pendingAdditions.filter { $0.entry.fileNameRepair != true }.compactMap { pending -> String? in
             guard let receipt = pending.entry.receipt else { return nil }
             return TorrentRecord.identity(sourceID: pending.entry.sourceID, hashString: receipt.hashString)
         })
-        return pendingAdditions.map(\.record) + sources.flatMap(\.records).filter { !owned.contains($0.id) }
+        return pendingAdditions.filter { $0.entry.fileNameRepair != true }.map(\.record) + sources.flatMap(\.records).filter { !owned.contains($0.id) }
     }
 
     /// Persist every batch member, including its bytes and options, before any RPC.
@@ -250,7 +251,9 @@ public final class RemoteAppModel {
         do {
             for var entry in try profileStore.loadTorrentAddQueue() {
                 guard !pendingAdditions.contains(where: { $0.id == entry.id }) else { continue }
-                if entry.phase != .failed {
+                if entry.fileNameRepair == true {
+                    entry.phase = .queued
+                } else if entry.phase != .failed {
                     entry.phase = .failed
                     entry.error = "The previous add was interrupted. Retry to finish it."
                 }
@@ -285,7 +288,8 @@ public final class RemoteAppModel {
 
     private func failAddition(_ id: UUID, error: any Error, reportError: Bool = true) {
         let accepted = pendingAdditions.first { $0.id == id }?.entry.receipt != nil
-        let message = accepted
+        let repair = pendingAdditions.first { $0.id == id }?.entry.fileNameRepair == true
+        let message = repair ? "Filename repair is queued for retry.\n\n" + error.localizedDescription : accepted
             ? "Transmission accepted this torrent, but Glass couldn’t finish setting it up.\n\n" + error.localizedDescription
             : error.localizedDescription
         updateAddition(id) { $0.phase = .failed; $0.error = message }
@@ -300,6 +304,13 @@ public final class RemoteAppModel {
                 $0.hashString.lowercased() == entry.receipt?.hashString.lowercased()
                     || (entry.attempts > 0 && pending.expectedHashes.contains($0.hashString.lowercased()))
             }) else { continue }
+            if entry.fileNameRepair == true {
+                guard additionTasks[entry.id] == nil,
+                      Date().timeIntervalSince(lastFileNameRepairAttempt[entry.id] ?? .distantPast) >= 30 else { continue }
+                lastFileNameRepairAttempt[entry.id] = Date()
+                Task { await retryTorrentAddition(entry.id) }
+                continue
+            }
             if entry.receipt != nil, entry.namingComplete {
                 do { try retireAddition(entry.id) }
                 catch { failAddition(entry.id, error: error) }
@@ -997,6 +1008,9 @@ public final class RemoteAppModel {
             updateAddition(id) { $0.phase = .adding; $0.error = nil }
             try persistAddQueue()
             let provider = try self.provider(for: sourceID)
+            if pending.entry.fileNameRepair == true {
+                return try await performQueuedFileNameRepair(id, entry: pending.entry, provider: provider)
+            }
             var entry = pending.entry
             if entry.receipt == nil, entry.attempts == 0, entry.namingPlan?.season != nil, entry.downloadDirectory == nil {
                 entry.downloadDirectory = try await provider.fetchDefaultDownloadDirectory()
@@ -1082,6 +1096,65 @@ public final class RemoteAppModel {
             failAddition(id, error: error, reportError: false)
             return false
         }
+    }
+
+    /// Shares durable storage and idempotent path renaming with Add. It never
+    /// invokes add/start/stop/move or changes the torrent's root or file choices.
+    public func queueFileNameRepair(_ torrent: TorrentSummary, sourceID: UUID) throws -> UUID {
+        if let existing = pendingAdditions.first(where: {
+            $0.entry.fileNameRepair == true && $0.entry.sourceID == sourceID &&
+                $0.entry.receipt?.hashString.lowercased() == torrent.hashString.lowercased()
+        }) { return existing.id }
+        guard !torrent.hashString.isEmpty else { throw AdditionError.message("The torrent identity is missing.") }
+        let entry = TorrentAddQueueEntry.repairingFileNames(of: torrent, sourceID: sourceID)
+        appendAddition(entry)
+        do { try persistAddQueue() }
+        catch { pendingAdditions.removeAll { $0.id == entry.id }; throw error }
+        return entry.id
+    }
+
+    public var queuedFileNameRepairs: [TorrentAddQueueEntry] {
+        pendingAdditions.map(\.entry).filter { $0.fileNameRepair == true }
+    }
+
+    private func performQueuedFileNameRepair(_ id: UUID, entry original: TorrentAddQueueEntry,
+                                            provider: any TorrentProvider) async throws -> Bool {
+        guard let hash = original.receipt?.hashString else {
+            throw AdditionError.message("The queued repair has no torrent identity.")
+        }
+        var entry = original
+        let details = try await provider.fetchTorrentFiles(hashString: hash)
+        guard details.hashString.lowercased() == hash.lowercased(), !details.files.isEmpty else {
+            throw AdditionError.message("The server has not supplied this torrent's files yet.")
+        }
+        if entry.namingPlan == nil {
+            let suggested = TorrentNameCleaner.plan(rootName: details.name, files: details.files,
+                selectedFileIndices: Set(details.files.indices))
+            entry.namingPlan = TorrentAddNamingPlan(rootName: details.name, pathRenames: suggested?.pathRenames ?? [])
+            updateAddition(id) { $0.namingPlan = entry.namingPlan }
+            try persistAddQueue()
+        }
+        for rename in entry.namingPlan!.pathRenames where !entry.completedRenames.contains(rename) {
+            try await completeQueuedRename(rename, hash: hash, provider: provider)
+            entry.completedRenames.append(rename)
+            updateAddition(id) { $0.completedRenames = entry.completedRenames }
+            try persistAddQueue()
+        }
+        let verified = try await provider.fetchTorrentFiles(hashString: hash)
+        for rename in entry.namingPlan!.pathRenames {
+            let parent = (rename.path as NSString).deletingLastPathComponent
+            let destination = parent.isEmpty ? rename.name : parent + "/" + rename.name
+            guard verified.files.contains(where: { $0.name == destination }) else {
+                throw AdditionError.message("The server has not confirmed every repaired filename.")
+            }
+        }
+        try retireAddition(id)
+        invalidateYinaEpisodeIndex(sourceID: entry.sourceID, hashString: hash)
+        if selectedDetailsSourceID == entry.sourceID, selectedDetailsTorrentHash == hash {
+            selectedTorrentDetails = selectedTorrentDetails?.merging(verified, section: .files)
+        }
+        fileMutationRevision &+= 1
+        return true
     }
 
     private func completeQueuedRename(_ rename: TorrentPathRename, hash: String, provider: any TorrentProvider) async throws {

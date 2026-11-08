@@ -27,6 +27,8 @@ public struct TorrentAddQueueEntry: Codable, Sendable {
     public var namingComplete = false
     public var renameDuplicateRoot = false
     public var existedBeforeSubmission = false
+    /// Existing-transfer operation. Its receipt is the target identity, never an add.
+    public var fileNameRepair: Bool?
     public var startPaused: Bool?
 
     public init(id: UUID, sourceID: UUID, name: String, size: UInt64, fileCount: Int,
@@ -38,6 +40,15 @@ public struct TorrentAddQueueEntry: Codable, Sendable {
         self.downloadDirectory = downloadDirectory; self.fileSelection = fileSelection
         self.namingPlan = namingPlan; self.sourceURL = sourceURL
         self.trashSourceOnSuccess = trashSourceOnSuccess
+    }
+
+    public static func repairingFileNames(of torrent: TorrentSummary, sourceID: UUID) -> Self {
+        var entry = Self(id: UUID(), sourceID: sourceID, name: torrent.name,
+            size: torrent.sizeWhenDone, fileCount: torrent.fileCount ?? 0,
+            downloadDirectory: torrent.downloadDir, namingPlan: nil)
+        entry.fileNameRepair = true
+        entry.receipt = TorrentAddResult(hashString: torrent.hashString, name: torrent.name, wasDuplicate: true)
+        return entry
     }
 
     public var expectedHashes: Set<String> {
