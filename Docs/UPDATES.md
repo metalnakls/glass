@@ -107,16 +107,25 @@ and relaunches updates on its own; installation reporting is independent of
 Sparkle's optional weekly profile. Existing clients need a new app release to
 start reporting. A local install does not publish the app or privacy page.
 
-## First launch
+## Initial installation and subsequent updates
 
-Because releases are unsigned, open the app once from Finder, or clear the
-quarantine flag:
+The public installer performs initial ad-hoc signing and worker registration.
+It is a one-time setup. Sparkle verifies the EdDSA update, clears quarantine on
+the replacement app, and replaces the whole bundle including GlassWorker.app.
+The existing LaunchAgent retains its stable executable path. Within the worker's
+30-second version check, the old process exits and launchd starts the new one.
 
-```sh
-xattr -cr /Applications/Glass.app
-```
+Verified on 8 November 2026 with Sparkle's own CLI and the shipped framework:
+a temporary version-10.0 fixture containing the 10.1 worker implementation was
+updated to the published, EdDSA-signed 10.1 archive. Sparkle completed installation
+and relaunch; worker PID changed from 6532 to 6774 without running an installer,
+and the new worker renamed a Downloads fixture while preserving its bytes.
+The test used a local feed serving the unchanged signed release archive.
 
-The quarantine flag is reapplied on each update, so this is once per version.
+Local build/install commands use the saved Apple Development identity, including
+Release configuration. Public release builds use `GLASS_SKIP_INSTALL=1` and stay
+ad-hoc signed. Public release validation must not replace the user's signed
+working installation without prior approval for that disruptive test sequence.
 
 ## CI
 

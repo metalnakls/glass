@@ -185,9 +185,10 @@ trap on_exit EXIT
 # Releases are unsigned: no Developer ID certificate, no notarization, no
 # stapling. They therefore need no signing identity at all and sign ad-hoc, so a
 # release never depends on a certificate that is absent, expired, or paid.
-# Debug installs keep the Apple Development identity so the local app launches
-# without Gatekeeper interruptions.
-if [ "$CONFIGURATION" = "release" ]; then
+# Every local install uses the saved Apple Development identity, including an
+# optimized Release build. Only distribution builds that skip installation are
+# ad-hoc signed; release.sh always sets GLASS_SKIP_INSTALL=1.
+if [[ "$CONFIGURATION" = "release" && "${GLASS_SKIP_INSTALL:-0}" == "1" ]]; then
     SIGN_IDENTITY="-"
     echo "Signing identity: ad-hoc (unsigned release)"
 else

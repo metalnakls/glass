@@ -16,6 +16,22 @@ and state exactly what is needed. Defer optional questions, commit discussion,
 and push reminders until completion. Never interrupt unfinished work to ask for
 a commit name.
 
+## Protect the user's working session
+
+Keep interruptions to a minimum. Use existing evidence and isolated fixtures;
+repeat validation only when a new change or unresolved failure justifies it.
+Before a test sequence that will replace the user's installed app, restart it,
+change background registrations, or trigger repeated macOS permission prompts,
+explain the disruption and ask permission once for that sequence. A release
+request alone does not authorize using the user's active installation as a test
+fixture. Never ask for Finder access.
+
+All local installations, including Release configuration builds, use the saved
+Apple Development identity for the app and worker. Distribution builds remain
+ad-hoc signed and skip local installation. Preserve the user's signed local app
+when preparing a public release. Do not promise that signing removes every
+macOS permission requirement.
+
 ## Git delivery
 
 When a turn changes project files and all required validation succeeds, commit only that turn's files. Choose a concise commit name automatically. Ask no commit-naming questions; rename only when the user requests it and before pushing. Preserve unrelated work, never force-push or rewrite published history, and diagnose and resolve validation failures before delivery.
@@ -66,7 +82,7 @@ reserved value in a new commit; do not rewrite published history or bypass the c
 Use `GLASS_REQUESTED_RELEASE_VERSION` only for an exact version explicitly named
 by the user, never to work around an accidental bump or a plain “release” request.
 
-Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using the private key in the login Keychain (`-a ed25519 -s https://sparkle-project.org`), and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. Because releases are unsigned, users must open the app once from Finder after installing an update.
+Releases are unsigned: no Developer ID certificate, no Apple notarization, no stapling. Sparkle signs updates with EdDSA using the private key in the login Keychain (`-a ed25519 -s https://sparkle-project.org`), and the matching `SPARKLE_PUBLIC_ED_KEY` is injected at build time. The public installer performs initial setup once. Subsequent Sparkle updates replace both the app and bundled worker; the existing LaunchAgent restarts the updated worker. See Docs/UPDATES.md for validation evidence.
 
 ## Shared interface conventions
 
