@@ -35,6 +35,15 @@ class ReleaseVersionTests(unittest.TestCase):
     def check(self, requested=None):
         return CHECK.validate(self.root, '8.6', self.baseline, requested)
 
+    def test_explicit_major_only_version(self):
+        self.version('11')
+        self.assertEqual(self.check('11'), '11')
+        self.assertEqual(self.check(), '11')
+        with self.assertRaisesRegex(ValueError, 'does not match'):
+            self.check('11.0')
+        with self.assertRaisesRegex(ValueError, 'already published'):
+            CHECK.validate(self.root, '11.0', self.git('rev-parse', 'HEAD'))
+
     def test_followup_fixes_keep_pending_version(self):
         self.version('8.7')
         (self.root / 'fix').write_text('another fix')
