@@ -122,6 +122,15 @@ and relaunch; worker PID changed from 6532 to 6774 without running an installer,
 and the new worker renamed a Downloads fixture while preserving its bytes.
 The test used a local feed serving the unchanged signed release archive.
 
+Verified again for Glass 11 on 11 November 2026: the ad-hoc Release worker ran
+under a temporary LaunchAgent and renamed synthetic Downloads torrent files
+with the normal Glass app both open and closed, preserving their bytes. The
+regular worker was paused only during the checks, then restored; the signed
+local app bundle remained unchanged. The Release app and helper both report
+version 11. The direct worker check also passed icon and background-activation
+checks. `test-installed-background-worker.py --app PATH --label LABEL` supports
+this isolated release-job check without replacing the installed app.
+
 Local build/install commands use the saved Apple Development identity, including
 Release configuration. Public release builds use `GLASS_SKIP_INSTALL=1` and stay
 ad-hoc signed. Public release validation must not replace the user's signed
