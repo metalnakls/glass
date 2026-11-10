@@ -51,7 +51,8 @@ struct TorrentWantedCheckbox: NSViewRepresentable {
         }
         override func mouseDown(with event: NSEvent) {
             guard isEnabled, let window else { return }
-            window.makeFirstResponder(self)
+            // Pointer painting must not leave a keyboard-focus ring on its
+            // starting checkbox. Keep the current native keyboard responder.
             let value = beginPaint()
             var visited: Set<String> = [rowID]
             var previous = event.locationInWindow

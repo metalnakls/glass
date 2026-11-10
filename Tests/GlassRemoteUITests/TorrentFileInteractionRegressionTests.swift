@@ -6,6 +6,23 @@ import Testing
 
 @MainActor @Suite("File inspector regressions")
 struct TorrentFileInteractionRegressionTests {
+    @Test func pointerSweepDoesNotStealKeyboardFocus() throws {
+        _ = NSApplication.shared
+        let window = CheckboxFocusTestWindow(contentRect: .init(x: -10000, y: -10000, width: 100, height: 100),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.close() }
+        let button = TorrentWantedCheckbox.Button(checkboxWithTitle: "", target: nil, action: nil)
+        window.contentView?.addSubview(button)
+        let previous = window.firstResponder
+        let event = try #require(NSEvent.mouseEvent(with: .leftMouseDown, location: .zero,
+            modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil,
+            eventNumber: 1, clickCount: 1, pressure: 1))
+        button.mouseDown(with: event)
+        #expect(window.firstResponder === previous)
+        #expect(button.state == .on)
+    }
+
     @Test func folderConflictUsesNativeDestructiveAction() throws {
         _ = NSApplication.shared
         let conflict = TorrentRenameConflict(token: "test", destination: "/Downloads/Existing", name: "Existing")
@@ -100,4 +117,10 @@ struct TorrentFileInteractionRegressionTests {
         #expect(indicators(host) > 0)
     }
 
+}
+
+@MainActor
+private final class CheckboxFocusTestWindow: NSWindow {
+    // End the synthetic tracking loop without posting input to the user's session.
+    override func nextEvent(matching mask: NSEvent.EventTypeMask) -> NSEvent? { nil }
 }
