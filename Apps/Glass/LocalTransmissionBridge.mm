@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include <libtransmission/error.h>
 #include <libtransmission/quark.h>
 #include <libtransmission/transmission.h>
 #include <libtransmission/utils.h>
@@ -42,6 +43,8 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 @property(nonatomic, copy) NSString *configPath;
 @property(nonatomic, copy) NSString *downloadPath;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *partialVisibilityStates;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSData *> *dataBookmarks;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *dataLocationErrors;
 @end
 
 @implementation LocalTransmissionBridge
@@ -60,6 +63,9 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     _partialVisibilityStates = [NSMutableDictionary dictionary];
     _configPath = configDirectory.path;
     _downloadPath = downloadDirectory.path;
+    NSString *bookmarksPath = [_configPath stringByAppendingPathComponent:@"data-bookmarks.plist"];
+    _dataBookmarks = [[NSDictionary dictionaryWithContentsOfFile:bookmarksPath] mutableCopy] ?: [NSMutableDictionary dictionary];
+    _dataLocationErrors = [NSMutableDictionary dictionary];
     NSFileManager *fileManager = NSFileManager.defaultManager;
     if (![fileManager createDirectoryAtURL:configDirectory withIntermediateDirectories:YES attributes:nil error:error]) {
         return nil;
@@ -86,10 +92,32 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         return nil;
     }
 
+    // Restore paused first: a renamed directory must be resolved before the
+    // engine can recreate its old path. Preserve each saved running state.
+    NSMutableSet<NSString *> *runningHashes = [NSMutableSet set];
+    NSString *resumeDirectory = [_configPath stringByAppendingPathComponent:@"resume"];
+    for (NSString *file in [fileManager contentsOfDirectoryAtPath:resumeDirectory error:nil]) {
+        if (![file.pathExtension isEqualToString:@"resume"]) { continue; }
+        auto resume = tr_variant_serde::benc().parse_file([resumeDirectory stringByAppendingPathComponent:file].UTF8String);
+        if (resume) {
+            if (auto map = resume->get_if<tr_variant::Map>()) {
+                if (auto paused = map->value_if<bool>(TR_KEY_paused); paused && !*paused) {
+                    [runningHashes addObject:file.stringByDeletingPathExtension];
+                }
+            }
+        }
+    }
     tr_ctor *ctor = tr_ctorNew(_session);
-    tr_ctorSetPaused(ctor, TR_FORCE, false);
+    tr_ctorSetPaused(ctor, TR_FORCE, true);
     tr_sessionLoadTorrents(_session, ctor);
     tr_ctorFree(ctor);
+    size_t count = tr_sessionGetAllTorrents(_session, nullptr, 0);
+    std::vector<tr_torrent *> loaded(count);
+    tr_sessionGetAllTorrents(_session, loaded.data(), count);
+    for (tr_torrent *torrent : loaded) {
+        NSString *hash = StringFromCString(tr_torrentView(torrent).hash_string);
+        if ([self reconcileDataLocation:torrent] && [runningHashes containsObject:hash]) { tr_torrentStart(torrent); }
+    }
 
     return self;
 }
@@ -278,6 +306,14 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 
 - (BOOL)startTorrents:(NSArray<NSString *> *)hashes error:(NSError **)error
 {
+    for (NSString *hash in hashes) {
+        tr_torrent *torrent = [self torrentForHash:hash error:error];
+        if (!torrent) { return NO; }
+        if (![self reconcileDataLocation:torrent]) {
+            if (error) { *error = GlassError(ENOENT, self.dataLocationErrors[hash]); }
+            return NO;
+        }
+    }
     return [self applyToTorrents:hashes error:error action:^(tr_torrent *torrent) {
         tr_torrentStart(torrent);
     }];
@@ -293,9 +329,15 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 - (BOOL)removeTorrents:(NSArray<NSString *> *)hashes deleteLocalData:(BOOL)deleteLocalData error:(NSError **)error
 {
     [self.partialVisibilityStates removeAllObjects];
-    return [self applyToTorrents:hashes error:error action:^(tr_torrent *torrent) {
+    BOOL removed = [self applyToTorrents:hashes error:error action:^(tr_torrent *torrent) {
         tr_torrentRemove(torrent, deleteLocalData);
     }];
+    if (removed) {
+        [self.dataBookmarks removeObjectsForKeys:hashes];
+        [self.dataLocationErrors removeObjectsForKeys:hashes];
+        [self.dataBookmarks writeToFile:[self.configPath stringByAppendingPathComponent:@"data-bookmarks.plist"] atomically:YES];
+    }
+    return removed;
 }
 
 - (BOOL)verifyTorrents:(NSArray<NSString *> *)hashes error:(NSError **)error
@@ -351,6 +393,61 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         }
         return NO;
     }
+    // Explicit moves can cross volumes and therefore create a new file identity.
+    [self.dataBookmarks removeObjectForKey:hashString];
+    [self reconcileDataLocation:torrent];
+    return YES;
+}
+
+- (BOOL)locateDataForTorrent:(NSString *)hashString atFolder:(NSString *)folder error:(NSError **)error
+{
+    tr_torrent *torrent = [self torrentForHash:hashString error:error];
+    if (!torrent) { return NO; }
+    BOOL directory = NO;
+    if (![NSFileManager.defaultManager fileExistsAtPath:folder isDirectory:&directory] || !directory) {
+        if (error) { *error = GlassError(ENOENT, @"Choose the existing folder containing this torrent's files."); }
+        return NO;
+    }
+    NSString *oldName = StringFromCString(tr_torrentView(torrent).name);
+    BOOL matches = NO;
+    for (tr_file_index_t i = 0; i < tr_torrentFileCount(torrent); ++i) {
+        auto file = tr_torrentFile(torrent, i);
+        NSString *relative = StringFromCString(file.name);
+        NSString *prefix = [oldName stringByAppendingString:@"/"];
+        if (![relative hasPrefix:prefix]) { continue; }
+        relative = [relative substringFromIndex:prefix.length];
+        NSString *candidate = [folder stringByAppendingPathComponent:relative];
+        if (![NSFileManager.defaultManager fileExistsAtPath:candidate]) { candidate = [candidate stringByAppendingString:@".part"]; }
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:candidate error:nil];
+        if (attributes && [attributes fileSize] <= file.length) { matches = YES; }
+    }
+    if (!matches) {
+        if (error) { *error = GlassError(EINVAL, @"That folder does not contain files from this torrent."); }
+        return NO;
+    }
+    tr_torrentStop(torrent);
+    int volatile state = TR_LOC_MOVING;
+    tr_torrentSetLocation(torrent, [folder stringByDeletingLastPathComponent].UTF8String, false, &state);
+    while (state == TR_LOC_MOVING) { [NSThread sleepForTimeInterval:0.02]; }
+    if (state != TR_LOC_DONE) { if (error) { *error = GlassError(EIO, @"The existing folder could not be selected."); } return NO; }
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    int code = 0;
+    tr_torrentRenamePath(torrent, oldName.UTF8String, folder.lastPathComponent.UTF8String,
+        [done, &code](tr_torrent_id_t, std::string_view, std::string_view, tr_error const& result) {
+            code = result.code(); dispatch_semaphore_signal(done);
+        });
+    dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+    if (code) { if (error) { *error = GlassError(code, @"The existing folder could not be selected."); } return NO; }
+    // Refresh the engine's current directory/error after the root name changed.
+    state = TR_LOC_MOVING;
+    tr_torrentSetLocation(torrent, [folder stringByDeletingLastPathComponent].UTF8String, false, &state);
+    while (state == TR_LOC_MOVING) { [NSThread sleepForTimeInterval:0.02]; }
+    [self.dataBookmarks removeObjectForKey:hashString];
+    [self.dataLocationErrors removeObjectForKey:hashString];
+    [self reconcileDataLocation:torrent];
+    // Selection never moves or deletes either folder. Recheck pieces before
+    // permitting resumed downloads into data that may differ from the old path.
+    tr_torrentVerify(torrent);
     return YES;
 }
 
@@ -360,7 +457,51 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     if (torrent == nullptr) {
         return NO;
     }
-    tr_torrentRenamePath(torrent, path.UTF8String, name.UTF8String, {});
+    if (name.length == 0 || [name containsString:@"/"] || [name isEqualToString:@"."] || [name isEqualToString:@".."]) {
+        if (error) { *error = GlassError(EINVAL, @"Choose a valid file or folder name."); }
+        return NO;
+    }
+    NSString *base = StringFromView(tr_torrentGetDownloadDir(torrent));
+    NSString *source = [base stringByAppendingPathComponent:path];
+    NSString *destination = [[source stringByDeletingLastPathComponent] stringByAppendingPathComponent:name];
+    NSString *physicalSource = source;
+    NSString *physicalDestination = destination;
+    if (![NSFileManager.defaultManager fileExistsAtPath:physicalSource] &&
+        [NSFileManager.defaultManager fileExistsAtPath:[physicalSource stringByAppendingString:@".part"]]) {
+        physicalSource = [physicalSource stringByAppendingString:@".part"];
+        physicalDestination = [physicalDestination stringByAppendingString:@".part"];
+    }
+    NSDictionary *sourceAttributes = [NSFileManager.defaultManager attributesOfItemAtPath:physicalSource error:nil];
+    NSDictionary *destinationAttributes = [NSFileManager.defaultManager attributesOfItemAtPath:physicalDestination error:nil];
+    BOOL sameFile = sourceAttributes && destinationAttributes &&
+        [sourceAttributes[NSFileSystemNumber] isEqual:destinationAttributes[NSFileSystemNumber]] &&
+        [sourceAttributes[NSFileSystemFileNumber] isEqual:destinationAttributes[NSFileSystemFileNumber]];
+    BOOL caseOnly = sameFile && [source caseInsensitiveCompare:destination] == NSOrderedSame;
+    if (!caseOnly && ![source isEqualToString:destination] &&
+        ([NSFileManager.defaultManager fileExistsAtPath:source] ||
+         [NSFileManager.defaultManager fileExistsAtPath:[source stringByAppendingString:@".part"]] ||
+         tr_torrentStat(torrent).downloaded_ever > 0) &&
+        ([NSFileManager.defaultManager fileExistsAtPath:destination] ||
+         [NSFileManager.defaultManager fileExistsAtPath:[destination stringByAppendingString:@".part"]])) {
+        if (error) { *error = GlassError(EEXIST, @"A folder or file with that name already exists. Choose the existing download folder instead of renaming over it."); }
+        return NO;
+    }
+    if (caseOnly && ![source isEqualToString:destination] &&
+        rename(physicalSource.fileSystemRepresentation, physicalDestination.fileSystemRepresentation) != 0) {
+        if (error) { *error = GlassError(errno, @"The file or folder could not be renamed."); }
+        return NO;
+    }
+    dispatch_semaphore_t finished = dispatch_semaphore_create(0);
+    NSError *renameError = nil;
+    tr_torrentRenamePath(torrent, path.UTF8String, name.UTF8String,
+        [finished, &renameError](tr_torrent_id_t, std::string_view, std::string_view, tr_error const& result) {
+            if (result) { renameError = GlassError(result.code(), StringFromView(result.message())); }
+            dispatch_semaphore_signal(finished);
+        });
+    // The Swift session actor owns this blocking bridge call; the UI thread is
+    // never held while Transmission performs its asynchronous filesystem rename.
+    dispatch_semaphore_wait(finished, DISPATCH_TIME_FOREVER);
+    if (renameError) { if (error) { *error = renameError; } return NO; }
     return YES;
 }
 
@@ -474,8 +615,87 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     }
 }
 
+- (BOOL)reconcileDataLocation:(tr_torrent *)torrent
+{
+    tr_torrent_view view = tr_torrentView(torrent);
+    NSString *hash = StringFromCString(view.hash_string);
+    NSString *name = StringFromCString(view.name);
+    NSURL *expected = [[NSURL fileURLWithPath:StringFromView(tr_torrentGetDownloadDir(torrent))]
+        URLByAppendingPathComponent:name];
+    expected = expected.URLByResolvingSymlinksInPath;
+    NSData *bookmark = self.dataBookmarks[hash];
+    BOOL stale = NO;
+    NSURL *tracked = bookmark ? [NSURL URLByResolvingBookmarkData:bookmark
+        options:NSURLBookmarkResolutionWithoutUI | NSURLBookmarkResolutionWithoutMounting
+        relativeToURL:nil bookmarkDataIsStale:&stale error:nil] : nil;
+    BOOL isDirectory = NO;
+    if (bookmark && (!tracked || ![NSFileManager.defaultManager fileExistsAtPath:tracked.path isDirectory:&isDirectory])) {
+        self.dataLocationErrors[hash] = @"Download folder is missing. Choose its current location to continue.";
+        tr_torrentStop(torrent);
+        return NO;
+    }
+    BOOL resumeAfterRecovery = NO;
+    if (!bookmark && tr_torrentFileCount(torrent) > 1 && tr_torrentStat(torrent).downloaded_ever > 0 &&
+        ![NSFileManager.defaultManager fileExistsAtPath:expected.path]) {
+        self.dataLocationErrors[hash] = @"Download folder is missing. Choose its current location to continue.";
+        tr_torrentStop(torrent);
+        return NO;
+    }
+    if (tracked && ![tracked.URLByResolvingSymlinksInPath.path isEqualToString:expected.path]) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:expected.path]) {
+            self.dataLocationErrors[hash] = @"The download folder moved and another folder now exists at the old path. Choose which existing folder to use.";
+            tr_torrentStop(torrent);
+            return NO;
+        }
+        // This is the same filesystem object, not a guess based on a name.
+        int volatile state = TR_LOC_MOVING;
+        auto activity = tr_torrentStat(torrent).activity;
+        resumeAfterRecovery = activity == TR_STATUS_DOWNLOAD || activity == TR_STATUS_DOWNLOAD_WAIT ||
+            activity == TR_STATUS_SEED || activity == TR_STATUS_SEED_WAIT;
+        tr_torrentStop(torrent);
+        tr_torrentSetLocation(torrent, tracked.URLByDeletingLastPathComponent.path.UTF8String, false, &state);
+        while (state == TR_LOC_MOVING) { [NSThread sleepForTimeInterval:0.02]; }
+        if (state != TR_LOC_DONE) {
+            self.dataLocationErrors[hash] = @"The moved download folder could not be reconnected.";
+            return NO;
+        }
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        int renameCode = 0;
+        tr_torrentRenamePath(torrent, name.UTF8String, tracked.lastPathComponent.UTF8String,
+            [done, &renameCode](tr_torrent_id_t, std::string_view, std::string_view, tr_error const& result) {
+                renameCode = result.code(); dispatch_semaphore_signal(done);
+            });
+        dispatch_semaphore_wait(done, DISPATCH_TIME_FOREVER);
+        if (renameCode != 0) {
+            self.dataLocationErrors[hash] = @"The moved download folder could not be reconnected.";
+            return NO;
+        }
+        // Root metadata now points to the tracked inode; refresh file lookup
+        // and clear the old "No data found" error without starting downloads.
+        state = TR_LOC_MOVING;
+        tr_torrentSetLocation(torrent, tracked.URLByDeletingLastPathComponent.path.UTF8String, false, &state);
+        while (state == TR_LOC_MOVING) { [NSThread sleepForTimeInterval:0.02]; }
+        expected = tracked;
+        stale = YES;
+    }
+    if (!bookmark || stale) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:expected.path isDirectory:&isDirectory] && isDirectory) {
+            NSData *data = [expected bookmarkDataWithOptions:NSURLBookmarkCreationMinimalBookmark
+                includingResourceValuesForKeys:nil relativeToURL:nil error:nil];
+            if (data) {
+                self.dataBookmarks[hash] = data;
+                [self.dataBookmarks writeToFile:[self.configPath stringByAppendingPathComponent:@"data-bookmarks.plist"] atomically:YES];
+            }
+        }
+    }
+    [self.dataLocationErrors removeObjectForKey:hash];
+    if (resumeAfterRecovery) { tr_torrentStart(torrent); }
+    return YES;
+}
+
 - (NSDictionary *)dictionaryForTorrent:(tr_torrent *)torrent
 {
+    [self reconcileDataLocation:torrent];
     [self refreshPartialFileVisibility:torrent];
     tr_stat const stat = tr_torrentStat(torrent);
     tr_torrent_view const view = tr_torrentView(torrent);
@@ -484,8 +704,8 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         @"hashString": StringFromCString(view.hash_string),
         @"name": StringFromCString(view.name),
         @"status": @(stat.activity),
-        @"error": @(static_cast<int>(stat.error)),
-        @"errorString": StringFromView(stat.error_string),
+        @"error": self.dataLocationErrors[StringFromCString(view.hash_string)] ? @3 : @(static_cast<int>(stat.error)),
+        @"errorString": self.dataLocationErrors[StringFromCString(view.hash_string)] ?: StringFromView(stat.error_string),
         @"percentDone": @(stat.percent_done),
         @"doneDate": @(stat.done_date),
         @"metadataPercentComplete": @(stat.metadata_percent_complete),

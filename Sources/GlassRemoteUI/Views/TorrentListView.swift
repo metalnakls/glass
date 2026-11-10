@@ -770,6 +770,7 @@ private struct TorrentListLiveRow: View {
             additionError: row.torrentRecord?.additionError,
             additionAccepted: row.torrentRecord?.additionAccepted ?? false,
             shareUnavailable: shareUnavailable,
+            locateData: locateDataAction,
             thumbnailInput: row.torrentRecord.flatMap { TorrentThumbnailInput.movie($0.summary, sourceID: $0.sourceID, isLocal: $0.sourceID == model.localSourceID) },
             fileAction: fileAction,
             toggleTransfer: toggleTransfers
@@ -794,6 +795,9 @@ private struct TorrentListLiveRow: View {
             TorrentRemovalActions(kind: record.additionAccepted ? .torrent : .draft, remove: removeRow)
         } else {
             TorrentInfoMenuRow(title: "Added", value: addedDateValue)
+            if let locateDataAction {
+                Button(glassText("Locate Existing Folder…"), action: locateDataAction)
+            }
             TorrentRemovalActions(remove: removeRow)
         }
     }
@@ -836,6 +840,22 @@ private struct TorrentListLiveRow: View {
         switch row.kind {
         case let .torrent(record, _): return record.isAdding
         case .group: return false
+        }
+    }
+
+    private var locateDataAction: (() -> Void)? {
+        guard row.sourceID == model.localSourceID, let record = row.torrentRecord,
+              (record.summary.fileCount ?? 0) > 1 else { return nil }
+        return { chooseExistingData() }
+    }
+
+    private func chooseExistingData() {
+        Task {
+            do {
+                if let folder = try await platformIntegration.chooseLocalDownloadDirectory(startingAt: summary.downloadDir) {
+                    _ = await model.locateData(summary, at: folder, sourceID: row.sourceID)
+                }
+            } catch { model.errorMessage = error.localizedDescription }
         }
     }
 

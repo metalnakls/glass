@@ -6,9 +6,11 @@ import SwiftUI
 struct TorrentFileListLayout {
     static let shared = Self()
     var leadingIconWidth: CGFloat { 16 }
+    // Match the document margin beside the checkbox; interior row inset remains separate.
+    var checkboxGap: CGFloat { GlassContentMargins.value }
     var disclosureWidth: CGFloat { 12 }
     var metadataGap: CGFloat { 6 }
-    var textLeadingInset: CGFloat { leadingIconWidth + columnGap + disclosureWidth + columnGap }
+    var textLeadingInset: CGFloat { leadingIconWidth + checkboxGap + disclosureWidth + columnGap }
     var verticalInset: CGFloat { 4 }
     // Row interior, distinct from the document margin: keep native controls and
     // metadata off the rounded selection edge on all four sides.
@@ -30,7 +32,7 @@ struct TorrentFileListLayout {
     func verticalInset(stacked: Bool) -> CGFloat { stacked ? 6 : verticalInset }
     func rowHeight(stacked: Bool) -> CGFloat { contentHeight(stacked: stacked) + 2 * verticalInset(stacked: stacked) }
     var columnGap: CGFloat { 6 }
-    var iconLeadingInset: CGFloat { leadingIconWidth + columnGap + disclosureWidth + columnGap }
+    var iconLeadingInset: CGFloat { leadingIconWidth + checkboxGap + disclosureWidth + columnGap }
     func iconLeadingInset(hierarchical: Bool) -> CGFloat {
         iconLeadingInset - (hierarchical ? 0 : disclosureWidth + columnGap)
     }

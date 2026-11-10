@@ -13,6 +13,7 @@ struct TorrentRowView: View, Equatable {
     var folderID: String?
     var iconPosition = 0
     var torrentGroupLandingID: String = ""
+    @State private var delayedActivityVisible = false
     @State private var clickRevision = 0
     @State private var pendingRunning: Bool?
     @State private var commandTask: Task<Void, Never>?
@@ -41,6 +42,7 @@ struct TorrentRowView: View, Equatable {
     var additionError: String?
     var additionAccepted = false
     var shareUnavailable = false
+    var locateData: (() -> Void)?
     var thumbnailInput: TorrentThumbnailInput?
     var fileAction: ((TorrentFileActions.Action) -> Void)?
     let toggleTransfer: () async -> Bool
@@ -59,6 +61,13 @@ struct TorrentRowView: View, Equatable {
                     HStack { sizeLabel; Spacer(); transferButton }.frame(height: TorrentIconGridMetrics.footerHeight).modifier(TorrentViewModeLabelFade())
                 }.padding(TorrentIconGridMetrics.padding).frame(maxWidth: .infinity).frame(height: TorrentIconGridMetrics.height)
             } else { row }
+        }
+        .task(id: activityIdentity) {
+            delayedActivityVisible = false
+            guard activityIdentity != nil else { return }
+            do { try await Task.sleep(for: GlassLoadingFeedback.delay) } catch { return }
+            guard !Task.isCancelled else { return }
+            delayedActivityVisible = true
         }
         .opacity(isAdding ? 0.45 : 1)
         .background(TorrentArtworkOverflow(enabled: funMode && !grid, order: iconPosition))
@@ -215,16 +224,19 @@ struct TorrentRowView: View, Equatable {
 
     private var activityProgress: some View {
         GlassActivityIndicator(
-            label: pendingOldName == nil ? "Downloading torrent metadata" : "Renaming torrent"
+            label: pendingOldName == nil ? "Downloading torrent metadata" : "Renaming torrent",
+            presentation: .alreadyDelayed
         )
         .font(.system(size: 19, weight: .medium))
         .foregroundStyle(.secondary)
         .frame(width: 36, height: 42, alignment: .center)
     }
 
-    private var showsActivityIcon: Bool {
-        pendingOldName != nil || torrent.isDownloadingMetadata
+    private var activityIdentity: String? {
+        pendingOldName.map { "rename:" + $0 } ?? (torrent.isDownloadingMetadata ? "metadata" : nil)
     }
+
+    private var showsActivityIcon: Bool { delayedActivityVisible && activityIdentity != nil }
 
     private var torrentContent: some View {
         titleLine
@@ -350,7 +362,7 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var oldNameLabel: some View {
-        if let pendingOldName {
+        if delayedActivityVisible, let pendingOldName {
             Text(displayName(pendingOldName)).textCase(nil)
                 .font(.callout)
                 .foregroundStyle(.tertiary)
@@ -433,10 +445,17 @@ struct TorrentRowView: View, Equatable {
             GlassActivityIndicator(label: "Adding torrent")
                 .frame(width: stateDiameter, height: stateDiameter)
         } else if stateGlass {
-            Button(action: requestStateChange) { stateGlyph.frame(width: stateDiameter, height: stateDiameter) }
+            Button {
+                if shareUnavailable { locateData?() } else { requestStateChange() }
+            } label: { stateGlyph.frame(width: stateDiameter, height: stateDiameter) }
                 .buttonStyle(.plain)
                 .glassEffect(.regular.interactive(), in: .circle)
-                .allowsHitTesting(!shareUnavailable && !torrent.isCompleted && pendingRunning == nil)
+                .allowsHitTesting(shareUnavailable ? locateData != nil : (!torrent.isCompleted && pendingRunning == nil))
+        } else if shareUnavailable, let locateData {
+            Button(action: locateData) { stateImage }
+                .buttonStyle(.plain)
+                .help(torrent.errorString ?? "Choose the existing download folder")
+                .accessibilityLabel("Locate download folder")
         } else if shareUnavailable || torrent.isCompleted {
             stateImage
         } else {
@@ -494,8 +513,8 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateSymbol: String {
+        if shareUnavailable { return locateData == nil ? "questionmark" : "exclamationmark.triangle" }
         if torrent.isCompleted { return "checkmark" }
-        if shareUnavailable { return "questionmark" }
         return (pendingRunning ?? torrent.canStopTransfer) ? "pause.fill" : "play.fill"
     }
 
@@ -503,8 +522,8 @@ struct TorrentRowView: View, Equatable {
         if additionPhase == .failed { return "Retry adding torrent" }
         if additionPhase == .queued { return "Queued torrent" }
         if isAdding { return "Adding torrent" }
-        if torrent.isCompleted { return "Finished" }
         if shareUnavailable { return torrent.errorString?.isEmpty == false ? torrent.errorString! : "Download unavailable" }
+        if torrent.isCompleted { return "Finished" }
         return torrent.canStopTransfer ? "Pause" : "Resume"
     }
 

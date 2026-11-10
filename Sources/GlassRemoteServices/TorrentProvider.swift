@@ -170,6 +170,7 @@ public protocol TorrentProvider: Sendable {
     func queueMoveDown(ids: [String]) async throws
     func queueMoveBottom(ids: [String]) async throws
     func moveData(id: String, to downloadDirectory: String) async throws
+    func locateData(id: String, at folder: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
@@ -204,12 +205,17 @@ public extension TorrentProvider {
         try await fetchTorrentDetails(hashString: hashString)
     }
 
+    func locateData(id: String, at folder: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("Locating existing data is available for local torrents.")
+    }
+
     func moveData(id: String, to downloadDirectory: String) async throws {
         throw LocalTransmissionSessionError.unavailable("Moving torrent data is only available for local torrents.")
     }
 }
 
 public protocol LocalTransmissionServicing: Sendable {
+    func shutdown() async
     /// Fetches metainfo in an isolated session without accepting a download.
     func resolveMagnetMetainfo(_ magnet: String) async throws -> Data
     func fetchSnapshot() async throws -> TorrentProviderSnapshot
@@ -236,6 +242,7 @@ public protocol LocalTransmissionServicing: Sendable {
     func queueMoveDown(ids: [String]) async throws
     func queueMoveBottom(ids: [String]) async throws
     func moveData(id: String, to downloadDirectory: String) async throws
+    func locateData(id: String, at folder: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
@@ -243,6 +250,8 @@ public protocol LocalTransmissionServicing: Sendable {
 }
 
 public extension LocalTransmissionServicing {
+    func shutdown() async {}
+
     func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
         throw LocalTransmissionSessionError.unavailable("Magnet metadata resolution is unavailable in this build.")
     }
@@ -256,6 +265,10 @@ public extension LocalTransmissionServicing {
     func setQueuePosition(ids: [String], position: Int) async throws {
         try await queueMoveTop(ids: ids)
         for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
+    }
+
+    func locateData(id: String, at folder: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("Locating existing data is available for local torrents.")
     }
 
     func moveData(id: String, to downloadDirectory: String) async throws {
@@ -557,6 +570,8 @@ public actor LocalTorrentProvider: TorrentProvider {
         self.session = session
     }
 
+    public func shutdown() async { await session.shutdown() }
+
     public func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         try await session.fetchSnapshot()
     }
@@ -647,6 +662,10 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func queueMoveBottom(ids: [String]) async throws {
         try await session.queueMoveBottom(ids: ids)
+    }
+
+    public func locateData(id: String, at folder: String) async throws {
+        try await session.locateData(id: id, at: folder)
     }
 
     public func moveData(id: String, to downloadDirectory: String) async throws {

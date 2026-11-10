@@ -13,6 +13,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
     private let configDirectory: URL
     private let downloadDirectory: URL
     private var bridge: LocalTransmissionBridge?
+    private var isClosed = false
     private var cachedFreeSpace: CachedFreeSpace?
 
     init(appName: String = "Glass") throws {
@@ -33,6 +34,12 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
 
         self.configDirectory = configDirectory
         self.downloadDirectory = downloadDirectory
+    }
+
+    func shutdown() async {
+        isClosed = true
+        bridge?.close()
+        bridge = nil
     }
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
@@ -192,6 +199,10 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         )
     }
 
+    func locateData(id: String, at folder: String) async throws {
+        try ensureBridge().locateData(forTorrent: id, atFolder: folder)
+    }
+
     func renamePath(id: String, path: String, name: String) async throws {
         try ensureBridge().renameTorrent(id, path: path, name: name)
     }
@@ -254,6 +265,7 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
     }
 
     private func ensureBridge() throws -> LocalTransmissionBridge {
+        guard !isClosed else { throw LocalTransmissionSessionError.unavailable("Glass is closing.") }
         if let bridge {
             return bridge
         }

@@ -299,3 +299,24 @@ Compilation and motion-policy checks do not establish visual transition quality.
 The user authorized one isolated sample-data demo for review; the main app must
 not be restarted or unsolicited test windows opened. Native presentation,
 interrupted switching and live drag/rename remain unverified until that review.
+
+## File-list interaction recovery — November 2026
+
+- `TorrentWantedCheckbox` owns native checkbox input and drag painting. A drag
+  applies the first checkbox's new wanted value to every crossed enabled row,
+  once per gesture, within that file browser only. Native keyboard/accessibility
+  activation remains available; completed-file restrictions remain unchanged.
+- `TorrentFileListLayout.checkboxGap` derives from the shared document margin.
+  The left row interior stays separate, making the checkbox-to-name gap slightly
+  smaller than the inspector-edge-to-checkbox distance. Hierarchy and metadata
+  retain their own columns.
+- Displayed episode filenames retain their SxxExx codes. File-name cleanup and
+  actual path repairs remain owned by naming/services, not display-only aliases.
+- `GlassLoadingFeedback.delay` is six seconds. Fast operations retain their normal
+  artwork and names; rename feedback cannot briefly replace the icon with an
+  invisible spinner. Inspector waiting feedback uses the same deadline once.
+- Cached group details are projected onto current members before display. Removed
+  seasons cannot reappear from the inspector cache. File-section demand made while
+  core details are loading must be fulfilled without another selection click.
+- Local multi-file storage errors expose a native folder picker from the state
+  button. Choosing existing data rechecks pieces and does not merge/delete folders.

@@ -972,11 +972,11 @@ private struct TorrentWindowDropItem: Transferable, Sendable {
 private struct DelayedTorrentLoadingView: View {
     @State private var showSpinner = false
     var body: some View {
-        Color.clear.overlay { if showSpinner { ProgressView().controlSize(.small) } }
+        Color.clear.overlay { if showSpinner { GlassActivityIndicator(label: "Loading torrent", presentation: .alreadyDelayed) } }
             .frame(width: GlassModalMetrics.addTorrent.width, height: GlassModalMetrics.addTorrent.height)
             .background(.background, in: RoundedRectangle(cornerRadius: GlassModalMetrics.cornerRadius))
             .task {
-                do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                do { try await Task.sleep(for: GlassLoadingFeedback.delay) } catch { return }
                 showSpinner = true
             }
     }

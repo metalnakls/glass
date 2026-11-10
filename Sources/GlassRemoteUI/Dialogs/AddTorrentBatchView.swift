@@ -565,7 +565,7 @@ private struct TorrentBatchGroupEditor: View {
                     },
                     onSetAllWanted: { setAllFilesWanted($0) },
                     showsControls: false, isCompact: true, showsCompletion: false, scrolls: true,
-                    shortEpisodeNames: true, showsActionBar: false
+                     showsActionBar: false
                 )
             }
         }

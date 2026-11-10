@@ -283,6 +283,19 @@ codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 codesign --display --verbose=4 "$INSTALL_DIR" 2>&1
 INSTALL_STARTED=0
 
+# A local signing/install change can retire an existing background job. Restore
+# only the user's already-installed LaunchAgent; retain an explicit disable.
+WORKER_PLIST="$HOME/Library/LaunchAgents/tsmc.glass.downloads.plist"
+WORKER_DOMAIN="gui/$(id -u)"
+if [[ -f "$WORKER_PLIST" ]] &&
+   [[ "$(plutil -extract ProgramArguments.0 raw -o - "$WORKER_PLIST" 2>/dev/null || true)" == "$INSTALL_DIR/Contents/Library/LoginItems/GlassWorker.app/Contents/MacOS/GlassWorker" ]]; then
+    DISABLED_JOBS="$(launchctl print-disabled "$WORKER_DOMAIN")"
+    if ! grep -Eq '"tsmc\.glass\.downloads"[[:space:]]*=>[[:space:]]*(true|disabled)' <<< "$DISABLED_JOBS"; then
+        launchctl bootout "$WORKER_DOMAIN/tsmc.glass.downloads" 2>/dev/null || true
+        launchctl bootstrap "$WORKER_DOMAIN" "$WORKER_PLIST"
+    fi
+fi
+
 remind_about_push
 
 echo "$APP_DIR"
