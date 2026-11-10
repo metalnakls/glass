@@ -42,7 +42,16 @@ chmod 600 "$staging"
 launchctl bootout "$domain/$label" 2>/dev/null || true
 mv "$staging" "$plist"
 launchctl enable "$domain/$label"
-launchctl bootstrap "$domain" "$plist"
+# launchd may still be retiring the previous registration after bootout.
+registered=0
+for ((attempt=0; attempt<5; attempt++)); do
+    if launchctl bootstrap "$domain" "$plist"; then registered=1; break; fi
+    sleep 1
+done
+if [[ "$registered" != 1 ]]; then
+    echo 'Worker registration failed after retrying; installation is not verified.' >&2
+    exit 1
+fi
 for ((attempt=0; attempt<20; attempt++)); do
     if launchctl print "$domain/$label" | grep -q 'state = running'; then
         sleep 2
