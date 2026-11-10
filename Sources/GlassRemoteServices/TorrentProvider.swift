@@ -171,6 +171,7 @@ public protocol TorrentProvider: Sendable {
     func queueMoveBottom(ids: [String]) async throws
     func moveData(id: String, to downloadDirectory: String) async throws
     func locateData(id: String, at folder: String) async throws
+    func resolveRenameConflict(id: String, token: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
@@ -203,6 +204,10 @@ public extension TorrentProvider {
 
     func fetchTorrentPieces(hashString: String) async throws -> TorrentDetails {
         try await fetchTorrentDetails(hashString: hashString)
+    }
+
+    func resolveRenameConflict(id: String, token: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("Folder conflict resolution is available for local torrents.")
     }
 
     func locateData(id: String, at folder: String) async throws {
@@ -243,6 +248,7 @@ public protocol LocalTransmissionServicing: Sendable {
     func queueMoveBottom(ids: [String]) async throws
     func moveData(id: String, to downloadDirectory: String) async throws
     func locateData(id: String, at folder: String) async throws
+    func resolveRenameConflict(id: String, token: String) async throws
     func renamePath(id: String, path: String, name: String) async throws
     func setFileWanted(ids: [String], fileIndices: [Int], wanted: Bool) async throws
     func setFilePriority(ids: [String], fileIndices: [Int], priority: Int) async throws
@@ -265,6 +271,10 @@ public extension LocalTransmissionServicing {
     func setQueuePosition(ids: [String], position: Int) async throws {
         try await queueMoveTop(ids: ids)
         for _ in 0..<max(0, position) { try await queueMoveDown(ids: ids) }
+    }
+
+    func resolveRenameConflict(id: String, token: String) async throws {
+        throw LocalTransmissionSessionError.unavailable("Folder conflict resolution is available for local torrents.")
     }
 
     func locateData(id: String, at folder: String) async throws {
@@ -666,6 +676,10 @@ public actor LocalTorrentProvider: TorrentProvider {
 
     public func locateData(id: String, at folder: String) async throws {
         try await session.locateData(id: id, at: folder)
+    }
+
+    public func resolveRenameConflict(id: String, token: String) async throws {
+        try await session.resolveRenameConflict(id: id, token: token)
     }
 
     public func moveData(id: String, to downloadDirectory: String) async throws {

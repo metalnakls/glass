@@ -327,3 +327,11 @@ interrupted switching and live drag/rename remain unverified until that review.
   symlinks, unique partial bytes, or missing ownership evidence preserve both
   folders and produce an explicit conflict message. Old folders are never claimed
   retrospectively merely because their names or file inventories match.
+
+- Unresolved local folder-name conflicts persist as a question-mark state control.
+  Clicking opens `GlassFolderConflictAlert`, a native NSAlert sheet with Cancel,
+  Open Existing Folder in Finder, and a red destructive Delete Folder action.
+  Opening Finder or cancelling preserves the pending rename. Delete moves only
+  the exact confirmed destination object to Trash and retries the rename; a
+  changed token, source, or destination requires fresh review. Resolving the
+  collision externally lets the next refresh finish the pending rename.

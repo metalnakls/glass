@@ -6,6 +6,17 @@ import Testing
 
 @MainActor @Suite("File inspector regressions")
 struct TorrentFileInteractionRegressionTests {
+    @Test func folderConflictUsesNativeDestructiveAction() throws {
+        _ = NSApplication.shared
+        let conflict = TorrentRenameConflict(token: "test", destination: "/Downloads/Existing", name: "Existing")
+        let alert = GlassFolderConflictAlert.makeAlert(for: conflict)
+        #expect(alert.buttons.map(\.title) == ["Cancel", "Open Existing Folder in Finder", "Delete Folder"])
+        #expect(alert.buttons[2].hasDestructiveAction)
+        #expect(alert.buttons[2].keyEquivalent.isEmpty)
+        #expect(alert.informativeText.contains(conflict.destination))
+        #expect(alert.informativeText.contains("Trash"))
+    }
+
     @Test func checkboxNameGapMatchesDocumentMargin() {
         _ = NSApplication.shared
         let layout = TorrentFileListLayout.shared

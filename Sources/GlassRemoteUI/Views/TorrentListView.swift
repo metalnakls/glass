@@ -796,7 +796,7 @@ private struct TorrentListLiveRow: View {
         } else {
             TorrentInfoMenuRow(title: "Added", value: addedDateValue)
             if let locateDataAction {
-                Button(glassText("Locate Existing Folder…"), action: locateDataAction)
+                Button(glassText(summary.renameConflict == nil ? "Locate Existing Folder…" : "Resolve Folder Conflict…"), action: locateDataAction)
             }
             TorrentRemovalActions(remove: removeRow)
         }
@@ -845,7 +845,17 @@ private struct TorrentListLiveRow: View {
 
     private var locateDataAction: (() -> Void)? {
         guard row.sourceID == model.localSourceID, let record = row.torrentRecord,
-              (record.summary.fileCount ?? 0) > 1 else { return nil }
+              record.summary.renameConflict != nil || (record.summary.fileCount ?? 0) > 1 else { return nil }
+        if let conflict = record.summary.renameConflict {
+            let conflictedTorrent = record.summary
+            return {
+                Task {
+                    if await platformIntegration.confirmFolderConflict(conflict) {
+                        _ = await model.resolveRenameConflict(conflictedTorrent, sourceID: row.sourceID)
+                    }
+                }
+            }
+        }
         return { chooseExistingData() }
     }
 
@@ -903,7 +913,8 @@ extension TorrentSummary {
             addedDate: addedDate,
             error: error,
             errorString: errorString,
-            doneDate: doneDate
+            doneDate: doneDate,
+            renameConflict: renameConflict
         )
     }
 }

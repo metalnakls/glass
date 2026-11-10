@@ -1489,7 +1489,7 @@ public final class RemoteAppModel {
         }
         let resolvedPlan = plan
         let didRename = await performProviderAction(sourceID: sourceID, detailHash: details.hashString,
-            reloadCoreDetails: true, detailSections: [.files]) { provider in
+            reloadCoreDetails: true, detailSections: [.files], presentsRenameConflictsInline: true) { provider in
             for rename in resolvedPlan.pathRenames {
                 try await provider.renamePath(id: details.hashString, path: rename.path, name: rename.name)
             }
@@ -1864,10 +1864,19 @@ public final class RemoteAppModel {
     }
 
     @discardableResult
+    public func resolveRenameConflict(_ torrent: TorrentSummary, sourceID: UUID) async -> Bool {
+        guard sourceID == localSourceID, let conflict = torrent.renameConflict else { return false }
+        return await performProviderAction(sourceID: sourceID, detailHash: torrent.hashString,
+            reloadCoreDetails: true, detailSections: [.files]) { provider in
+                try await provider.resolveRenameConflict(id: torrent.hashString, token: conflict.token)
+            }
+    }
+
+    @discardableResult
     public func locateData(_ torrent: TorrentSummary, at folder: String, sourceID: UUID) async -> Bool {
         let desiredName = sourceState(for: sourceID).records.first(where: { $0.hashString == torrent.hashString })?.displayName ?? torrent.name
         return await performProviderAction(sourceID: sourceID, detailHash: torrent.hashString,
-            reloadCoreDetails: true, detailSections: [.files]) { provider in
+            reloadCoreDetails: true, detailSections: [.files], presentsRenameConflictsInline: true) { provider in
                 try await provider.locateData(id: torrent.hashString, at: folder)
                 let locatedName = URL(fileURLWithPath: folder).lastPathComponent
                 if locatedName != desiredName {
@@ -1931,7 +1940,8 @@ public final class RemoteAppModel {
             newName: trimmedName
         )
         guard let confirmedTorrent else {
-            errorMessage = requestError?.localizedDescription ?? "Transmission did not confirm the rename."
+            let hasConflict = sourceState(for: sourceID).records.contains { $0.hashString == torrent.hashString && $0.summary.renameConflict != nil }
+            errorMessage = hasConflict ? nil : requestError?.localizedDescription ?? "Transmission did not confirm the rename."
             return false
         }
 
@@ -2156,6 +2166,7 @@ public final class RemoteAppModel {
         reloadCoreDetails: Bool = false,
         detailSections: Set<TorrentDetailSection> = [],
         showsActivity: Bool = true,
+        presentsRenameConflictsInline: Bool = false,
         action: (any TorrentProvider) async throws -> Void
     ) async -> Bool {
         let state = sourceState(for: sourceID)
@@ -2182,6 +2193,13 @@ public final class RemoteAppModel {
             )
             return true
         } catch {
+            if presentsRenameConflictsInline, sourceID == localSourceID, let detailHash {
+                await refresh(sourceID: sourceID)
+                if sourceState(for: sourceID).records.contains(where: { $0.hashString == detailHash && $0.summary.renameConflict != nil }) {
+                    errorMessage = nil
+                    return false
+                }
+            }
             errorMessage = error.localizedDescription
             return false
         }

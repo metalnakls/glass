@@ -40,6 +40,22 @@ int main(int argc, char **argv) {
         error = nil;
         assert(![bridge renameTorrent:hash path:@"Album" name:@"Existing" error:&error]);
         assert(error != nil);
+        NSDictionary *conflict = [bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"];
+        assert([conflict[@"destination"] isEqual:collision]);
+        assert([conflict[@"name"] isEqual:@"Existing"]);
+        assert([conflict[@"token"] length] > 0);
+        assert(![bridge renameTorrent:hash path:@"Album" name:@"Existing" error:nil]);
+        assert([[bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"][@"token"] isEqual:conflict[@"token"]]);
+        [bridge close];
+        bridge = [[LocalTransmissionBridge alloc] initWithConfigDirectory:config downloadDirectory:payload error:nil];
+        assert([[bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"][@"token"] isEqual:conflict[@"token"]]);
+        assert(![bridge resolveRenameConflict:hash token:@"obsolete-dialog" error:nil]);
+        assert([NSFileManager.defaultManager fileExistsAtPath:collision]);
+        NSString *displaced = [payload.path stringByAppendingPathComponent:@"User Moved Conflict"];
+        assert([NSFileManager.defaultManager moveItemAtPath:collision toPath:displaced error:nil]);
+        assert([NSFileManager.defaultManager createDirectoryAtPath:collision withIntermediateDirectories:NO attributes:nil error:nil]);
+        assert(![bridge resolveRenameConflict:hash token:conflict[@"token"] error:nil]);
+        assert([NSFileManager.defaultManager fileExistsAtPath:collision]);
         assert([[bridge torrentDetailsForHash:hash error:nil][@"name"] isEqualToString:@"Album"]);
         error = nil;
         assert([bridge renameTorrent:hash path:@"Album" name:@"Renamed" error:&error]);
@@ -141,6 +157,26 @@ int main(int argc, char **argv) {
         assert([bridge renameTorrent:hash path:@"Album" name:@"Duplicate" error:&error]);
         assert(![NSFileManager.defaultManager fileExistsAtPath:ownedSource]);
         assert([[NSData dataWithContentsOfFile:[ownedDuplicate stringByAppendingPathComponent:@"middle.flac"]] isEqual:sameBytes]);
+        // Explicit confirmation may remove an unrelated destination, but only
+        // the exact directory shown in the dialog, and it uses Trash.
+        NSString *confirmed = [ownedPayload.path stringByAppendingPathComponent:@"Confirmed Conflict"];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:confirmed withIntermediateDirectories:NO attributes:nil error:nil]);
+        assert([sameBytes writeToFile:[confirmed stringByAppendingPathComponent:@"unrelated.txt"] atomically:YES]);
+        assert(![bridge renameTorrent:hash path:@"Duplicate" name:@"Confirmed Conflict" error:nil]);
+        NSDictionary *pending = [bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"];
+        error = nil;
+        BOOL resolved = [bridge resolveRenameConflict:hash token:pending[@"token"] error:&error];
+        if (!resolved) { NSLog(@"Conflict resolution failed: %@", error); }
+        assert(resolved);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:ownedDuplicate]);
+        assert([NSFileManager.defaultManager fileExistsAtPath:[confirmed stringByAppendingPathComponent:@"middle.flac"]]);
+        assert([[bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"] count] == 0);
+        NSString *external = [ownedPayload.path stringByAppendingPathComponent:@"Resolved Externally"];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:external withIntermediateDirectories:NO attributes:nil error:nil]);
+        assert(![bridge renameTorrent:hash path:@"Confirmed Conflict" name:@"Resolved Externally" error:nil]);
+        assert([NSFileManager.defaultManager removeItemAtPath:external error:nil]);
+        assert([[bridge snapshotWithError:nil][@"torrents"][0][@"name"] isEqual:@"Resolved Externally"]);
+        assert([[bridge snapshotWithError:nil][@"torrents"][0][@"renameConflict"] count] == 0);
         [bridge close];
         puts("Real Transmission bridge: partial files, rename collisions, folder identity recovery, manual location, missing-folder safety, and paused/running restart passed");
     }

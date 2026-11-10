@@ -46,6 +46,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *partialVisibilityStates;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSData *> *dataBookmarks;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *createdRoots;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSDictionary *> *renameConflicts;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *dataLocationErrors;
 @end
 
@@ -68,6 +69,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     NSString *bookmarksPath = [_configPath stringByAppendingPathComponent:@"data-bookmarks.plist"];
     _dataBookmarks = [[NSDictionary dictionaryWithContentsOfFile:bookmarksPath] mutableCopy] ?: [NSMutableDictionary dictionary];
     _dataLocationErrors = [NSMutableDictionary dictionary];
+    _renameConflicts = [[NSDictionary dictionaryWithContentsOfFile:[_configPath stringByAppendingPathComponent:@"rename-conflicts.plist"]] mutableCopy] ?: [NSMutableDictionary dictionary];
     _createdRoots = [[NSDictionary dictionaryWithContentsOfFile:[_configPath stringByAppendingPathComponent:@"created-roots.plist"]] mutableCopy] ?: [NSMutableDictionary dictionary];
     NSFileManager *fileManager = NSFileManager.defaultManager;
     if (![fileManager createDirectoryAtURL:configDirectory withIntermediateDirectories:YES attributes:nil error:error]) {
@@ -338,6 +340,8 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     }];
     if (removed) {
         [self.dataBookmarks removeObjectsForKeys:hashes];
+        [self.renameConflicts removeObjectsForKeys:hashes];
+        [self.renameConflicts writeToFile:[self.configPath stringByAppendingPathComponent:@"rename-conflicts.plist"] atomically:YES];
         [self.dataLocationErrors removeObjectsForKeys:hashes];
         [self.dataBookmarks writeToFile:[self.configPath stringByAppendingPathComponent:@"data-bookmarks.plist"] atomically:YES];
     }
@@ -458,6 +462,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 // Receipt keys bind ownership to a filesystem object, not a reusable pathname.
 - (NSString *)identityOfDirectory:(NSString *)path
 {
+    if (path.length == 0) { return nil; }
     NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
     if (![attributes[NSFileType] isEqual:NSFileTypeDirectory]) { return nil; }
     return [NSString stringWithFormat:@"%@:%@:%@", attributes[NSFileSystemNumber],
@@ -558,6 +563,18 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
          [NSFileManager.defaultManager fileExistsAtPath:[destination stringByAppendingString:@".part"]])) {
         BOOL isRoot = [path isEqualToString:StringFromCString(tr_torrentView(torrent).name)];
         if (!isRoot || ![self removeRedundantCreatedRoot:destination source:source torrent:torrent]) {
+            if (isRoot && [self identityOfDirectory:destination]) {
+                NSDictionary *previous = self.renameConflicts[hashString];
+                BOOL sameConflict = [previous[@"destination"] isEqual:destination] && [previous[@"path"] isEqual:path] &&
+                    [previous[@"identity"] isEqual:[self identityOfDirectory:destination]] &&
+                    [previous[@"sourceIdentity"] isEqual:([self identityOfDirectory:source] ?: @"")];
+                self.renameConflicts[hashString] = @{
+                    @"token": sameConflict ? previous[@"token"] : NSUUID.UUID.UUIDString, @"destination": destination,
+                    @"name": name, @"path": path, @"identity": [self identityOfDirectory:destination],
+                    @"sourceIdentity": [self identityOfDirectory:source] ?: @""
+                };
+                [self.renameConflicts writeToFile:[self.configPath stringByAppendingPathComponent:@"rename-conflicts.plist"] atomically:YES];
+            }
             if (error) { *error = GlassError(EEXIST, [NSString stringWithFormat:
                 @"Could not rename “%@” to “%@”: the destination already exists. Glass could not prove it is a redundant folder it created for this torrent. Both folders were preserved; choose a different name or resolve the existing folder first.", path, name]); }
             return NO;
@@ -579,6 +596,42 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     // never held while Transmission performs its asynchronous filesystem rename.
     dispatch_semaphore_wait(finished, DISPATCH_TIME_FOREVER);
     if (renameError) { if (error) { *error = renameError; } return NO; }
+    [self.renameConflicts removeObjectForKey:hashString];
+    [self.renameConflicts writeToFile:[self.configPath stringByAppendingPathComponent:@"rename-conflicts.plist"] atomically:YES];
+    return YES;
+}
+
+- (BOOL)resolveRenameConflict:(NSString *)hashString token:(NSString *)token error:(NSError **)error
+{
+    NSDictionary *conflict = self.renameConflicts[hashString];
+    tr_torrent *torrent = [self torrentForHash:hashString error:error];
+    NSString *destination = conflict[@"destination"];
+    // A dialog authorizes this exact object, not whatever later occupies its path.
+    if (!torrent || ![conflict[@"token"] isEqual:token] ||
+        ![[self identityOfDirectory:destination] isEqual:conflict[@"identity"]] ||
+        ![StringFromCString(tr_torrentView(torrent).name) isEqual:conflict[@"path"]]) {
+        if (error) { *error = GlassError(EINVAL, @"The folder conflict changed. Review it again before deleting anything."); }
+        return NO;
+    }
+    NSString *source = [StringFromView(tr_torrentGetDownloadDir(torrent)) stringByAppendingPathComponent:conflict[@"path"]];
+    NSString *expected = [[source stringByDeletingLastPathComponent] stringByAppendingPathComponent:conflict[@"name"]];
+    NSString *sourceIdentity = [self identityOfDirectory:source];
+    BOOL newDownload = [conflict[@"sourceIdentity"] length] == 0 && !sourceIdentity && tr_torrentStat(torrent).downloaded_ever == 0;
+    if (![expected isEqual:destination] || (!newDownload && ![sourceIdentity isEqual:conflict[@"sourceIdentity"]]) ||
+        [sourceIdentity isEqual:conflict[@"identity"]]) {
+        if (error) { *error = GlassError(EINVAL, @"The download location changed. No folder was deleted."); }
+        return NO;
+    }
+    NSURL *trashed = nil;
+    if (![NSFileManager.defaultManager trashItemAtURL:[NSURL fileURLWithPath:destination] resultingItemURL:&trashed error:error]) { return NO; }
+    if (![self renameTorrent:hashString path:conflict[@"path"] name:conflict[@"name"] error:error]) {
+        // Restore the old folder when retrying the rename failed without creating
+        // a new destination. Never overwrite data during rollback.
+        if (![NSFileManager.defaultManager fileExistsAtPath:destination]) {
+            [NSFileManager.defaultManager moveItemAtURL:trashed toURL:[NSURL fileURLWithPath:destination] error:nil];
+        }
+        return NO;
+    }
     return YES;
 }
 
@@ -774,9 +827,36 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     return YES;
 }
 
+- (void)refreshRenameConflict:(tr_torrent *)torrent
+{
+    NSString *hash = StringFromCString(tr_torrentView(torrent).hash_string);
+    NSDictionary *conflict = self.renameConflicts[hash];
+    if (!conflict) { return; }
+    NSString *source = [StringFromView(tr_torrentGetDownloadDir(torrent)) stringByAppendingPathComponent:conflict[@"path"]];
+    NSString *sourceIdentity = [self identityOfDirectory:source];
+    BOOL newDownload = [conflict[@"sourceIdentity"] length] == 0 && !sourceIdentity && tr_torrentStat(torrent).downloaded_ever == 0;
+    if (![StringFromCString(tr_torrentView(torrent).name) isEqual:conflict[@"path"]] ||
+        (!newDownload && ![sourceIdentity isEqual:conflict[@"sourceIdentity"]])) { return; }
+    NSString *destination = conflict[@"destination"];
+    if (![NSFileManager.defaultManager fileExistsAtPath:destination]) {
+        // The user resolved the collision in Finder; finish the existing intent.
+        [self renameTorrent:hash path:conflict[@"path"] name:conflict[@"name"] error:nil];
+    } else {
+        NSString *identity = [self identityOfDirectory:destination];
+        if (identity && ![identity isEqual:conflict[@"identity"]]) {
+            NSMutableDictionary *updated = [conflict mutableCopy];
+            updated[@"identity"] = identity;
+            updated[@"token"] = NSUUID.UUID.UUIDString;
+            self.renameConflicts[hash] = updated;
+            [self.renameConflicts writeToFile:[self.configPath stringByAppendingPathComponent:@"rename-conflicts.plist"] atomically:YES];
+        }
+    }
+}
+
 - (NSDictionary *)dictionaryForTorrent:(tr_torrent *)torrent
 {
     [self reconcileDataLocation:torrent];
+    [self refreshRenameConflict:torrent];
     [self refreshPartialFileVisibility:torrent];
     tr_stat const stat = tr_torrentStat(torrent);
     tr_torrent_view const view = tr_torrentView(torrent);
@@ -785,7 +865,8 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         @"hashString": StringFromCString(view.hash_string),
         @"name": StringFromCString(view.name),
         @"status": @(stat.activity),
-        @"error": self.dataLocationErrors[StringFromCString(view.hash_string)] ? @3 : @(static_cast<int>(stat.error)),
+        @"renameConflict": self.renameConflicts[StringFromCString(view.hash_string)] ?: @{},
+        @"error": (self.renameConflicts[StringFromCString(view.hash_string)] || self.dataLocationErrors[StringFromCString(view.hash_string)]) ? @3 : @(static_cast<int>(stat.error)),
         @"errorString": self.dataLocationErrors[StringFromCString(view.hash_string)] ?: StringFromView(stat.error_string),
         @"percentDone": @(stat.percent_done),
         @"doneDate": @(stat.done_date),

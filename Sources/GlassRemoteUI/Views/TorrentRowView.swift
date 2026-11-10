@@ -430,7 +430,12 @@ struct TorrentRowView: View, Equatable {
 
     @ViewBuilder
     private var stateControl: some View {
-        if additionPhase == .failed {
+        if torrent.renameConflict != nil, let locateData {
+            Button(action: locateData) { stateImage }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Resolve folder conflict")
+                .help("A folder with this name already exists")
+        } else if additionPhase == .failed {
             Button {
                 commandTask = Task { _ = await toggleTransfer() }
             } label: {
@@ -513,12 +518,14 @@ struct TorrentRowView: View, Equatable {
     }
 
     private var stateSymbol: String {
+        if torrent.renameConflict != nil { return "questionmark" }
         if shareUnavailable { return locateData == nil ? "questionmark" : "exclamationmark.triangle" }
         if torrent.isCompleted { return "checkmark" }
         return (pendingRunning ?? torrent.canStopTransfer) ? "pause.fill" : "play.fill"
     }
 
     private var stateLabel: String {
+        if torrent.renameConflict != nil { return "Resolve folder conflict" }
         if additionPhase == .failed { return "Retry adding torrent" }
         if additionPhase == .queued { return "Queued torrent" }
         if isAdding { return "Adding torrent" }
@@ -554,6 +561,7 @@ private struct TorrentRowDisplayState: Equatable {
     let priority: Int
     let fileCount: Int?
     let unavailableReason: String?
+    let renameConflict: TorrentRenameConflict?
 
     init(_ torrent: TorrentSummary, shareUnavailable: Bool) {
         id = torrent.id
@@ -568,6 +576,7 @@ private struct TorrentRowDisplayState: Equatable {
         priority = torrent.bandwidthPriority ?? 0
         fileCount = torrent.fileCount
         unavailableReason = shareUnavailable ? torrent.errorString : nil
+        renameConflict = torrent.renameConflict
     }
 
     static func normalizedProgress(_ value: Double) -> Double {

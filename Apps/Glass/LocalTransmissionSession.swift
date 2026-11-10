@@ -203,6 +203,10 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         try ensureBridge().locateData(forTorrent: id, atFolder: folder)
     }
 
+    func resolveRenameConflict(id: String, token: String) async throws {
+        try ensureBridge().resolveRenameConflict(id, token: token)
+    }
+
     func renamePath(id: String, path: String, name: String) async throws {
         try ensureBridge().renameTorrent(id, path: path, name: name)
     }
@@ -367,7 +371,11 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
             fileCount: dictionary.optionalInt("fileCount"),
             error: dictionary.optionalInt("error"),
             errorString: dictionary.string("errorString"),
-            doneDate: dictionary.optionalInt("doneDate")
+            doneDate: dictionary.optionalInt("doneDate"),
+            renameConflict: (dictionary["renameConflict"] as? [String: String]).flatMap { value in
+                guard let token = value["token"], let destination = value["destination"], let name = value["name"] else { return nil }
+                return TorrentRenameConflict(token: token, destination: destination, name: name)
+            }
         )
     }
 
