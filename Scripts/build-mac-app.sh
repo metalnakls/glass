@@ -292,7 +292,20 @@ if [[ -f "$WORKER_PLIST" ]] &&
     DISABLED_JOBS="$(launchctl print-disabled "$WORKER_DOMAIN")"
     if ! grep -Eq '"tsmc\.glass\.downloads"[[:space:]]*=>[[:space:]]*(true|disabled)' <<< "$DISABLED_JOBS"; then
         launchctl bootout "$WORKER_DOMAIN/tsmc.glass.downloads" 2>/dev/null || true
-        launchctl bootstrap "$WORKER_DOMAIN" "$WORKER_PLIST"
+        # bootout returns before launchd has necessarily released the old job.
+        # Retry only this registration, not the build/install or app lifecycle.
+        WORKER_BOOTSTRAPPED=0
+        for attempt in 1 2 3 4 5; do
+            if launchctl bootstrap "$WORKER_DOMAIN" "$WORKER_PLIST"; then
+                WORKER_BOOTSTRAPPED=1
+                break
+            fi
+            sleep 1
+        done
+        if [[ "$WORKER_BOOTSTRAPPED" != 1 ]]; then
+            echo "Glass was installed, but its existing background worker could not be registered." >&2
+            exit 1
+        fi
     fi
 fi
 

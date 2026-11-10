@@ -103,6 +103,45 @@ int main(int argc, char **argv) {
         }
         assert([[bridge snapshotWithError:&error][@"torrents"][0][@"error"] intValue] == 0);
         [bridge close];
+        // A persisted creation receipt permits removal only of a proven
+        // redundant same-torrent destination. Never remove unique data.
+        NSURL *ownedPayload = [root URLByAppendingPathComponent:@"owned-payload"];
+        NSURL *ownedConfig = [root URLByAppendingPathComponent:@"owned-config"];
+        bridge = [[LocalTransmissionBridge alloc] initWithConfigDirectory:ownedConfig downloadDirectory:ownedPayload error:&error];
+        assert([bridge addTorrentData:metadata downloadDirectory:ownedPayload.path startPaused:YES error:&error]);
+        assert([bridge startTorrents:@[hash] error:&error]);
+        assert([bridge stopTorrents:@[hash] error:&error]);
+        [bridge close];
+        NSString *ownedSource = [ownedPayload.path stringByAppendingPathComponent:@"Album"];
+        NSString *ownedDuplicate = [ownedPayload.path stringByAppendingPathComponent:@"Duplicate"];
+        assert([NSFileManager.defaultManager moveItemAtPath:ownedSource toPath:ownedDuplicate error:&error]);
+        assert([NSFileManager.defaultManager createDirectoryAtPath:ownedSource withIntermediateDirectories:NO attributes:nil error:&error]);
+        NSData *sameBytes = [@"known torrent content" dataUsingEncoding:NSUTF8StringEncoding];
+        assert([sameBytes writeToFile:[ownedSource stringByAppendingPathComponent:@"middle.flac"] atomically:YES]);
+        assert([sameBytes writeToFile:[ownedDuplicate stringByAppendingPathComponent:@"middle.flac"] atomically:YES]);
+        bridge = [[LocalTransmissionBridge alloc] initWithConfigDirectory:ownedConfig downloadDirectory:ownedPayload error:&error];
+        // A file outside the torrent blocks automatic deletion.
+        NSString *foreign = [ownedDuplicate stringByAppendingPathComponent:@"personal.txt"];
+        assert([sameBytes writeToFile:foreign atomically:YES]);
+        error = nil;
+        assert(![bridge renameTorrent:hash path:@"Album" name:@"Duplicate" error:&error]);
+        assert([NSFileManager.defaultManager fileExistsAtPath:foreign]);
+        assert([NSFileManager.defaultManager removeItemAtPath:foreign error:nil]);
+        // Different partial bytes are also protected.
+        assert([[@"unique bytes" dataUsingEncoding:NSUTF8StringEncoding] writeToFile:[ownedDuplicate stringByAppendingPathComponent:@"middle.flac"] atomically:YES]);
+        error = nil;
+        assert(![bridge renameTorrent:hash path:@"Album" name:@"Duplicate" error:&error]);
+        assert([sameBytes writeToFile:[ownedDuplicate stringByAppendingPathComponent:@"middle.flac"] atomically:YES]);
+        NSString *linked = [ownedDuplicate stringByAppendingPathComponent:@"left.flac"];
+        assert([NSFileManager.defaultManager createSymbolicLinkAtPath:linked withDestinationPath:[ownedSource stringByAppendingPathComponent:@"middle.flac"] error:nil]);
+        error = nil;
+        assert(![bridge renameTorrent:hash path:@"Album" name:@"Duplicate" error:&error]);
+        assert([NSFileManager.defaultManager removeItemAtPath:linked error:nil]);
+        error = nil;
+        assert([bridge renameTorrent:hash path:@"Album" name:@"Duplicate" error:&error]);
+        assert(![NSFileManager.defaultManager fileExistsAtPath:ownedSource]);
+        assert([[NSData dataWithContentsOfFile:[ownedDuplicate stringByAppendingPathComponent:@"middle.flac"]] isEqual:sameBytes]);
+        [bridge close];
         puts("Real Transmission bridge: partial files, rename collisions, folder identity recovery, manual location, missing-folder safety, and paused/running restart passed");
     }
 }

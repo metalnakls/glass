@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <sys/stat.h>
 
 #include <libtransmission/error.h>
 #include <libtransmission/quark.h>
@@ -44,6 +45,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
 @property(nonatomic, copy) NSString *downloadPath;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *partialVisibilityStates;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSData *> *dataBookmarks;
+@property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *createdRoots;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSString *> *dataLocationErrors;
 @end
 
@@ -66,6 +68,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     NSString *bookmarksPath = [_configPath stringByAppendingPathComponent:@"data-bookmarks.plist"];
     _dataBookmarks = [[NSDictionary dictionaryWithContentsOfFile:bookmarksPath] mutableCopy] ?: [NSMutableDictionary dictionary];
     _dataLocationErrors = [NSMutableDictionary dictionary];
+    _createdRoots = [[NSDictionary dictionaryWithContentsOfFile:[_configPath stringByAppendingPathComponent:@"created-roots.plist"]] mutableCopy] ?: [NSMutableDictionary dictionary];
     NSFileManager *fileManager = NSFileManager.defaultManager;
     if (![fileManager createDirectoryAtURL:configDirectory withIntermediateDirectories:YES attributes:nil error:error]) {
         return nil;
@@ -116,7 +119,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     tr_sessionGetAllTorrents(_session, loaded.data(), count);
     for (tr_torrent *torrent : loaded) {
         NSString *hash = StringFromCString(tr_torrentView(torrent).hash_string);
-        if ([self reconcileDataLocation:torrent] && [runningHashes containsObject:hash]) { tr_torrentStart(torrent); }
+        if ([self reconcileDataLocation:torrent] && [runningHashes containsObject:hash] && [self prepareCreatedRoot:torrent error:nil]) { tr_torrentStart(torrent); }
     }
 
     return self;
@@ -313,6 +316,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
             if (error) { *error = GlassError(ENOENT, self.dataLocationErrors[hash]); }
             return NO;
         }
+        if (![self prepareCreatedRoot:torrent error:error]) { return NO; }
     }
     return [self applyToTorrents:hashes error:error action:^(tr_torrent *torrent) {
         tr_torrentStart(torrent);
@@ -451,6 +455,78 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     return YES;
 }
 
+// Receipt keys bind ownership to a filesystem object, not a reusable pathname.
+- (NSString *)identityOfDirectory:(NSString *)path
+{
+    NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+    if (![attributes[NSFileType] isEqual:NSFileTypeDirectory]) { return nil; }
+    return [NSString stringWithFormat:@"%@:%@:%@", attributes[NSFileSystemNumber],
+        attributes[NSFileSystemFileNumber], attributes[NSFileCreationDate]];
+}
+
+- (BOOL)prepareCreatedRoot:(tr_torrent *)torrent error:(NSError **)error
+{
+    if (tr_torrentFileCount(torrent) < 2) { return YES; }
+    NSString *root = [StringFromView(tr_torrentGetDownloadDir(torrent))
+        stringByAppendingPathComponent:StringFromCString(tr_torrentView(torrent).name)];
+    if ([NSFileManager.defaultManager fileExistsAtPath:root]) { return YES; }
+    // mkdir is exclusive: never claim a directory merely because it appeared
+    // while Transmission was running, or because its filenames look familiar.
+    if (mkdir(root.fileSystemRepresentation, 0755) != 0) {
+        if (error) { *error = GlassError(errno, @"The download folder could not be created."); }
+        return NO;
+    }
+    NSString *identity = [self identityOfDirectory:root];
+    if (!identity) { return NO; }
+    self.createdRoots[identity] = StringFromCString(tr_torrentView(torrent).hash_string);
+    if (![self.createdRoots writeToFile:[self.configPath stringByAppendingPathComponent:@"created-roots.plist"] atomically:YES]) {
+        [self.createdRoots removeObjectForKey:identity];
+        if (error) { *error = GlassError(EIO, @"The download folder ownership record could not be saved."); }
+        return NO;
+    }
+    return YES;
+}
+
+- (BOOL)removeRedundantCreatedRoot:(NSString *)destination source:(NSString *)source torrent:(tr_torrent *)torrent
+{
+    NSString *identity = [self identityOfDirectory:destination];
+    NSString *hash = StringFromCString(tr_torrentView(torrent).hash_string);
+    if (!identity || ![self.createdRoots[identity] isEqual:hash] || ![self identityOfDirectory:source]) { return NO; }
+    // Every destination file must belong to this torrent and have identical
+    // bytes in the selected source. Unknown files, symlinks and unique partial
+    // data are conflicts, even inside a directory Glass originally created.
+    NSMutableSet *allowed = [NSMutableSet set];
+    NSString *prefix = [StringFromCString(tr_torrentView(torrent).name) stringByAppendingString:@"/"];
+    for (tr_file_index_t i = 0; i < tr_torrentFileCount(torrent); ++i) {
+        NSString *name = StringFromCString(tr_torrentFile(torrent, i).name);
+        if ([name hasPrefix:prefix]) { [allowed addObject:[name substringFromIndex:prefix.length]]; }
+    }
+    NSArray *entries = [NSFileManager.defaultManager subpathsOfDirectoryAtPath:destination error:nil];
+    if (!entries) { return NO; }
+    for (NSString *relative in entries) {
+        NSString *path = [destination stringByAppendingPathComponent:relative];
+        NSDictionary *attributes = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil];
+        if ([attributes[NSFileType] isEqual:NSFileTypeDirectory]) {
+            BOOL expectedDirectory = NO;
+            for (NSString *file in allowed) { if ([file hasPrefix:[relative stringByAppendingString:@"/"]]) { expectedDirectory = YES; break; } }
+            if (!expectedDirectory) { return NO; }
+            continue;
+        }
+        if (![attributes[NSFileType] isEqual:NSFileTypeRegular]) { return NO; }
+        NSString *logical = [relative hasSuffix:@".part"] ? [relative substringToIndex:relative.length - 5] : relative;
+        if (![allowed containsObject:logical]) { return NO; }
+        NSString *other = [source stringByAppendingPathComponent:logical];
+        if (![NSFileManager.defaultManager fileExistsAtPath:other]) { other = [other stringByAppendingString:@".part"]; }
+        if (![[NSFileManager.defaultManager attributesOfItemAtPath:other error:nil][NSFileType] isEqual:NSFileTypeRegular] ||
+            ![NSFileManager.defaultManager contentsEqualAtPath:path andPath:other]) { return NO; }
+    }
+    if (![[self identityOfDirectory:destination] isEqual:identity]) { return NO; }
+    if (![NSFileManager.defaultManager removeItemAtPath:destination error:nil]) { return NO; }
+    [self.createdRoots removeObjectForKey:identity];
+    [self.createdRoots writeToFile:[self.configPath stringByAppendingPathComponent:@"created-roots.plist"] atomically:YES];
+    return YES;
+}
+
 - (BOOL)renameTorrent:(NSString *)hashString path:(NSString *)path name:(NSString *)name error:(NSError **)error
 {
     tr_torrent *torrent = [self torrentForHash:hashString error:error];
@@ -478,13 +554,14 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         [sourceAttributes[NSFileSystemFileNumber] isEqual:destinationAttributes[NSFileSystemFileNumber]];
     BOOL caseOnly = sameFile && [source caseInsensitiveCompare:destination] == NSOrderedSame;
     if (!caseOnly && ![source isEqualToString:destination] &&
-        ([NSFileManager.defaultManager fileExistsAtPath:source] ||
-         [NSFileManager.defaultManager fileExistsAtPath:[source stringByAppendingString:@".part"]] ||
-         tr_torrentStat(torrent).downloaded_ever > 0) &&
         ([NSFileManager.defaultManager fileExistsAtPath:destination] ||
          [NSFileManager.defaultManager fileExistsAtPath:[destination stringByAppendingString:@".part"]])) {
-        if (error) { *error = GlassError(EEXIST, @"A folder or file with that name already exists. Choose the existing download folder instead of renaming over it."); }
-        return NO;
+        BOOL isRoot = [path isEqualToString:StringFromCString(tr_torrentView(torrent).name)];
+        if (!isRoot || ![self removeRedundantCreatedRoot:destination source:source torrent:torrent]) {
+            if (error) { *error = GlassError(EEXIST, [NSString stringWithFormat:
+                @"Could not rename “%@” to “%@”: the destination already exists. Glass could not prove it is a redundant folder it created for this torrent. Both folders were preserved; choose a different name or resolve the existing folder first.", path, name]); }
+            return NO;
+        }
     }
     if (caseOnly && ![source isEqualToString:destination] &&
         rename(physicalSource.fileSystemRepresentation, physicalDestination.fileSystemRepresentation) != 0) {
@@ -552,7 +629,7 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
         return NO;
     }
     tr_ctor *ctor = tr_ctorNew(self.session);
-    tr_ctorSetPaused(ctor, TR_FORCE, startPaused);
+    tr_ctorSetPaused(ctor, TR_FORCE, true);
     if (downloadDirectory.length > 0) {
         tr_ctorSetDownloadDir(ctor, TR_FORCE, downloadDirectory.UTF8String);
     }
@@ -572,6 +649,10 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
             *error = GlassError(3, @"The torrent could not be added.");
         }
         return NO;
+    }
+    if (torrent && !startPaused) {
+        if (![self prepareCreatedRoot:torrent error:error]) { return NO; }
+        tr_torrentStart(torrent);
     }
     return YES;
 }

@@ -27,6 +27,7 @@ private enum GlassEntryPoint {
             return
         }
         #if DEBUG
+        if runLocalRootRenameCommand() { return }
         if runLocalDataLocationCommand() { return }
         if runCachedDownloadInspection() { return }
         if runSeasonNamingCommand() { return }
@@ -40,6 +41,34 @@ private enum GlassEntryPoint {
 /// Queue writes require the UI process to be closed so its in-memory queue
 /// cannot overwrite the saved request.
 extension GlassEntryPoint {
+    @MainActor static func runLocalRootRenameCommand() -> Bool {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--rename-local-root") else { return false }
+        guard args.indices.contains(index + 2) else { print("Supply the torrent hash and desired folder name."); exit(64) }
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass").contains(where: {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+        }) else { print("Close Glass before repairing the local folder name."); exit(1) }
+        let application = NSApplication.shared
+        application.setActivationPolicy(.prohibited)
+        Task {
+            do {
+                let session = try LocalTransmissionSession()
+                do {
+                    let details = try await session.fetchTorrentDetails(hashString: args[index + 1])
+                    try await session.renamePath(id: args[index + 1], path: details.name, name: args[index + 2])
+                    print("Renamed download folder to \(args[index + 2]).")
+                    await session.shutdown()
+                    exit(0)
+                } catch {
+                    await session.shutdown()
+                    throw error
+                }
+            } catch { print(error.localizedDescription); exit(1) }
+        }
+        application.run()
+        return true
+    }
+
     @MainActor static func runLocalDataLocationCommand() -> Bool {
         let args = CommandLine.arguments
         guard let index = args.firstIndex(of: "--locate-local-data") else { return false }

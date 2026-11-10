@@ -7,6 +7,26 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("local display aliases still rename the physical download")
+    func localAliasRenamesPhysicalFolder() async throws {
+        let local = StubLocalTransmissionSession()
+        let store = MemoryProfileStore(profiles: [])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            rpcClientFactory: StubRPCClientFactory().make(config:), localSessionFactory: { local })
+        try store.saveTorrentDisplayNames([TorrentRecord.identity(sourceID: model.localSourceID, hashString: "local-hash"):
+            .init(rootName: "Local", displayName: "Pretty Name")])
+        // Load the alias through the same persisted path as a restarted app.
+        let restarted = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            rpcClientFactory: StubRPCClientFactory().make(config:), localSessionFactory: { local })
+        await restarted.refresh(sourceID: restarted.localSourceID)
+        let record = try #require(restarted.allTorrentRecords.first)
+        #expect(record.displayName == "Pretty Name")
+        _ = await restarted.rename(record.summary, to: "New Folder", sourceID: restarted.localSourceID)
+        #expect(await local.renamedPaths == [.init(path: "Local", name: "New Folder")])
+        _ = await restarted.locateData(record.summary, at: "/Users/me/Downloads/Located Folder", sourceID: restarted.localSourceID)
+        #expect(await local.renamedPaths.last == .init(path: "Located Folder", name: "Pretty Name"))
+    }
+
     @Test("repeated preparation cannot acknowledge a queue that was never saved")
     func repeatedPreparationRequiresDurability() throws {
         let profile = makeProfile(), store = MemoryProfileStore(profiles: [makeProfile()])
@@ -2078,6 +2098,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private(set) var renamedPaths: [TorrentPathRename] = []
     private(set) var addTorrentFileCount = 0
     private(set) var movedData: [String: String] = [:]
+    func locateData(id: String, at folder: String) async throws {}
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         fetchSnapshotCount += 1

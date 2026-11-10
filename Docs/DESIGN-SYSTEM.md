@@ -319,4 +319,11 @@ interrupted switching and live drag/rename remain unverified until that review.
   seasons cannot reappear from the inspector cache. File-section demand made while
   core details are loading must be fulfilled without another selection click.
 - Local multi-file storage errors expose a native folder picker from the state
-  button. Choosing existing data rechecks pieces and does not merge/delete folders.
+  button. Choosing existing data rechecks pieces, then restores the requested
+  folder name. Local display aliases must not bypass physical renaming.
+- A folder-name conflict is resolved automatically only when a saved creation
+  receipt identifies the destination as Glass-created for the same torrent and
+  every file is duplicated byte-for-byte in the selected source. Unknown files,
+  symlinks, unique partial bytes, or missing ownership evidence preserve both
+  folders and produce an explicit conflict message. Old folders are never claimed
+  retrospectively merely because their names or file inventories match.

@@ -1865,9 +1865,14 @@ public final class RemoteAppModel {
 
     @discardableResult
     public func locateData(_ torrent: TorrentSummary, at folder: String, sourceID: UUID) async -> Bool {
-        await performProviderAction(sourceID: sourceID, detailHash: torrent.hashString,
+        let desiredName = sourceState(for: sourceID).records.first(where: { $0.hashString == torrent.hashString })?.displayName ?? torrent.name
+        return await performProviderAction(sourceID: sourceID, detailHash: torrent.hashString,
             reloadCoreDetails: true, detailSections: [.files]) { provider in
                 try await provider.locateData(id: torrent.hashString, at: folder)
+                let locatedName = URL(fileURLWithPath: folder).lastPathComponent
+                if locatedName != desiredName {
+                    try await provider.renamePath(id: torrent.hashString, path: locatedName, name: desiredName)
+                }
             }
     }
 
@@ -1878,7 +1883,8 @@ public final class RemoteAppModel {
         guard !trimmedName.isEmpty else { return false }
         guard trimmedName != torrent.name else { return true }
 
-        if let record = sourceState(for: sourceID).records.first(where: { $0.hashString == torrent.hashString }),
+        if sourceID != localSourceID,
+           let record = sourceState(for: sourceID).records.first(where: { $0.hashString == torrent.hashString }),
            record.displayName != nil {
             let previous = torrentDisplayNames[record.id]
             let storedName = TorrentStoredDisplayName(rootName: record.summary.name, displayName: trimmedName)
