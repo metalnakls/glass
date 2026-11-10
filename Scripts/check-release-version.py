@@ -15,7 +15,7 @@ def git(root, *args):
 
 
 def number(value):
-    if not re.fullmatch(r'[0-9]+(?:\.[0-9]+)+', value):
+    if not re.fullmatch(r'[0-9]+(?:\.[0-9]+)*', value):
         raise ValueError(f'Invalid release version: {value!r}')
     return tuple(map(int, value.split('.')))
 
