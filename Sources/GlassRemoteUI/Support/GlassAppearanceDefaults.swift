@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import UniformTypeIdentifiers
 
 @MainActor
 public enum GlassAppearanceDefaults {
@@ -82,7 +83,10 @@ public enum GlassAppearanceDefaults {
         panel.message = glassText("Save this file in the project Resources folder. Publish this file with Scripts/push-tunes to update appearance without an app release.")
         panel.directoryURL = source.deletingLastPathComponent()
         panel.nameFieldStringValue = source.lastPathComponent
+        panel.allowedContentTypes = [.json]
+        panel.allowsOtherFileTypes = false
         guard panel.runModal() == .OK, let url = panel.url else { return false }
+        guard url.pathExtension.lowercased() == "json" else { throw CocoaError(.fileWriteInvalidFileName) }
         if let window = NSApp.windows.first(where: { $0.title == "Glass" && $0.sheetParent == nil }) {
             let size = window.contentLayoutRect.size
             UserDefaults.standard.set(size.width, forKey: "GlassWindow.defaultWidth")
