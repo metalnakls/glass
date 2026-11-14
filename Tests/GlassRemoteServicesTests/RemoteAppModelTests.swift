@@ -400,6 +400,37 @@ struct RemoteAppModelTests {
         #expect(model.errorMessage != nil)
     }
 
+    @Test("offline Stall is durable, deduplicated, and has no modal error")
+    func offlineStallIsRetained() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let store = MemoryProfileStore(profiles: [profile])
+        let disposer = RecordingTorrentSourceFileDisposer()
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            torrentSourceFileDisposer: disposer, rpcClientFactory: { _ in client })
+        await client.setAddTorrentError(URLError(.cannotConnectToHost))
+        await client.setFetchTorrentsError(URLError(.cannotConnectToHost))
+        let data = Data("d4:infod4:name4:Filmee".utf8)
+        let source = URL(fileURLWithPath: "/tmp/offline-stall.torrent")
+        for id in [UUID(), UUID()] {
+            #expect(model.prepareTorrentAddition(id: id, sourceID: profile.id, name: "Film", size: 100,
+                fileCount: 1, downloadDirectory: "/movies", namingPlan: nil, data: data,
+                sourceURL: source, trashSourceOnSuccess: true, startPaused: true))
+            #expect(await model.addTorrentFile(data, downloadDirectory: "/movies", sourceID: profile.id, pendingAdditionID: id))
+        }
+        #expect(model.errorMessage == nil)
+        #expect(model.allTorrentRecords.count == 1)
+        #expect(model.allTorrentRecords.first?.additionStartPaused == true)
+        #expect(try store.loadTorrentAddQueue().first?.data == data)
+        #expect(!disposer.trashedURLs.isEmpty)
+        await client.setAddTorrentError(nil)
+        await client.setFetchTorrentsError(nil)
+        await model.refresh(sourceID: profile.id)
+        for _ in 0..<100 where !(try store.loadTorrentAddQueue().isEmpty) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(try store.loadTorrentAddQueue().isEmpty)
+    }
+
     @Test("failed queue preserves complete submissions across relaunch")
     func failedQueueSurvivesRelaunch() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -422,20 +453,20 @@ struct RemoteAppModelTests {
         }
         #expect(!(await model.retryTorrentAddition(id)))
         let restored = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"), rpcClientFactory: factory.make(config:))
-        #expect(restored.allTorrentRecords.count == 2)
+        #expect(restored.allTorrentRecords.count == 1)
         #expect(restored.allTorrentRecords.allSatisfy { $0.additionPhase == .failed })
         let saved = try store.loadTorrentAddQueue()
-        #expect(saved.count == 2)
+        #expect(saved.count == 1)
         #expect(saved[0].data == data)
         #expect(saved[0].fileSelection == selection)
         #expect(saved[0].namingPlan == plan)
         #expect(saved[0].sourceID == profile.id)
         #expect(saved[0].downloadDirectory == "/nas/movies")
         #expect(!(await restored.retryTorrentAddition(id)))
-        #expect(restored.allTorrentRecords.filter { $0.isAdding }.count == 2)
+        #expect(restored.allTorrentRecords.filter { $0.isAdding }.count == 1)
         await client.setAddTorrentError(nil)
         #expect(await restored.retryTorrentAddition(id))
-        #expect(try store.loadTorrentAddQueue().map(\.id) == [next])
+        #expect(try store.loadTorrentAddQueue().isEmpty)
         #expect(await client.addedFiles.last?.data == data)
         #expect(await client.addedFiles.last?.selection == selection)
     }

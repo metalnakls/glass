@@ -120,7 +120,8 @@ struct TorrentListSection: Identifiable {
     }
 
     private static func isPausedAtZero(_ record: TorrentRecord) -> Bool {
-        !record.isAdding && record.isUnfinished && record.summary.percentDone == 0 && !record.summary.isRunningOrQueued
+        if record.isAdding { return record.additionStartPaused }
+        return record.isUnfinished && record.summary.percentDone == 0 && !record.summary.isRunningOrQueued
     }
 }
 

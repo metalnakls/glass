@@ -48,6 +48,7 @@ public final class TorrentRecord: Identifiable {
     public private(set) var additionPhase: TorrentAdditionPhase?
     public private(set) var additionError: String?
     public private(set) var additionAccepted = false
+    public private(set) var additionStartPaused = false
     public private(set) var summary: TorrentSummary
     public private(set) var status: Int
     public private(set) var name: String
@@ -73,10 +74,11 @@ public final class TorrentRecord: Identifiable {
         isUnfinished = summary.isUnfinished
     }
 
-    func updateAddition(phase: TorrentAdditionPhase, error: String?, accepted: Bool = false) {
+    func updateAddition(phase: TorrentAdditionPhase, error: String?, accepted: Bool = false, startPaused: Bool = false) {
         additionPhase = phase
         additionError = error
         additionAccepted = accepted
+        additionStartPaused = startPaused
     }
 
     public static func identity(sourceID: UUID, hashString: String, torrentID: Int = 0) -> String {
@@ -137,6 +139,8 @@ public final class RemoteAppModel {
         var id: UUID { entry.id }
     }
     private var pendingAdditions: [PendingAddition] = []
+    private var additionAliases: [UUID: UUID] = [:]
+    private var lastOfflineRetry: [UUID: Date] = [:]
     /// Accepted Add queue identities remain available until the UI has removed
     /// their matching recovery drafts. The UUID is the draft item's identity.
     public private(set) var acceptedAdditionIDs: Set<UUID> = []
@@ -174,6 +178,16 @@ public final class RemoteAppModel {
                                       sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
                                       renameDuplicateRoot: Bool = false, startPaused: Bool = false) -> Bool {
         guard !discardedAdditionIDs.contains(id) else { return false }
+        let hashes = data.map(TorrentMetainfoIdentity.hashes(in:)) ?? []
+        if let existing = pendingAdditions.first(where: {
+            $0.entry.sourceID == sourceID && $0.entry.fileNameRepair != true &&
+            !$0.expectedHashes.isDisjoint(with: hashes)
+        }), existing.id != id {
+            do { try persistAddQueue() } catch { errorMessage = error.localizedDescription; return false }
+            additionAliases[id] = existing.id
+            if trashSourceOnSuccess { torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL, matching: data) }
+            return true
+        }
         if pendingAdditions.contains(where: { $0.id == id }) {
             // A previous preparation may still exist only in memory after a
             // failed save. The draft cannot hand off ownership until it is durable.
@@ -192,8 +206,11 @@ public final class RemoteAppModel {
             expectedHashes.contains($0.hashString.lowercased())
         }
         appendAddition(entry)
-        do { try persistAddQueue(); return true }
-        catch { failAddition(id, error: error); return false }
+        do {
+            try persistAddQueue()
+            if startPaused && trashSourceOnSuccess { torrentSourceFileDisposer.trashTorrentFileIfNeeded(sourceURL, matching: data) }
+            return true
+        } catch { failAddition(id, error: error); return false }
     }
 
     /// Resolve once before submission, against this source's existing and queued
@@ -243,7 +260,7 @@ public final class RemoteAppModel {
         let record = TorrentRecord(summary, sourceID: entry.sourceID,
             displayName: entry.namingPlan?.displayName, season: entry.namingPlan?.season,
             isAdding: true, additionID: entry.id)
-        record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil)
+        record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil, startPaused: entry.startPaused == true)
         pendingAdditions.append(PendingAddition(entry: entry, record: record, expectedHashes: entry.expectedHashes))
         pendingAdditionRevision &+= 1
     }
@@ -254,6 +271,8 @@ public final class RemoteAppModel {
                 guard !pendingAdditions.contains(where: { $0.id == entry.id }) else { continue }
                 if entry.fileNameRepair == true {
                     entry.phase = .queued
+                } else if entry.startPaused == true && entry.phase == .queued {
+                    entry.error = nil
                 } else if entry.phase != .failed {
                     entry.phase = .failed
                     entry.error = "The previous add was interrupted. Retry to finish it."
@@ -279,7 +298,7 @@ public final class RemoteAppModel {
         change(&pendingAdditions[index].entry)
         let entry = pendingAdditions[index].entry
         if !hadReceipt, entry.receipt != nil { acceptedAdditionIDs.insert(id) }
-        pendingAdditions[index].record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil)
+        pendingAdditions[index].record.updateAddition(phase: entry.phase, error: entry.error, accepted: entry.receipt != nil, startPaused: entry.startPaused == true)
     }
 
     /// Called after the corresponding persisted Add draft item has been removed.
@@ -746,6 +765,13 @@ public final class RemoteAppModel {
             // `mergedTorrents` retains full-poll server order. Cache the
             // reconciled source records so a stale poll cannot undo local order.
             updateTorrentCache(state.records.map(\.summary), for: sourceID)
+            for pending in pendingAdditions where pending.entry.sourceID == sourceID &&
+                pending.entry.startPaused == true && pending.entry.dataRequeue == nil &&
+                pending.entry.fileNameRepair != true && additionTasks[pending.id] == nil &&
+                Date().timeIntervalSince(lastOfflineRetry[pending.id] ?? .distantPast) >= 30 {
+                lastOfflineRetry[pending.id] = Date()
+                Task { _ = await retryTorrentAddition(pending.id) }
+            }
             yinaEpisodePublisher?(sourceID, state.records, sourceID == localSourceID, nil)
             await refreshVisibleTorrentDetailsAfterListRefresh(sourceID: sourceID, provider: provider)
         } catch {
@@ -928,7 +954,8 @@ public final class RemoteAppModel {
         sourceID: UUID? = nil, sourceURL: URL? = nil, trashSourceOnSuccess: Bool = false,
         pendingAdditionID: UUID? = nil, onSuccess: ((TorrentAddResult?) -> Void)? = nil
     ) async -> Bool {
-        let id = pendingAdditionID ?? UUID()
+        let requestedID = pendingAdditionID ?? UUID()
+        var id = additionAliases[requestedID] ?? requestedID
         let sourceID = sourceID ?? selectedSourceID
         let plan = namingPlan ?? torrentName.map { TorrentAddNamingPlan(rootName: $0, pathRenames: []) }
         if !pendingAdditions.contains(where: { $0.id == id }) {
@@ -947,15 +974,18 @@ public final class RemoteAppModel {
             pendingAdditions[index] = PendingAddition(entry: entry, record: pendingAdditions[index].record,
                                                       expectedHashes: entry.expectedHashes)
         }
+        id = additionAliases[id] ?? id
         let succeeded = await retryTorrentAddition(id)
+        let retainedStall = pendingAdditions.first { $0.id == id }.map { $0.entry.startPaused == true && $0.entry.data != nil } ?? false
         if succeeded { onSuccess?(additionResults.removeValue(forKey: id)) }
-        else { errorMessage = pendingAdditions.first { $0.id == id }?.entry.error }
-        return succeeded
+        else if !retainedStall { errorMessage = pendingAdditions.first { $0.id == id }?.entry.error }
+        return succeeded || retainedStall
     }
 
     /// Model-owned, serialized work survives modal dismissal and duplicate clicks.
     @discardableResult
-    public func retryTorrentAddition(_ id: UUID) async -> Bool {
+    public func retryTorrentAddition(_ requestedID: UUID) async -> Bool {
+        let id = additionAliases[requestedID] ?? requestedID
         guard !discardedAdditionIDs.contains(id) else { return false }
         if let running = additionTasks[id] { return await running.value }
         guard pendingAdditions.contains(where: { $0.id == id }) else { return true }
@@ -1604,16 +1634,6 @@ public final class RemoteAppModel {
         }
     }
 
-    @discardableResult
-    public func remove(_ torrent: TorrentSummary, deleteData: Bool) async -> Bool {
-        await remove([torrent], deleteData: deleteData)
-    }
-
-    @discardableResult
-    public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async -> Bool {
-        await remove(torrents, deleteData: deleteData, sourceID: selectedSourceID)
-    }
-
     /// Saves a complete replacement before sending any destructive request.
     @discardableResult
     public func deleteDataAndQueue(_ torrents: [TorrentSummary], sourceID: UUID) async -> Bool {
@@ -1707,6 +1727,16 @@ public final class RemoteAppModel {
             try await Task.sleep(for: .milliseconds(200))
         }
         throw RequeueError("Transmission has not confirmed removal. Retry to check it; Glass will not repeat the deletion.")
+    }
+
+    @discardableResult
+    public func remove(_ torrent: TorrentSummary, deleteData: Bool) async -> Bool {
+        await remove([torrent], deleteData: deleteData)
+    }
+
+    @discardableResult
+    public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async -> Bool {
+        await remove(torrents, deleteData: deleteData, sourceID: selectedSourceID)
     }
 
     @discardableResult
