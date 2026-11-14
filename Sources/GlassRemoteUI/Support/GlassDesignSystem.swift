@@ -137,7 +137,7 @@ struct GlassAddHeader<Title: View, Location: View>: View {
 }
 
 enum GlassAddMetrics {
-    // Includes the native pill plus its free-space caption.
+    // Preserves the established title band; the location now lives in the dock.
     static let headerHeight: CGFloat = 58
     // Tune stores the former 20 pt baseline; native dock padding now owns it.
     static let legacyPadding: CGFloat = 20

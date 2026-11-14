@@ -33,6 +33,7 @@ public enum GlassAppearanceDefaults {
         "GlassAdd.showIcon": true,
         "GlassAdd.titleTopPadding": 20.0,
         "GlassAdd.titleLeftPadding": 20.0,
+        "GlassAdd.actionLayout": "wide",
         "GlassAdd.locationColumns": 3,
         "GlassAdd.recentLocations": 4,
         "GlassList.roundedSizes": true,

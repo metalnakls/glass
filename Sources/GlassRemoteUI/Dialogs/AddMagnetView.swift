@@ -56,6 +56,11 @@ struct AddMagnetView: View {
     private var title: String {
         URLComponents(string: magnet)?.queryItems?.first { $0.name == "dn" }?.value ?? glassText("New Torrent")
     }
+    private var prefersMacDownloads: Bool {
+        TorrentDownloadDirectoryPolicy.prefersMacDownloads(
+            fileNames: [TorrentAddDraft.magnetDisplayName(magnet) ?? title]
+        )
+    }
 
     var body: some View {
         Group {
@@ -92,21 +97,20 @@ struct AddMagnetView: View {
                         Text(title).font(.title.bold()).lineLimit(1)
                             .frame(height: GlassControlMetrics.height, alignment: .leading)
                     } location: {
-                        TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
-                            sourceID: destination, directory: $downloadDirectory,
-                            defaultDirectory: $defaultDownloadDirectory, errorMessage: $errorMessage,
-                            isDisabled: false,
-                            prefersMacDownloads: TorrentDownloadDirectoryPolicy.prefersMacDownloads(
-                                fileNames: [TorrentAddDraft.magnetDisplayName(magnet) ?? title]
-                            ))
+                        EmptyView()
                     }
                 } dock: {
                     HStack {
                         GlassPillButton(iconOnly: true) { cancelImport() } label: { Image(systemName: "xmark") }
                             .accessibilityLabel(glassText("Cancel")).keyboardShortcut(.cancelAction)
                         Spacer()
-                        GlassPillButton { addWhileLoading() } label: { Text(glassText("Add")) }
-                            .disabled(link == nil).keyboardShortcut(.defaultAction)
+                        GlassAddActionControl(model: model, platformIntegration: platformIntegration,
+                            sourceID: destination, directory: $downloadDirectory,
+                            defaultDirectory: $defaultDownloadDirectory, errorMessage: $errorMessage,
+                            title: "Add", isEnabled: link != nil,
+                            prefersMacDownloads: prefersMacDownloads) {
+                            addWhileLoading()
+                        }
                     }
                 }
             }

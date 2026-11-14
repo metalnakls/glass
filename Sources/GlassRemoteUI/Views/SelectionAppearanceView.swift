@@ -32,6 +32,7 @@ public struct SelectionAppearanceView: View {
     @AppearanceStorage("GlassAdd.titleLeftPadding") private var addTitleLeftPadding = 20.0
     @AppearanceStorage("GlassAdd.locationColumns") private var locationColumns = 3
     @AppearanceStorage("GlassAdd.recentLocations") private var recentLocations = 4
+    @AppearanceStorage("GlassAdd.actionLayout") private var addActionLayout = GlassAddActionLayout.wide.rawValue
     @AppearanceStorage("GlassHaptics.enabled") private var hapticsEnabled = true
     @AppearanceStorage("GlassHaptics.playPause") private var stateHaptics = true
     @AppearanceStorage("GlassHaptics.swipe") private var swipeHaptics = true
@@ -298,6 +299,18 @@ public struct SelectionAppearanceView: View {
                 GlassTuningSlider("Line width", value: $progressLineWidth, range: 0.5...5)
             }
         case .add:
+            VStack(alignment: .leading, spacing: 12) {
+                Text(glassText("Action and location")).font(.subheadline.weight(.semibold))
+                Picker(glassText("Layout"), selection: $addActionLayout) {
+                    ForEach(GlassAddActionLayout.allCases) { layout in
+                        Text(glassText(layout.title)).tag(layout.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+                Text(glassText("The trailing arrow changes the download location."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Divider()
             Toggle(glassText("Torrent icon"), isOn: $addIcon)
             GlassTuningSlider("Title top padding", value: $addTitleTopPadding, range: 0...80)
             GlassTuningSlider("Title left padding", value: $addTitleLeftPadding, range: 0...80)

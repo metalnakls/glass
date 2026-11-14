@@ -232,28 +232,22 @@ struct AddTorrentBatchView: View {
                 GlassSearchPill(text: $fileSearchText, isPresented: $searchPresented, expandedWidth: 220)
             }
             Spacer(minLength: 12)
-            GlassPillButton {
+            GlassAddActionControl(model: model, platformIntegration: platformIntegration,
+                sourceID: chosenSource, directory: $downloadDirectory,
+                defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
+                title: startsPaused ? "Stall" : "Add",
+                isEnabled: canAdd, isLocationDisabled: isAdding,
+                prefersMacDownloads: prefersMacDownloads) {
                 disableSmartNamesForAdd = NSEvent.modifierFlags.contains(.option)
                 commandHeld = NSEvent.modifierFlags.contains(.command)
                 Task { await addAll() }
-            } label: {
-                Text(glassText(startsPaused ? "Stall" : "Add"))
-                    .id(startsPaused).transition(.blurReplace)
-            }.keyboardShortcut(.defaultAction).disabled(!canAdd)
-                .glassMotion(.control, value: startsPaused)
+            }
         }
     }
 
 
     private func header(for group: TorrentBatchGroup) -> some View {
         let showsIcon = showsTitleIcon && hasMultipleFiles(in: group)
-        let locationPicker = TorrentDownloadLocationPicker(model: model, platformIntegration: platformIntegration,
-            sourceID: chosenSource, directory: $downloadDirectory,
-            defaultDirectory: $defaultDownloadDirectory, errorMessage: $addErrorMessage,
-            isDisabled: isAdding,
-            prefersMacDownloads: TorrentDownloadDirectoryPolicy.prefersMacDownloads(
-                fileNames: items.flatMap { $0.draft.preview.files.map(\.name) }
-            ))
         return GlassAddHeader {
             GeometryReader { geometry in
                 ScrollView(.horizontal) {
@@ -271,7 +265,7 @@ struct AddTorrentBatchView: View {
                 .scrollIndicators(.hidden)
             }
             .frame(height: InspectorGlassPill.height, alignment: .leading)
-        } location: { locationPicker }
+        } location: { EmptyView() }
     }
 
     private func titleWidth(for group: TorrentBatchGroup, available: CGFloat, showsIcon: Bool) -> CGFloat {
@@ -387,6 +381,12 @@ struct AddTorrentBatchView: View {
         !isAdding && namingReady
             && (groups.first(where: { $0.id == selectedGroupID }).map { !needsSeriesDirectory($0) } ?? true || resolvedBaseDownloadDirectory != nil)
             && (groups.first(where: { $0.id == selectedGroupID })?.itemIndices.allSatisfy { items[$0].canAdd } ?? false)
+    }
+
+    private var prefersMacDownloads: Bool {
+        TorrentDownloadDirectoryPolicy.prefersMacDownloads(
+            fileNames: items.flatMap { $0.draft.preview.files.map(\.name) }
+        )
     }
 
     private func needsSeriesDirectory(_ group: TorrentBatchGroup) -> Bool {

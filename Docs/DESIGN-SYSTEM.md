@@ -29,7 +29,7 @@ Add variants only for real callers.
 | Search | `GlassSearchPill` | expandable, always expanded; available-width or constrained | Height, glyph slots, focus, clearing, Escape, transition |
 | Choice picker | `GlassMorphingPicker`, `GlassPickerChoice` | section list, destination choices | Glass morph, dismissal, native row spacing, symbol column, keyboard behavior |
 | Floating controls | `GlassFloatingDock`, `glassFloatingChrome` | top, bottom, both | Outer placement, safe areas, input pass-through, scroll indicators |
-| Add presentation | `GlassAddCard`, `GlassAddHeader`, `GlassModalMetrics` | resolving, ready, failure; one or multiple imports | Stable dimensions, title/location/dock structure across states |
+| Add presentation | `GlassAddCard`, `GlassAddHeader`, `GlassAddActionControl`, `GlassModalMetrics` | resolving, ready, failure; one or multiple imports; side-by-side, wide, two-line action | Stable dimensions, title/dock structure, action and location ownership across states |
 | File browser | `TorrentFilesBrowser`, `TorrentFileRowLabel`, file-list layout support | inspector, add selection | Columns, insets, separators, file interaction, context-specific progress |
 | Torrent rows | `TorrentListView`, `TorrentRowView`, `TorrentDraftRow`, `TorrentListRowChrome`, `TorrentListLayout` | existing densities; single/group, selected/unselected, pending/active/completed | Shared row geometry and native separator policy |
 | Section titles | `TorrentStickyHeaders`, `StickyTitleLabel` | inline, pinned, outgoing; short/long section; large scroll jump | Measured position, pin inset, two-item release gap, visible current title and direct handoff |
