@@ -171,6 +171,7 @@ final class TorrentListElevationController: NSObject {
 
     func attach(_ table: NSTableView) {
         guard self.table !== table, let scroll = table.enclosingScrollView else { return }
+        GlassNativeScrollerStyle.apply(to: scroll)
         detach()
         self.table = table
         tableAttached?(table)

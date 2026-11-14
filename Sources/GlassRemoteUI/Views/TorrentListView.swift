@@ -178,6 +178,7 @@ struct TorrentListView: View {
                             }
                         }
                     }
+                    .glassNativeScrollerStyle()
                 }.background(listSurface)
                 .coordinateSpace(name: TorrentGridHeaderMaterial.coordinateSpace)
                 .onScrollGeometryChange(for: Bool.self) { geometry in

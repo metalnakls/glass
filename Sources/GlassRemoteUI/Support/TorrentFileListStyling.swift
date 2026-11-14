@@ -28,6 +28,7 @@ struct TorrentFileListStyling: NSViewRepresentable {
                 if let table = view as? NSTableView {
                     self.table = table
                     GlassContentMargins.prepare(table)
+                    if let scroll = table.enclosingScrollView { GlassNativeScrollerStyle.apply(to: scroll) }
                     table.selectionHighlightStyle = nativeHighlight ? .regular : .none
                     table.focusRingType = .none
                     if window != nil && monitor == nil {

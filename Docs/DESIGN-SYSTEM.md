@@ -86,6 +86,10 @@ arbitrary delay or unrelated state toggle is not a permanent invalidation fix.
   Expanded search fills available width. Location text truncates only when its
   available space is exhausted. Season headers, filenames and sizes use shared
   columns; sizes remain readable.
+- The Add action always imports. Only its trailing arrow changes the destination,
+  and the selected location stays visible in every Tune layout.
+- Scrollbars stay AppKit scrollers in their overlay style with native tracking;
+  do not draw a replacement indicator.
 - Tune uses the shared picker, native row spacing, aligned symbol slots and full
   row targets. Bottom test/reset/save actions remain icons on one row.
 - Location and Tune pickers share their glass transition and typography. Discuss
