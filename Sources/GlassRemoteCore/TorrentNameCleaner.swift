@@ -196,6 +196,7 @@ public enum TorrentNameCleaner {
             cleanedStem = releaseTitle(from: stem, removingTokens: removingTokens)
         }
 
+        guard !cleanedStem.isEmpty else { return fileName }
         guard !fileExtension.isEmpty else { return cleanedStem }
         return "\(cleanedStem).\(fileExtension)"
     }
@@ -281,7 +282,8 @@ public enum TorrentNameCleaner {
         for token in tokens {
             let trimmed = token.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
             guard !trimmed.isEmpty else { continue }
-            if isReleaseNoise(trimmed, removingTokens: removingTokens) {
+            let numericTitle = kept.isEmpty && trimmed.range(of: #"^(19|20)\d{2}$"#, options: .regularExpression) != nil
+            if !numericTitle && isReleaseNoise(trimmed, removingTokens: removingTokens) {
                 break
             }
             kept.append(trimmed)

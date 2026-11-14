@@ -255,7 +255,7 @@ private actor GlassBackgroundWorker {
             let safeTitle = String(displayTitle.replacingOccurrences(of: "/", with: "-")
                 .replacingOccurrences(of: ":", with: "-").prefix(180))
                 .trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !safeTitle.isEmpty, safeTitle != ".", safeTitle != ".." else { continue }
+            guard !safeTitle.isEmpty, !safeTitle.hasPrefix(".") else { continue }
             var target = downloads.appendingPathComponent(safeTitle).appendingPathExtension("torrent")
             var copy = 1
             while target != url && FileManager.default.fileExists(atPath: target.path) {
