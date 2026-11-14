@@ -30,6 +30,7 @@ public struct TorrentAddQueueEntry: Codable, Sendable {
     /// Existing-transfer operation. Its receipt is the target identity, never an add.
     public var fileNameRepair: Bool?
     public var startPaused: Bool?
+    public var dataRequeue: TorrentDataRequeue?
 
     public init(id: UUID, sourceID: UUID, name: String, size: UInt64, fileCount: Int,
                 data: Data? = nil, magnet: String? = nil, downloadDirectory: String?,

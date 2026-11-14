@@ -34,11 +34,17 @@ import SwiftUI
 struct TorrentRemovalActions: View {
     var kind: TorrentSwipeRowKind = .torrent
     let remove: (Bool) -> Void
+    var deleteDataAndQueue: (() -> Void)?
     var body: some View {
         Button(role: .destructive) { remove(false) } label: {
             Label(glassText(kind.removalLabel(deleteData: false)), systemImage: TorrentRemovalStyle.symbol(deleteData: false))
         }
         if kind == .torrent {
+            if let deleteDataAndQueue {
+                Button(role: .destructive, action: deleteDataAndQueue) {
+                    Label(glassText("Delete Data + Queue"), systemImage: "arrow.uturn.backward")
+                }
+            }
             Button(role: .destructive) { remove(true) } label: {
                 Label(glassText(kind.removalLabel(deleteData: true)), systemImage: TorrentRemovalStyle.symbol(deleteData: true))
             }

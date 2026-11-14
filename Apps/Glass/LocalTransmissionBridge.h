@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (BOOL)addMetadataMagnet:(NSString *)magnet error:(NSError **)error;
 - (nullable NSData *)resolvedMetainfo;
+- (nullable NSData *)exportMetainfoForHash:(NSString *)hashString error:(NSError **)error;
 - (void)close;
 
 - (BOOL)addMagnet:(NSString *)magnet downloadDirectory:(nullable NSString *)downloadDirectory error:(NSError **)error;

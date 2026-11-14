@@ -153,13 +153,14 @@ public final class RemoteAppModel {
     @ObservationIgnored private var additionTail: Task<Bool, Never>?
     @ObservationIgnored private var additionResults: [UUID: TorrentAddResult] = [:]
     @ObservationIgnored private var addQueueLoadError: String?
+    @ObservationIgnored private var preparingRequeues: Set<String> = []
 
     public var allTorrentRecords: [TorrentRecord] {
         // A confirmed submission and its server record are one visible item while
         // the rename plan finishes. Never show a second, untracked download row.
         let owned = Set(pendingAdditions.filter { $0.entry.fileNameRepair != true }.compactMap { pending -> String? in
-            guard let receipt = pending.entry.receipt else { return nil }
-            return TorrentRecord.identity(sourceID: pending.entry.sourceID, hashString: receipt.hashString)
+            guard let hash = pending.entry.receipt?.hashString ?? pending.entry.dataRequeue?.hashString else { return nil }
+            return TorrentRecord.identity(sourceID: pending.entry.sourceID, hashString: hash)
         })
         return pendingAdditions.filter { $0.entry.fileNameRepair != true }.map(\.record) + sources.flatMap(\.records).filter { !owned.contains($0.id) }
     }
@@ -198,7 +199,7 @@ public final class RemoteAppModel {
     /// Resolve once before submission, against this source's existing and queued
     /// show roots. Never change an accepted transfer's persisted rename plan.
     private func resolveSeasonStorage(_ entry: inout TorrentAddQueueEntry) {
-        guard entry.receipt == nil, entry.attempts == 0,
+        guard entry.dataRequeue == nil, entry.receipt == nil, entry.attempts == 0,
               let plan = entry.namingPlan, plan.season != nil,
               let directory = entry.downloadDirectory else { return }
         let stored = existingSeasonStorage(sourceID: entry.sourceID)
@@ -300,6 +301,7 @@ public final class RemoteAppModel {
     private func reconcilePendingAdditions() {
         for pending in pendingAdditions {
             let entry = pending.entry
+            if let requeue = entry.dataRequeue, requeue.removalStage != .removed { continue }
             guard let record = sourceState(for: entry.sourceID).records.first(where: {
                 $0.hashString.lowercased() == entry.receipt?.hashString.lowercased()
                     || (entry.attempts > 0 && pending.expectedHashes.contains($0.hashString.lowercased()))
@@ -981,9 +983,13 @@ public final class RemoteAppModel {
         return await task.value
     }
 
+    public func canDownloadTorrentAdditionLocally(_ id: UUID) -> Bool {
+        pendingAdditions.contains { $0.id == id && $0.entry.dataRequeue == nil }
+    }
+
     @discardableResult
     public func downloadTorrentAdditionLocally(_ id: UUID) async -> Bool {
-        guard additionTasks[id] == nil,
+        guard canDownloadTorrentAdditionLocally(id), additionTasks[id] == nil,
               let index = pendingAdditions.firstIndex(where: { $0.id == id }) else { return false }
         // Change only the destination. The original file choices and rename plan travel with it.
         var entry = pendingAdditions[index].entry
@@ -1015,6 +1021,11 @@ public final class RemoteAppModel {
                 return try await performQueuedFileNameRepair(id, entry: pending.entry, provider: provider)
             }
             var entry = pending.entry
+            if entry.dataRequeue != nil {
+                try await removeDataForQueuedReplacement(id, provider: provider)
+                guard let saved = pendingAdditions.first(where: { $0.id == id }) else { return false }
+                entry = saved.entry
+            }
             if entry.receipt == nil, entry.attempts == 0, entry.namingPlan?.season != nil, entry.downloadDirectory == nil {
                 entry.downloadDirectory = try await provider.fetchDefaultDownloadDirectory()
             }
@@ -1080,6 +1091,43 @@ public final class RemoteAppModel {
                     try profileStore.saveTorrentDisplayNames(torrentDisplayNames)
                 }
             }
+            if let requeue = entry.dataRequeue {
+                // A local add can create the torrent before applying its choices.
+                // Restore them even when retry recovered a receipt after a lost reply.
+                if let selection = entry.fileSelection {
+                    for (indices, wanted) in [(selection.filesWanted, true), (selection.filesUnwanted, false)] where !indices.isEmpty {
+                        try await provider.setFileWanted(ids: [receipt.hashString], fileIndices: indices, wanted: wanted)
+                    }
+                    for (indices, priority) in [(selection.priorityHigh, 1), (selection.priorityNormal, 0), (selection.priorityLow, -1)] where !indices.isEmpty {
+                        try await provider.setFilePriority(ids: [receipt.hashString], fileIndices: indices, priority: priority)
+                    }
+                }
+                if let priority = requeue.bandwidthPriority {
+                    try await provider.setTorrentPriority(ids: [receipt.hashString], priority: priority)
+                }
+                if let position = requeue.queuePosition {
+                    try await provider.setQueuePosition(ids: [receipt.hashString], position: position)
+                }
+                var ready = false
+                for _ in 0..<50 {
+                    let restored = try await provider.fetchTorrentDetails(hashStrings: [receipt.hashString], including: [.files]).first
+                    if let restored, restored.status == TransmissionTorrentStatus.stopped.rawValue,
+                       restored.files.map(\.name) == requeue.files.map(\.name) {
+                        guard restored.files.allSatisfy({ $0.bytesCompleted == 0 }) else {
+                            throw RequeueError("Some data remains on disk. The torrent is paused; Glass will not delete it again automatically.")
+                        }
+                        guard try TorrentDataRequeue.selection(from: restored) == entry.fileSelection else {
+                            throw RequeueError("The torrent is paused, but its file choices could not be confirmed. Retry to finish restoring them.")
+                        }
+                        ready = true
+                        break
+                    }
+                    try await Task.sleep(for: .milliseconds(200))
+                }
+                guard ready else {
+                    throw RequeueError("The torrent was re-added, but its paused state or filenames could not be confirmed. Retry to finish.")
+                }
+            }
             // Set the shared root before downloading creates the release folder.
             // Transmission can then attach to an existing show directory without
             // attempting to rename one nonempty directory over another.
@@ -1093,6 +1141,10 @@ public final class RemoteAppModel {
             rememberDownloadDirectory(entry.downloadDirectory, for: sourceID)
             watchAddedTorrent(receipt, sourceID: sourceID)
             await refresh(sourceID: sourceID)
+            if entry.dataRequeue != nil, let replacement = try await provider.fetchRequeueTorrent(hashString: receipt.hashString) {
+                let summaries = applyTorrentDelta(changed: [replacement], removedIDs: [], sourceID: sourceID)
+                updateTorrentCache(summaries, for: sourceID)
+            }
             reconcilePendingAdditions()
             return true
         } catch {
@@ -1560,6 +1612,101 @@ public final class RemoteAppModel {
     @discardableResult
     public func remove(_ torrents: [TorrentSummary], deleteData: Bool) async -> Bool {
         await remove(torrents, deleteData: deleteData, sourceID: selectedSourceID)
+    }
+
+    /// Saves a complete replacement before sending any destructive request.
+    @discardableResult
+    public func deleteDataAndQueue(_ torrents: [TorrentSummary], sourceID: UUID) async -> Bool {
+        for torrent in torrents {
+            let key = TorrentRecord.identity(sourceID: sourceID, hashString: torrent.hashString)
+            guard !preparingRequeues.contains(key), !pendingAdditions.contains(where: {
+                $0.entry.sourceID == sourceID && $0.entry.dataRequeue?.hashString == torrent.hashString
+            }) else { continue }
+            preparingRequeues.insert(key)
+            defer { preparingRequeues.remove(key) }
+            do {
+                let provider = try self.provider(for: sourceID)
+                let source = try await provider.fetchRequeueSource(hashString: torrent.hashString)
+                let data: Data
+                switch source {
+                case .metainfo(let bytes): data = bytes
+                case .magnet(let magnet):
+                    // The remote API cannot export .torrent bytes. Resolve BEFORE
+                    // deletion, in a metadata-only session, with a bounded wait.
+                    let session = localSessionFactory()
+                    data = try await withThrowingTaskGroup(of: Data.self) { group in
+                        group.addTask { try await session.resolveMagnetMetainfo(magnet) }
+                        group.addTask {
+                            try await Task.sleep(for: .seconds(60))
+                            throw RequeueError("The original torrent metadata could not be retrieved. No data was deleted.")
+                        }
+                        defer { group.cancelAll() }
+                        return try await group.next()!
+                    }
+                }
+                guard TorrentMetainfoIdentity.hashes(in: data).contains(torrent.hashString.lowercased()),
+                      let preview = TorrentMetainfoPreview(data: data) else {
+                    throw RequeueError("The original torrent metadata could not be verified. No data was deleted.")
+                }
+                // Read settings after metadata resolution, which may take time.
+                guard let details = try await provider.fetchTorrentDetails(hashStrings: [torrent.hashString], including: [.files]).first,
+                      let directory = details.downloadDir, !directory.isEmpty else {
+                    throw RequeueError("The torrent’s destination could not be saved. No data was deleted.")
+                }
+                let selection = try TorrentDataRequeue.selection(from: details)
+                let renames = try TorrentDataRequeue.renames(original: preview.files, desired: details.files)
+                let stored = torrentDisplayNames[key]
+                var entry = TorrentAddQueueEntry(id: UUID(), sourceID: sourceID, name: details.name,
+                    size: details.sizeWhenDone ?? torrent.sizeWhenDone, fileCount: details.files.count,
+                    data: data, downloadDirectory: directory, fileSelection: selection,
+                    namingPlan: .init(rootName: details.name, pathRenames: renames,
+                        displayName: stored?.displayName, season: stored?.season))
+                entry.startPaused = true
+                entry.dataRequeue = TorrentDataRequeue(details: details)
+                appendAddition(entry)
+                do { try persistAddQueue() }
+                catch { failAddition(entry.id, error: error); return false }
+                guard await retryTorrentAddition(entry.id) else {
+                    errorMessage = pendingAdditions.first(where: { $0.id == entry.id })?.entry.error
+                    return false
+                }
+            } catch {
+                errorMessage = error.localizedDescription
+                return false
+            }
+        }
+        return true
+    }
+
+    private func removeDataForQueuedReplacement(_ id: UUID, provider: any TorrentProvider) async throws {
+        guard let entry = pendingAdditions.first(where: { $0.id == id })?.entry,
+              var requeue = entry.dataRequeue, requeue.removalStage != .removed else { return }
+        let existing = try await provider.fetchRequeueTorrent(hashString: requeue.hashString)
+        if requeue.removalStage == .prepared {
+            guard let existing, existing.id == requeue.originalID else {
+                throw RequeueError("The original torrent changed before deletion. No data was deleted.")
+            }
+            // Persist intent first. A lost reply must not cause another delete.
+            requeue.removalStage = .removing
+            updateAddition(id) { $0.dataRequeue = requeue }
+            try persistAddQueue()
+            try await provider.stop(ids: [requeue.hashString])
+            try await provider.remove(ids: [requeue.hashString], deleteLocalData: true)
+        } else if existing != nil {
+            throw RequeueError("The previous deletion could not be confirmed and the torrent still exists. Glass will not delete it again. Remove this pending operation to try anew.")
+        }
+        // Local removal is asynchronous; RPC removal may also trail its reply.
+        for _ in 0..<50 {
+            let present = try await provider.fetchRequeueTorrent(hashString: requeue.hashString) != nil
+            if !present {
+                requeue.removalStage = .removed
+                updateAddition(id) { $0.dataRequeue = requeue }
+                try persistAddQueue()
+                return
+            }
+            try await Task.sleep(for: .milliseconds(200))
+        }
+        throw RequeueError("Transmission has not confirmed removal. Retry to check it; Glass will not repeat the deletion.")
     }
 
     @discardableResult
@@ -2433,7 +2580,11 @@ public final class RemoteAppModel {
 
     private func pruneTorrentDisplayNames(sourceID: UUID, keeping identities: Set<String>) {
         let prefix = "\(sourceID.uuidString):"
-        let removedKeys = torrentDisplayNames.keys.filter { $0.hasPrefix(prefix) && !identities.contains($0) }
+        let retained = identities.union(pendingAdditions.compactMap { pending -> String? in
+            guard pending.entry.sourceID == sourceID, let hash = pending.entry.dataRequeue?.hashString else { return nil }
+            return TorrentRecord.identity(sourceID: sourceID, hashString: hash)
+        })
+        let removedKeys = torrentDisplayNames.keys.filter { $0.hasPrefix(prefix) && !retained.contains($0) }
         guard !removedKeys.isEmpty else { return }
         for key in removedKeys { torrentDisplayNames[key] = nil }
         do {

@@ -318,7 +318,7 @@ struct TorrentListView: View {
             get: { retryFailure != nil }, set: { if !$0 { retryFailure = nil } }
         ), presenting: retryFailure) { failure in
             Button(glassText("OK"), role: .cancel) {}
-            if failure.isRemote {
+            if failure.isRemote && model.canDownloadTorrentAdditionLocally(failure.id) {
                 Button(glassText("Download Locally")) {
                     Task {
                         let succeeded = await model.downloadTorrentAdditionLocally(failure.id)
@@ -714,6 +714,7 @@ struct TorrentListView: View {
 }
 
 private struct TorrentListLiveRow: View {
+    @State private var confirmsDataRequeue = false
     @State private var isSwiping = false
     @AppStorage("GlassList.showExtensions") private var showExtensions = false
     let row: TorrentListRowPresentation
@@ -780,6 +781,24 @@ private struct TorrentListLiveRow: View {
             isSwiping: isSwiping, grid: grid, rowHeight: rowHeight, artworkOverflow: artworkOverflow,
             elevationController: elevationController, select: select))
         .glassContextMenu(select: select) { contextMenuContent }
+        .confirmationDialog(glassText("Delete downloaded data and keep the torrent in Queue?"),
+                            isPresented: $confirmsDataRequeue, titleVisibility: .visible) {
+            Button(glassText("Delete Data + Queue"), role: .destructive) {
+                Task {
+                    let records: [TorrentRecord]
+                    switch row.kind {
+                    case let .torrent(record, _): records = [record]
+                    case let .group(members, _, _): records = members
+                    }
+                    for (sourceID, members) in Dictionary(grouping: records, by: \.sourceID) {
+                        _ = await model.deleteDataAndQueue(members.map(\.summary), sourceID: sourceID)
+                    }
+                }
+            }
+            Button(glassText("Cancel"), role: .cancel) {}
+        } message: {
+            Text(glassText("Downloaded files will be deleted. The torrent will stay paused with its file choices and destination preserved. Transfer statistics reset."))
+        }
         .padding(.leading, grid ? 0 : leftPadding + TorrentRowColumns.horizontalInset)
         .padding(.trailing, grid ? 0 : rightPadding + TorrentRowColumns.horizontalInset)
         }
@@ -798,7 +817,7 @@ private struct TorrentListLiveRow: View {
             if let locateDataAction {
                 Button(glassText(summary.renameConflict == nil ? "Locate Existing Folder…" : "Resolve Folder Conflict…"), action: locateDataAction)
             }
-            TorrentRemovalActions(remove: removeRow)
+            TorrentRemovalActions(remove: removeRow, deleteDataAndQueue: { confirmsDataRequeue = true })
         }
     }
 

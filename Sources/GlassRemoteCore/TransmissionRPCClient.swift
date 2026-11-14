@@ -124,6 +124,20 @@ public actor TransmissionRPCClient {
         let _: RPCEnvelope<EmptyArgs> = try await request(method: "session-set", arguments: patch.arguments)
     }
 
+    public func fetchTorrentMagnet(hashString: String) async throws -> String {
+        struct Export: Decodable { let hashString: String; let magnetLink: String }
+        struct Exports: Decodable { let torrents: [Export] }
+        let envelope: RPCEnvelope<Exports> = try await request(method: "torrent-get", arguments: [
+            "ids": .array([.string(hashString)]),
+            "fields": .array([.string("hashString"), .string("magnetLink")])
+        ])
+        guard let export = envelope.arguments.torrents.first(where: { $0.hashString.lowercased() == hashString.lowercased() }),
+              TorrentMetainfoIdentity.hashes(inMagnet: export.magnetLink).contains(hashString.lowercased()) else {
+            throw RequeueError("Transmission did not return a matching magnet link. No data was deleted.")
+        }
+        return export.magnetLink
+    }
+
     public func fetchTorrents() async throws -> [TorrentSummary] {
         let fields = [
             "id", "hashString", "name", "status", "percentDone", "doneDate", "metadataPercentComplete", "rateDownload", "rateUpload",

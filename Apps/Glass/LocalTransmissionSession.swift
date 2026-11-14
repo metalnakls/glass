@@ -42,6 +42,10 @@ actor LocalTransmissionSession: LocalTransmissionServicing {
         bridge = nil
     }
 
+    func exportMetainfo(hashString: String) async throws -> Data {
+        try ensureBridge().exportMetainfo(forHash: hashString)
+    }
+
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         guard let bridge = try bridgeForRefreshIfNeeded() else {
             return emptySnapshot()

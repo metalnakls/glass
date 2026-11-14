@@ -276,6 +276,14 @@ static std::vector<tr_file_index_t> FileIndices(NSArray<NSNumber *> *numbers);
     return YES;
 }
 
+- (nullable NSData *)exportMetainfoForHash:(NSString *)hashString error:(NSError **)error
+{
+    tr_torrent *torrent = [self torrentForHash:hashString error:error];
+    if (torrent == nullptr) { return nil; }
+    NSString *path = StringFromView(tr_torrentFilename(torrent));
+    return [NSData dataWithContentsOfFile:path options:0 error:error];
+}
+
 - (nullable NSData *)resolvedMetainfo
 {
     if (self.session == nullptr) { return nil; }

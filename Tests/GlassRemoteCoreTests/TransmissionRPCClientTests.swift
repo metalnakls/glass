@@ -4,6 +4,23 @@ import Testing
 
 @Suite("TransmissionRPCClient", .serialized)
 struct TransmissionRPCClientTests {
+    @Test("requeue exports the matching magnet without requesting filesystem access", arguments: [false, true])
+    func requeueMagnet(mismatched: Bool) async throws {
+        let hash = String(repeating: "a", count: 40)
+        let returned = mismatched ? String(repeating: "b", count: 40) : hash
+        let body = "{\"result\":\"success\",\"arguments\":{\"torrents\":[{\"hashString\":\"\(returned)\",\"magnetLink\":\"magnet:?xt=urn:btih:\(returned)\"}]}}"
+        let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body: body)])
+        let client = TransmissionRPCClient(config: makeConfig(), session: transport.session)
+        if mismatched {
+            await #expect(throws: RequeueError.self) { _ = try await client.fetchTorrentMagnet(hashString: hash) }
+        } else {
+            #expect(try await client.fetchTorrentMagnet(hashString: hash) == "magnet:?xt=urn:btih:\(hash)")
+        }
+        let request = try JSONDecoder().decode(RecordedRPCRequest.self, from: #require(transport.recordedRequestBodies.first ?? nil))
+        #expect(request.method == "torrent-get")
+        #expect(request.arguments["fields"] == .array([.string("hashString"), .string("magnetLink")]))
+    }
+
     @Test("group details use one request, only visible sections, and preserve member order")
     func batchedGroupDetails() async throws {
         let transport = URLProtocolStubTransport(responses: [.http(status: 200, headers: [:], body:

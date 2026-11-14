@@ -2,6 +2,7 @@ import Foundation
 import GlassRemoteCore
 
 public protocol TransmissionRPCServicing: Sendable {
+    func fetchTorrentMagnet(hashString: String) async throws -> String
     func testConnection() async throws
     func fetchDefaultDownloadDirectory() async throws -> String?
     func fetchDefaultFreeSpace() async throws -> ServerFreeSpace?
@@ -41,6 +42,10 @@ public protocol TransmissionRPCServicing: Sendable {
 }
 
 public extension TransmissionRPCServicing {
+    func fetchTorrentMagnet(hashString: String) async throws -> String {
+        throw RequeueError("This server cannot export a torrent for re-queuing.")
+    }
+
     func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
         let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
         if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }
@@ -139,6 +144,8 @@ public struct TorrentProviderSnapshot: Sendable {
 }
 
 public protocol TorrentProvider: Sendable {
+    func fetchRequeueTorrent(hashString: String) async throws -> TorrentSummary?
+    func fetchRequeueSource(hashString: String) async throws -> TorrentRequeueSource
     var source: TorrentSourceInfo { get }
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot
@@ -179,6 +186,14 @@ public protocol TorrentProvider: Sendable {
 }
 
 public extension TorrentProvider {
+    func fetchRequeueTorrent(hashString: String) async throws -> TorrentSummary? {
+        try await fetchSnapshot().torrents.first { $0.hashString == hashString }
+    }
+
+    func fetchRequeueSource(hashString: String) async throws -> TorrentRequeueSource {
+        throw RequeueError("This source cannot export a torrent for re-queuing.")
+    }
+
     func addTorrentFile(data: Data, torrentName: String?, downloadDirectory: String?, fileSelection: TorrentAddFileSelection?, startPaused: Bool) async throws -> TorrentAddResult? {
         let result = try await addTorrentFile(data: data, torrentName: torrentName, downloadDirectory: downloadDirectory, fileSelection: fileSelection)
         if startPaused, let result, !result.wasDuplicate { try await stop(ids: [result.hashString]) }
@@ -221,6 +236,7 @@ public extension TorrentProvider {
 
 public protocol LocalTransmissionServicing: Sendable {
     func shutdown() async
+    func exportMetainfo(hashString: String) async throws -> Data
     /// Fetches metainfo in an isolated session without accepting a download.
     func resolveMagnetMetainfo(_ magnet: String) async throws -> Data
     func fetchSnapshot() async throws -> TorrentProviderSnapshot
@@ -257,6 +273,9 @@ public protocol LocalTransmissionServicing: Sendable {
 
 public extension LocalTransmissionServicing {
     func shutdown() async {}
+    func exportMetainfo(hashString: String) async throws -> Data {
+        throw RequeueError("The original torrent metadata is unavailable. No data was deleted.")
+    }
 
     func resolveMagnetMetainfo(_ magnet: String) async throws -> Data {
         throw LocalTransmissionSessionError.unavailable("Magnet metadata resolution is unavailable in this build.")
@@ -386,6 +405,15 @@ public actor RemoteTorrentProvider: TorrentProvider {
             username: source.username
         )
         self.client = clientFactory(TransmissionRPCConfig(profile: profile, password: password))
+    }
+
+    public func fetchRequeueSource(hashString: String) async throws -> TorrentRequeueSource {
+        .magnet(try await client.fetchTorrentMagnet(hashString: hashString))
+    }
+
+    public func fetchRequeueTorrent(hashString: String) async throws -> TorrentSummary? {
+        // recently-active is a delta, never evidence that a torrent is absent.
+        try await client.fetchTorrents().first { $0.hashString == hashString }
     }
 
     public func fetchSnapshot() async throws -> TorrentProviderSnapshot {
@@ -581,6 +609,9 @@ public actor LocalTorrentProvider: TorrentProvider {
     }
 
     public func shutdown() async { await session.shutdown() }
+    public func fetchRequeueSource(hashString: String) async throws -> TorrentRequeueSource {
+        .metainfo(try await session.exportMetainfo(hashString: hashString))
+    }
 
     public func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         try await session.fetchSnapshot()
