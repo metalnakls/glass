@@ -11,8 +11,8 @@ case "${1:-install}" in
     rm -f "$plist"
     echo 'Glass Downloads worker removed.'
     exit 0 ;;
-  install) ;;
-  *) echo 'Usage: bash install-background-worker.sh [install|uninstall] [/Applications/Glass.app]' >&2; exit 64 ;;
+  install|repair) ;;
+  *) echo 'Usage: bash install-background-worker.sh [install|repair|uninstall] [/Applications/Glass.app]' >&2; exit 64 ;;
 esac
 [[ "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Contents/Info.plist")" == tsmc.glass ]]
 worker="$app/Contents/Library/LoginItems/GlassWorker.app"
@@ -20,8 +20,10 @@ codesign --verify --deep --strict "$app"
 # The downloaded release already has ad-hoc signatures. Refresh the helper's
 # signature locally, preserving its Downloads-only sandbox entitlements, then
 # reseal the parent after that nested-code change.
-codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$worker"
-codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$app"
+if codesign --display --verbose=2 "$app" 2>&1 | grep -q '^Signature=adhoc'; then
+    codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$worker"
+    codesign --force --sign - --preserve-metadata=entitlements,flags,runtime "$app"
+fi
 codesign --verify --deep --strict "$app"
 # This is the explicit local install step for the unsigned downloaded app.
 xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
@@ -42,7 +44,15 @@ chmod 600 "$staging"
 launchctl bootout "$domain/$label" 2>/dev/null || true
 mv "$staging" "$plist"
 launchctl enable "$domain/$label"
-launchctl bootstrap "$domain" "$plist"
+registered=0
+for ((attempt=0; attempt<5; attempt++)); do
+    if launchctl bootstrap "$domain" "$plist"; then
+        registered=1
+        break
+    fi
+    sleep 1
+done
+[[ "$registered" -eq 1 ]] || { echo 'Worker registration failed.' >&2; exit 1; }
 for ((attempt=0; attempt<20; attempt++)); do
     if launchctl print "$domain/$label" | grep -q 'state = running'; then
         sleep 2

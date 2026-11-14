@@ -283,6 +283,12 @@ codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 codesign --display --verbose=4 "$INSTALL_DIR" 2>&1
 INSTALL_STARTED=0
 
+# Installing the app alone does not load a missing LaunchAgent. Restore the
+# independently installed worker and start the executable we just installed.
+if [[ -f "$HOME/Library/LaunchAgents/tsmc.glass.downloads.plist" ]]; then
+    bash "$ROOT_DIR/Scripts/install-background-worker.sh" repair "$INSTALL_DIR"
+fi
+
 remind_about_push
 
 echo "$APP_DIR"
