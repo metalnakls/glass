@@ -8,7 +8,7 @@ import Testing
 
 @MainActor @Suite("Production list responsiveness", .serialized)
 struct TorrentListResponsivenessTests {
-    @Test("production torrent rows settle and scroll")
+    @Test("production torrent rows settle and scroll", .enabled(if: Bundle.main.bundleURL.pathExtension == "app", "Requires a native app host for macOS toolbar layout"))
     func settlesAndScrolls() async throws {
         _ = NSApplication.shared
         GlassAppearanceDefaults.register()
