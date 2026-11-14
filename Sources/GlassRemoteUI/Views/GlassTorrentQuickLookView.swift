@@ -37,7 +37,7 @@ public struct GlassTorrentQuickLookView: View {
                 }
             } else if loaded {
                 ContentUnavailableView(glassText("No data found"), systemImage: "questionmark.folder")
-            } else { Spacer(); ProgressView(); Spacer() }
+            } else { Spacer(); GlassActivityIndicator(label: "Loading preview"); Spacer() }
         }
         .padding(.vertical)
         .glassScrollbarVisibility()

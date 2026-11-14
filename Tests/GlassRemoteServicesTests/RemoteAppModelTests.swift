@@ -7,6 +7,26 @@ import Testing
 @MainActor
 @Suite("Remote app model")
 struct RemoteAppModelTests {
+    @Test("local display aliases still rename the physical download")
+    func localAliasRenamesPhysicalFolder() async throws {
+        let local = StubLocalTransmissionSession()
+        let store = MemoryProfileStore(profiles: [])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            rpcClientFactory: StubRPCClientFactory().make(config:), localSessionFactory: { local })
+        try store.saveTorrentDisplayNames([TorrentRecord.identity(sourceID: model.localSourceID, hashString: "local-hash"):
+            .init(rootName: "Local", displayName: "Pretty Name")])
+        // Load the alias through the same persisted path as a restarted app.
+        let restarted = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: ""),
+            rpcClientFactory: StubRPCClientFactory().make(config:), localSessionFactory: { local })
+        await restarted.refresh(sourceID: restarted.localSourceID)
+        let record = try #require(restarted.allTorrentRecords.first)
+        #expect(record.displayName == "Pretty Name")
+        _ = await restarted.rename(record.summary, to: "New Folder", sourceID: restarted.localSourceID)
+        #expect(await local.renamedPaths == [.init(path: "Local", name: "New Folder")])
+        _ = await restarted.locateData(record.summary, at: "/Users/me/Downloads/Located Folder", sourceID: restarted.localSourceID)
+        #expect(await local.renamedPaths.last == .init(path: "Located Folder", name: "Pretty Name"))
+    }
+
     @Test("repeated preparation cannot acknowledge a queue that was never saved")
     func repeatedPreparationRequiresDurability() throws {
         let profile = makeProfile(), store = MemoryProfileStore(profiles: [makeProfile()])
@@ -1043,6 +1063,54 @@ struct RemoteAppModelTests {
         #expect(notifier.completedTorrentNames == ["Spider-Noir"])
     }
 
+    @Test("quitting saves the cache and closes the existing local engine without reopening it")
+    func shutdownClosesLocalSession() async throws {
+        let local = StubLocalTransmissionSession()
+        let store = MemoryProfileStore(profiles: [])
+        let model = RemoteAppModel(profileStore: store, credentialStore: MemoryCredentialStore(password: "secret"),
+            rpcClientFactory: StubRPCClientFactory().make(config:), localSessionFactory: { local })
+        await model.refresh(sourceID: model.localSourceID)
+        let requests = await local.fetchSnapshotCount
+        await model.shutdownLocalSession()
+        #expect(await local.shutdownCount == 1)
+        #expect(try store.loadTorrentCache().contains { $0.profileID == model.localSourceID })
+        await model.refresh(sourceID: model.localSourceID)
+        #expect(await local.fetchSnapshotCount == requests)
+    }
+
+    @Test("an obsolete file response cannot replace newer files or leave a spinner pending")
+    func ignoresObsoleteFileResponse() async throws {
+        let profile = makeProfile(), client = StubRPCClient()
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        await model.loadDetails(for: torrent)
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await client.setInspectorProgress(percentDone: 0.1, fileBytesCompleted: 10)
+        await client.pauseNextFileResponse()
+        let older = Task { await model.loadDetailSection(.files, forHashString: torrent.hashString) }
+        await client.waitForPausedFileResponse()
+        await client.setInspectorProgress(percentDone: 0.9, fileBytesCompleted: 90)
+        await model.loadDetailSection(.files, forHashString: torrent.hashString, force: true, showsLoadingIndicator: false)
+        await client.releaseFileResponse()
+        await older.value
+        #expect(model.selectedTorrentDetails?.files.first?.bytesCompleted == 90)
+        #expect(model.loadingTorrentDetailSections.isEmpty)
+    }
+
+    @Test("file visibility requested while core details load is fulfilled without another click")
+    func earlyFileVisibilityIsNotLost() async throws {
+        let profile = makeProfile(), client = StubRPCClient(detailDelay: .milliseconds(60))
+        let model = makeModel(profile: profile, factory: StubRPCClientFactory { _ in client })
+        await model.refresh()
+        let torrent = try #require(model.torrents.first)
+        let loading = Task { await model.loadDetails(for: torrent) }
+        while !model.isLoadingTorrentDetails { await Task.yield() }
+        model.setVisibleTorrentDetailSections([.files], forHashString: torrent.hashString)
+        await loading.value
+        #expect(model.readyTorrentDetails(forHashString: torrent.hashString, sourceID: profile.id, including: [.files])?.files.count == 1)
+    }
+
     @Test("inspector publishes a selection only when its files are ready and source matches")
     func inspectorWaitsForFiles() async throws {
         let profile = makeProfile()
@@ -1126,7 +1194,8 @@ struct RemoteAppModelTests {
         #expect(model.readyTorrentDetails(forHashString: first.hashString, sourceID: profile.id, including: [.files]) == nil)
         #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files]) == nil)
         await loading.value
-        #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files]) == nil)
+        // The already-visible files section now loads with the new selection.
+        #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files])?.hashString == second.hashString)
         model.setVisibleTorrentDetailSections([.files], forHashString: second.hashString)
         await model.loadDetailSection(.files, forHashString: second.hashString)
         #expect(model.readyTorrentDetails(forHashString: second.hashString, sourceID: profile.id, including: [.files])?.hashString == second.hashString)
@@ -1880,8 +1949,19 @@ private actor StubRPCClient: TransmissionRPCServicing {
         )
     }
 
+    private var holdNextFileResponse = false
+    private var fileResponseGate: CheckedContinuation<Void, Never>?
+    func pauseNextFileResponse() { holdNextFileResponse = true }
+    func waitForPausedFileResponse() async { while fileResponseGate == nil { await Task.yield() } }
+    func releaseFileResponse() { fileResponseGate?.resume(); fileResponseGate = nil }
+
     func fetchTorrentFiles(hashString: String) async throws -> TorrentDetails {
         fetchTorrentFilesCount += 1
+        let capturedBytes = inspectorFileBytesCompleted
+        if holdNextFileResponse {
+            holdNextFileResponse = false
+            await withCheckedContinuation { fileResponseGate = $0 }
+        }
         if repairFilesOffline { throw URLError(.notConnectedToInternet) }
         if let repairFiles {
             return TorrentDetails(id: 1, hashString: hashString, name: torrentName,
@@ -1895,10 +1975,10 @@ private actor StubRPCClient: TransmissionRPCServicing {
                 TorrentFile(
                     name: "Episode.mkv",
                     length: 100,
-                    bytesCompleted: inspectorFileBytesCompleted
+                    bytesCompleted: capturedBytes
                 )
             ],
-            fileStats: [TorrentFileStats(bytesCompleted: inspectorFileBytesCompleted, wanted: true, priority: 0)]
+            fileStats: [TorrentFileStats(bytesCompleted: capturedBytes, wanted: true, priority: 0)]
         )
     }
 
@@ -1972,6 +2052,9 @@ private actor StubRPCClient: TransmissionRPCServicing {
 }
 
 private actor StubLocalTransmissionSession: LocalTransmissionServicing {
+    private(set) var shutdownCount = 0
+    func shutdown() { shutdownCount += 1 }
+
     private var completionProgress: Double?
     private var completionDate: Int?
     private var completionRemaining: UInt64?
@@ -2015,6 +2098,7 @@ private actor StubLocalTransmissionSession: LocalTransmissionServicing {
     private(set) var renamedPaths: [TorrentPathRename] = []
     private(set) var addTorrentFileCount = 0
     private(set) var movedData: [String: String] = [:]
+    func locateData(id: String, at folder: String) async throws {}
 
     func fetchSnapshot() async throws -> TorrentProviderSnapshot {
         fetchSnapshotCount += 1

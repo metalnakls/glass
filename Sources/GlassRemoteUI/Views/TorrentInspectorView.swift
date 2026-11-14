@@ -22,8 +22,11 @@ struct TorrentInspectorView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var requestKey: String { sourceID.uuidString + ":" + (selectionKey ?? "none") }
+    private var waitingRequestID: String {
+        requestKey + ":" + (selectedTorrentGroup?.torrents.map(\.hashString).sorted().joined(separator: ",") ?? "")
+    }
     private var waitingForSelection: Bool {
-        selectionKey != nil && (snapshot?.sourceID != sourceID || snapshot?.selectionKey != selectionKey)
+        selectionKey != nil && (displaySnapshot?.sourceID != sourceID || displaySnapshot?.selectionKey != selectionKey)
     }
 
     private var waitingPresentation: TorrentInspectorWaitingPresentation {
@@ -47,11 +50,19 @@ struct TorrentInspectorView: View {
         return model.readyTorrentDetails(forHashString: selectedTorrentHash, sourceID: sourceID, including: [.files])
     }
 
+    private var displaySnapshot: TorrentInspectorSnapshot? {
+        guard let snapshot else { return nil }
+        guard let group = selectedTorrentGroup, snapshot.group?.id == group.id else { return snapshot }
+        // Group IDs outlive their membership. Never resurrect seasons that a
+        // fresh list has removed just because an older inspector was cached.
+        return snapshot.projected(onto: group)
+    }
+
     var body: some View {
         Group {
             if case let .connectionFailure(shareName) = waitingPresentation {
                 connectionFailureView(shareName: shareName)
-            } else if let snapshot {
+            } else if let snapshot = displaySnapshot {
                 TorrentInspectorContent(model: model, platformIntegration: platformIntegration, snapshot: snapshot, fileSearchText: $fileSearchText, editSession: editSession, commandsEnabled: isVisible && !waitingForSelection, onApply: { wanted in Task { await applyFileEdits(selectionWanted: wanted) } })
                     .allowsHitTesting(snapshot.sourceID == sourceID && snapshot.selectionKey == selectionKey)
                     .accessibilityHidden(snapshot.sourceID != sourceID || snapshot.selectionKey != selectionKey)
@@ -62,7 +73,7 @@ struct TorrentInspectorView: View {
                 case .hidden:
                     Color.clear
                 case .loading:
-                    GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")))
+                    GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")), presentation: .alreadyDelayed)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case let .connectionFailure(shareName):
                     connectionFailureView(shareName: shareName)
@@ -73,7 +84,7 @@ struct TorrentInspectorView: View {
         .overlay {
             if snapshot != nil, waitingPresentation == .loading {
                 HStack(spacing: 8) {
-                    GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")))
+                    GlassActivityIndicator(label: LocalizedStringKey(glassText("Loading torrent details")), presentation: .alreadyDelayed)
                 }
                 .foregroundStyle(.secondary)
                 .padding(18)
@@ -134,7 +145,7 @@ struct TorrentInspectorView: View {
                 catch { return }
             }
         }
-        .task(id: requestKey) {
+        .task(id: waitingRequestID) {
             waitingExpired = false
             if selectionKey == nil {
                 // Ignore the brief deselection produced by a native row change.
@@ -143,7 +154,7 @@ struct TorrentInspectorView: View {
                 fileSearchText = ""
                 snapshot = nil
             } else {
-                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                do { try await Task.sleep(for: GlassLoadingFeedback.delay) } catch { return }
                 guard !Task.isCancelled, waitingForSelection else { return }
                 waitingExpired = true
             }
@@ -165,7 +176,7 @@ struct TorrentInspectorView: View {
     }
 
     private func applyFileEdits(selectionWanted: Bool? = nil) async {
-        guard !editSession.isApplying, let snapshot, snapshot.selectionKey == selectionKey else { return }
+        guard !editSession.isApplying, let snapshot = displaySnapshot, snapshot.selectionKey == selectionKey else { return }
         let appliedSelection = editSession.selections
         let changes: [String: [Int: Bool]]
         if let selectionWanted {
@@ -229,12 +240,19 @@ struct TorrentInspectorView: View {
     }
 }
 
-private struct TorrentInspectorSnapshot {
+struct TorrentInspectorSnapshot {
     let sourceID: UUID
     var details: TorrentDetails? = nil
     var filesError: String? = nil
     var group: TorrentNameSequenceGroup? = nil
     var groupDetails: [String: TorrentDetails] = [:]
+
+    func projected(onto currentGroup: TorrentNameSequenceGroup) -> Self? {
+        let members = Set(currentGroup.torrents.map(\.hashString))
+        let currentDetails = groupDetails.filter { members.contains($0.key) }
+        guard members.allSatisfy({ currentDetails[$0] != nil }) else { return nil }
+        return Self(sourceID: sourceID, group: currentGroup, groupDetails: currentDetails)
+    }
 
     var selectionKey: String {
         if let group { return "group:" + group.id }
@@ -463,7 +481,7 @@ private struct TorrentInspectorContent: View {
             keyboardCommandsEnabled: commandsEnabled,
             showsControls: showsControls,
             isCompact: true,
-            shortEpisodeNames: true,
+
             stagesChanges: true,
             onApplyWanted: { changes in
                 Task {

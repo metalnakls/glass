@@ -96,6 +96,18 @@ public enum TransmissionTorrentStatus: Int, Sendable, Hashable, Codable, CaseIte
     }
 }
 
+public struct TorrentRenameConflict: Sendable, Hashable, Codable {
+    public let token: String
+    public let destination: String
+    public let name: String
+
+    public init(token: String, destination: String, name: String) {
+        self.token = token
+        self.destination = destination
+        self.name = name
+    }
+}
+
 public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let id: Int
     public let hashString: String
@@ -118,6 +130,7 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
     public let addedDate: Int?
     public let error: Int?
     public let errorString: String?
+    public let renameConflict: TorrentRenameConflict?
 
     public init(
         id: Int,
@@ -140,7 +153,8 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         addedDate: Int? = nil,
         error: Int? = nil,
         errorString: String? = nil,
-        doneDate: Int? = nil
+        doneDate: Int? = nil,
+        renameConflict: TorrentRenameConflict? = nil
     ) {
         self.id = id
         self.hashString = hashString
@@ -163,13 +177,14 @@ public struct TorrentSummary: Sendable, Hashable, Codable, Identifiable {
         self.addedDate = addedDate
         self.error = error
         self.errorString = errorString
+        self.renameConflict = renameConflict
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, hashString, name, status, percentDone, metadataPercentComplete
         case rateDownload, rateUpload, sizeWhenDone, leftUntilDone, eta, uploadRatio
         case peersConnected, downloadDir, bandwidthPriority, queuePosition
-        case addedDate, doneDate, error, errorString
+        case addedDate, doneDate, error, errorString, renameConflict
         case fileCount = "file-count"
     }
 

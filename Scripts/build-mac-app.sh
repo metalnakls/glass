@@ -283,10 +283,16 @@ codesign --verify --deep --strict --verbose=2 "$INSTALL_DIR"
 codesign --display --verbose=4 "$INSTALL_DIR" 2>&1
 INSTALL_STARTED=0
 
-# Installing the app alone does not load a missing LaunchAgent. Restore the
-# independently installed worker and start the executable we just installed.
-if [[ -f "$HOME/Library/LaunchAgents/tsmc.glass.downloads.plist" ]]; then
-    bash "$ROOT_DIR/Scripts/install-background-worker.sh" repair "$INSTALL_DIR"
+# Restore the existing independent worker after replacing the app, while
+# preserving an explicitly disabled job and any unrelated LaunchAgent path.
+WORKER_PLIST="$HOME/Library/LaunchAgents/tsmc.glass.downloads.plist"
+WORKER_DOMAIN="gui/$(id -u)"
+if [[ -f "$WORKER_PLIST" ]] &&
+   [[ "$(plutil -extract ProgramArguments.0 raw -o - "$WORKER_PLIST" 2>/dev/null || true)" == "$INSTALL_DIR/Contents/Library/LoginItems/GlassWorker.app/Contents/MacOS/GlassWorker" ]]; then
+    DISABLED_JOBS="$(launchctl print-disabled "$WORKER_DOMAIN")"
+    if ! grep -Eq '"tsmc\.glass\.downloads"[[:space:]]*=>[[:space:]]*(true|disabled)' <<< "$DISABLED_JOBS"; then
+        bash "$ROOT_DIR/Scripts/install-background-worker.sh" repair "$INSTALL_DIR"
+    fi
 fi
 
 remind_about_push

@@ -27,7 +27,9 @@ fi
 codesign --verify --deep --strict "$app"
 # This is the explicit local install step for the unsigned downloaded app.
 xattr -dr com.apple.quarantine "$app" 2>/dev/null || true
-"$app/Contents/MacOS/Glass" --use-background-launch-agent
+if [[ "${1:-install}" != repair ]]; then
+    "$app/Contents/MacOS/Glass" --use-background-launch-agent
+fi
 mkdir -p "$(dirname "$plist")"
 staging="$(mktemp "$(dirname "$plist")/.glass-worker.XXXXXX")"
 trap 'rm -f "$staging"' EXIT
@@ -57,7 +59,9 @@ for ((attempt=0; attempt<20; attempt++)); do
     if launchctl print "$domain/$label" | grep -q 'state = running'; then
         sleep 2
         if launchctl print "$domain/$label" | grep -q 'state = running'; then
-            "$app/Contents/MacOS/Glass" --enable-background-worker
+            if [[ "${1:-install}" != repair ]]; then
+                "$app/Contents/MacOS/Glass" --enable-background-worker
+            fi
             echo 'Glass Downloads worker installed and running.'
             exit 0
         fi

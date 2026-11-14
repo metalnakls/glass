@@ -80,7 +80,10 @@ struct AddMagnetView: View {
                                     Button(glassText("Retry")) { self.errorMessage = nil; requestRevision += 1 }
                                 }
                             } else {
-                                ProgressView(glassText("Fetching torrent details…"))
+                                VStack {
+                                    GlassActivityIndicator(label: "Fetching torrent details…")
+                                    Text(glassText("Fetching torrent details…"))
+                                }
                             }
                         }.frame(maxWidth: .infinity, minHeight: GlassModalMetrics.addTorrent.height / 2)
                     }

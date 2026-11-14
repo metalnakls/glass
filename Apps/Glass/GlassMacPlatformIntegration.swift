@@ -17,6 +17,22 @@ final class GlassMacPlatformIntegration: NSObject, GlassPlatformIntegrating, @pr
         restoreSecurityScopedDirectoryAccess()
     }
 
+    func confirmFolderConflict(_ conflict: TorrentRenameConflict) async -> Bool {
+        let alert = GlassFolderConflictAlert.makeAlert(for: conflict)
+        let response: NSApplication.ModalResponse
+        if let window = NSApp.keyWindow {
+            response = await withCheckedContinuation { continuation in
+                alert.beginSheetModal(for: window) { continuation.resume(returning: $0) }
+            }
+        } else {
+            response = alert.runModal()
+        }
+        if response == .alertSecondButtonReturn {
+            NSWorkspace.shared.open(URL(fileURLWithPath: conflict.destination, isDirectory: true))
+        }
+        return response == .alertThirdButtonReturn
+    }
+
     func chooseLocalDownloadDirectory(startingAt path: String?) async throws -> String? {
         try await chooseDirectory(startingAt: path, forThumbnails: false)?.path
     }

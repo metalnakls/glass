@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TRANSMISSION_SOURCE="${GLASS_TRANSMISSION_SOURCE:-$ROOT_DIR/Vendor/transmission/source}"
+TRANSMISSION_BUILD="${GLASS_TRANSMISSION_BUILD:-$ROOT_DIR/.build/libtransmission/Debug}"
 TEST_DIR="$(mktemp -d /tmp/glass-partial-bridge.XXXXXX)"
 trap 'rm -rf "$TEST_DIR"' EXIT
 python3 - "$TEST_DIR" <<'PY'
@@ -19,12 +21,12 @@ with (folder/'left.flac.part').open('wb') as f: f.seek(piece); f.write(content[p
 (folder/'right.flac.part').write_bytes(content[40000:3*piece])
 PY
 clang++ -std=c++20 -fobjc-arc -I "$ROOT_DIR/Apps/Glass" \
-    -I "$ROOT_DIR/Vendor/transmission/source" \
-    -I "$ROOT_DIR/Vendor/transmission/source/third-party/fmt/include" \
-    -I "$ROOT_DIR/.build/libtransmission/Debug/build" \
+    -I "$TRANSMISSION_SOURCE" \
+    -I "$TRANSMISSION_SOURCE/third-party/fmt/include" \
+    -I "$TRANSMISSION_BUILD/build" \
     "$ROOT_DIR/Tests/GlassNativeTests/PartialFileBridgeTests.mm" \
     "$ROOT_DIR/Apps/Glass/LocalTransmissionBridge.mm" \
-    "$ROOT_DIR/.build/libtransmission/Debug/install/lib/libGlassTransmission.a" \
+    "$TRANSMISSION_BUILD/install/lib/libGlassTransmission.a" \
     -framework Foundation -framework SystemConfiguration -framework Security \
     -lcurl -lz -lbz2 -liconv -lresolv -o "$TEST_DIR/check"
 "$TEST_DIR/check" "$TEST_DIR"

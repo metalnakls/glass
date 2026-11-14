@@ -3,6 +3,7 @@ import SwiftUI
 
 @MainActor
 public protocol GlassPlatformIntegrating: AnyObject {
+    func confirmFolderConflict(_ conflict: TorrentRenameConflict) async -> Bool
     func chooseLocalDownloadDirectory(startingAt path: String?) async throws -> String?
     func prepareLocalDownloadDirectory(_ path: String) async throws -> String?
     func chooseThumbnailDirectory() async throws -> URL?
@@ -13,6 +14,8 @@ public protocol GlassPlatformIntegrating: AnyObject {
 }
 
 public extension GlassPlatformIntegrating {
+    func confirmFolderConflict(_ conflict: TorrentRenameConflict) async -> Bool { false }
+
     func prepareLocalDownloadDirectory(_ path: String) async throws -> String? { path }
 
     func chooseThumbnailDirectory() async throws -> URL? {

@@ -27,6 +27,9 @@ private enum GlassEntryPoint {
             return
         }
         #if DEBUG
+        if runLocalRootRenameCommand() { return }
+        if runLocalDataLocationCommand() { return }
+        if runCachedDownloadInspection() { return }
         if runSeasonNamingCommand() { return }
         #endif
         GlassApp.main()
@@ -38,6 +41,100 @@ private enum GlassEntryPoint {
 /// Queue writes require the UI process to be closed so its in-memory queue
 /// cannot overwrite the saved request.
 extension GlassEntryPoint {
+    @MainActor static func runLocalRootRenameCommand() -> Bool {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--rename-local-root") else { return false }
+        guard args.indices.contains(index + 2) else { print("Supply the torrent hash and desired folder name."); exit(64) }
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass").contains(where: {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+        }) else { print("Close Glass before repairing the local folder name."); exit(1) }
+        let application = NSApplication.shared
+        application.setActivationPolicy(.prohibited)
+        Task {
+            do {
+                let session = try LocalTransmissionSession()
+                do {
+                    let details = try await session.fetchTorrentDetails(hashString: args[index + 1])
+                    try await session.renamePath(id: args[index + 1], path: details.name, name: args[index + 2])
+                    print("Renamed download folder to \(args[index + 2]).")
+                    await session.shutdown()
+                    exit(0)
+                } catch {
+                    await session.shutdown()
+                    throw error
+                }
+            } catch { print(error.localizedDescription); exit(1) }
+        }
+        application.run()
+        return true
+    }
+
+    @MainActor static func runLocalDataLocationCommand() -> Bool {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--locate-local-data") else { return false }
+        guard args.indices.contains(index + 2) else {
+            print("Supply the torrent hash and existing folder path."); exit(64)
+        }
+        guard !NSRunningApplication.runningApplications(withBundleIdentifier: "tsmc.glass").contains(where: {
+            $0.processIdentifier != ProcessInfo.processInfo.processIdentifier && !$0.isTerminated
+        }) else { print("Close Glass before locating local data."); exit(1) }
+        let hash = args[index + 1], folder = args[index + 2]
+        let application = NSApplication.shared
+        application.setActivationPolicy(.prohibited)
+        Task {
+            do {
+                let session = try LocalTransmissionSession()
+                do {
+                    try await session.locateData(id: hash, at: folder)
+                    print("Checking existing pieces in \(folder). Both folders are preserved.")
+                    try await Task.sleep(for: .seconds(1))
+                    let deadline = ContinuousClock.now.advanced(by: .seconds(300))
+                    while true {
+                        let details = try await session.fetchTorrentDetails(hashString: hash)
+                        if details.status != TransmissionTorrentStatus.checkQueued.rawValue && details.status != TransmissionTorrentStatus.checking.rawValue {
+                            guard details.files.contains(where: { $0.bytesCompleted > 0 }) else {
+                                throw NSError(domain: "GlassLocation", code: 2,
+                                    userInfo: [NSLocalizedDescriptionKey: "No matching pieces were found. The transfer is paused and both folders are preserved."])
+                            }
+                            print("Verified location: \(details.downloadDir ?? "")/\(details.name)")
+                            break
+                        }
+                        guard ContinuousClock.now < deadline else {
+                            throw NSError(domain: "GlassLocation", code: 1,
+                                userInfo: [NSLocalizedDescriptionKey: "Verification did not finish; the transfer remains paused."])
+                        }
+                        try await Task.sleep(for: .seconds(1))
+                    }
+                    if args.contains("--resume") { try await session.start(ids: [hash]) }
+                    await session.shutdown()
+                    exit(0)
+                } catch {
+                    await session.shutdown()
+                    throw error
+                }
+            } catch { print("Location recovery failed: \(error.localizedDescription)"); exit(1) }
+        }
+        application.run()
+        return true
+    }
+
+    @MainActor static func runCachedDownloadInspection() -> Bool {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--inspect-cached-download"), args.indices.contains(index + 1) else { return false }
+        do {
+            let store = try FileProfileStore.applicationSupportStore()
+            let names = try store.loadTorrentDisplayNames()
+            for source in try store.loadTorrentCache() {
+                for torrent in source.torrents {
+                    let stored = names[TorrentRecord.identity(sourceID: source.profileID, hashString: torrent.hashString)]
+                    guard torrent.name.localizedCaseInsensitiveContains(args[index + 1]) || stored?.displayName.localizedCaseInsensitiveContains(args[index + 1]) == true else { continue }
+                    print("Root: \(torrent.name); display: \(stored?.displayName ?? torrent.name); directory: \(torrent.downloadDir ?? "unknown"); hash: \(torrent.hashString)")
+                }
+            }
+        } catch { print("Cache inspection failed: \(error.localizedDescription)"); exit(1) }
+        return true
+    }
+
     @MainActor static func runSeasonNamingCommand() -> Bool {
         let arguments = CommandLine.arguments
         guard let index = arguments.firstIndex(of: "--repair-season-file-names") else { return false }
@@ -128,7 +225,9 @@ struct GlassApp: App {
         }
 
         platformIntegration = GlassMacPlatformIntegration()
-        _model = State(initialValue: Self.makeModel())
+        let model = Self.makeModel()
+        _model = State(initialValue: model)
+        appDelegate.prepareToTerminate = { await model.shutdownLocalSession() }
     }
 
     var body: some Scene {
@@ -338,6 +437,20 @@ private struct GlassCommands: Commands {
 
 @MainActor
 private final class GlassAppDelegate: NSObject, NSApplicationDelegate {
+    var prepareToTerminate: (@MainActor () async -> Void)?
+    private var isTerminating = false
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let prepareToTerminate else { return .terminateNow }
+        guard !isTerminating else { return .terminateLater }
+        isTerminating = true
+        Task {
+            await prepareToTerminate()
+            sender.reply(toApplicationShouldTerminate: true)
+        }
+        return .terminateLater
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         GlassCompletionNotificationCenter.shared.configure()
         NSAppleEventManager.shared().setEventHandler(

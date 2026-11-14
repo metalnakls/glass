@@ -17,7 +17,6 @@ struct TorrentFilesBrowser: View {
     var isCompact = false
     var showsCompletion = true
     var scrolls = false
-    var shortEpisodeNames = false
     var thumbnailInput: ((TorrentFileBrowserEntry) -> TorrentThumbnailInput?)?
     var stagesChanges = false
     var onApplyWanted: (([Int: Bool]) -> Void)?
@@ -26,6 +25,7 @@ struct TorrentFilesBrowser: View {
     @AppearanceStorage("GlassList.filePriorityGap") private var priorityGap = 4.0
     @AppearanceStorage("GlassInspector.nativeSelectionHighlight") private var nativeHighlight = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var checkboxScope = UUID()
     @State private var collapsed = Set<String>()
     @State private var treeCache = TorrentFileTreeCache()
     var editSession: TorrentFileEditSession?
@@ -36,6 +36,8 @@ struct TorrentFilesBrowser: View {
     var sizeColumnText: String?
     var onSetWantedAsync: ((Int, Bool) async -> Bool)?
     @State private var wantedRequests: [Int: UUID] = [:]
+    @State private var wantedFeedbackTasks: [Int: Task<Void, Never>] = [:]
+    @State private var delayedWanted = Set<Int>()
     @State private var optimisticWanted: [Int: Bool] = [:]
     @State private var pendingPriorities: [Int: PendingPriority] = [:]
     private struct PendingPriority {
@@ -76,12 +78,10 @@ struct TorrentFilesBrowser: View {
         return VStack(alignment: .leading, spacing: 0) {
             if showsControls {
                 HStack(spacing: 8) {
-                    Toggle(isOn: Binding(
-                        get: { !entries.isEmpty && entries.allSatisfy(wanted) },
-                        set: { value in setAllWanted(value) }
-                    )) { EmptyView() }
-                    .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                    .accessibilityLabel(glassText("Download all files"))
+                    TorrentWantedCheckbox(value: !entries.isEmpty && entries.allSatisfy(wanted),
+                        enabled: true, label: glassText("Download all files"), scope: checkboxScope,
+                        id: "all", changed: setAllWanted)
+                        .frame(width: layout.leadingIconWidth)
                     TextField(glassText("Search Files"), text: $searchText)
                         .textFieldStyle(.roundedBorder).controlSize(.small)
                         .focusedValue(\.glassInspectorFileFilterFocused, true)
@@ -97,15 +97,14 @@ struct TorrentFilesBrowser: View {
                 ForEach(rows) { row in
                     let completed = !row.indices.isEmpty && row.indices.allSatisfy { byIndex[$0]?.isComplete == true }
                     let separatorLeading = layout.iconLeadingInset(hierarchical: showsHierarchy) + CGFloat(row.depth) * layout.indent
-                    HStack(spacing: layout.columnGap) {
-                        Toggle(isOn: Binding(
-                            get: { (isCompact && completed) || row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false } },
-                            set: { value in for index in row.indices { setWanted(index, value) } }
-                        )) { EmptyView() }
-                        .labelsHidden().toggleStyle(.checkbox).controlSize(.regular)
-                        .frame(width: layout.leadingIconWidth)
-                        .disabled(isCompact && completed)
-                        .accessibilityLabel(glassText("Download \(displayName(row, hiding: hiddenExtension))"))
+                    HStack(spacing: layout.checkboxGap) {
+                        TorrentWantedCheckbox(value: (isCompact && completed) || row.indices.allSatisfy { byIndex[$0].map(wanted) ?? false },
+                            enabled: !(isCompact && completed), label: glassText("Download \(displayName(row, hiding: hiddenExtension))"),
+                            scope: checkboxScope, id: row.id) { value in
+                                for index in row.indices { setWanted(index, value) }
+                            }
+                            .frame(width: layout.leadingIconWidth)
+                        HStack(spacing: layout.columnGap) {
                         HStack(spacing: 0) {
                             TorrentFileTreeLabel(row: row, name: displayName(row, hiding: hiddenExtension),
                                 isExpanded: !collapsed.contains(row.id) || !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
@@ -114,8 +113,8 @@ struct TorrentFilesBrowser: View {
                                         if !collapsed.insert(row.id).inserted { collapsed.remove(row.id) }
                                     }
                             }
-                            if row.indices.contains(where: { wantedRequests[$0] != nil }) {
-                                ProgressView().controlSize(.mini).padding(.leading, 6)
+                            if row.indices.contains(where: delayedWanted.contains) {
+                                GlassActivityIndicator(label: "Updating file selection", presentation: .alreadyDelayed, controlSize: .mini).padding(.leading, 6)
                             }
                             if row.indices.contains(where: { priority($0, byIndex: byIndex) > 0 }) {
                                 FilePriorityIcon(high: true)
@@ -137,6 +136,7 @@ struct TorrentFilesBrowser: View {
                             progress: showsCompletion && !completed && row.indices.allSatisfy({ byIndex[$0].map(wanted) ?? false })
                                 ? formatPercent(progress(row, byIndex: byIndex)) : nil,
                             presentation: !showsCompletion ? .sizeOnly : (inlineProgress ? .inline : .stacked))
+                        }
                     }
                     .frame(minHeight: layout.contentHeight(stacked: stacked))
                     .alignmentGuide(.listRowSeparatorLeading) { _ in separatorLeading }
@@ -226,6 +226,11 @@ struct TorrentFilesBrowser: View {
             .frame(height: scrolls ? nil : CGFloat(max(rows.count, 1)) * layout.rowHeight(stacked: stacked))
             .glassMotion(.structure, value: collapsed)
         }
+        .onDisappear {
+            for task in wantedFeedbackTasks.values { task.cancel() }
+            wantedFeedbackTasks.removeAll()
+            delayedWanted.removeAll()
+        }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
         .safeAreaInset(edge: .bottom, spacing: 4) {
             if showsActionBar && (!selection.isEmpty || !pendingWanted.isEmpty) {
@@ -284,19 +289,8 @@ struct TorrentFilesBrowser: View {
         }
     }
 
-    private func displayName(_ row: TorrentFileTreeRow, hiding hiddenExtension: String?) -> String {
+    func displayName(_ row: TorrentFileTreeRow, hiding hiddenExtension: String?) -> String {
         let name = row.isFolder ? row.name : TorrentExtensionPolicy.name(row.name, hiding: hiddenExtension)
-        guard shortEpisodeNames, !row.isFolder else { return name }
-        let patterns = [#"(?i)\bS[0-9]+E([0-9]+)\s*[-–—]\s*(.+)"#,
-                        #"(?i)\bSeason\s+[0-9]+[ ,.-]*Episode\s+([0-9]+)[ .,:–—-]*(.+)"#]
-        for pattern in patterns {
-            guard let expression = try? NSRegularExpression(pattern: pattern),
-                  let match = expression.firstMatch(in: name, range: NSRange(name.startIndex..., in: name)),
-                  let numberRange = Range(match.range(at: 1), in: name),
-                  let titleRange = Range(match.range(at: 2), in: name),
-                  let number = Int(name[numberRange]) else { continue }
-            return "\(number). \(name[titleRange])"
-        }
         return name
     }
 
@@ -328,11 +322,21 @@ struct TorrentFilesBrowser: View {
         guard let onSetWantedAsync else { onSetWanted(index, value); return }
         let request = UUID()
         wantedRequests[index] = request
+        delayedWanted.remove(index)
+        wantedFeedbackTasks[index]?.cancel()
+        wantedFeedbackTasks[index] = Task {
+            do { try await Task.sleep(for: GlassLoadingFeedback.delay) } catch { return }
+            guard !Task.isCancelled, wantedRequests[index] == request else { return }
+            delayedWanted.insert(index)
+        }
         optimisticWanted[index] = value
         Task {
             let succeeded = await onSetWantedAsync(index, value)
             guard wantedRequests[index] == request else { return }
             wantedRequests[index] = nil
+            wantedFeedbackTasks[index]?.cancel()
+            wantedFeedbackTasks[index] = nil
+            delayedWanted.remove(index)
             if !succeeded { optimisticWanted[index] = nil }
         }
     }

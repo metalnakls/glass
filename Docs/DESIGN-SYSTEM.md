@@ -299,3 +299,39 @@ Compilation and motion-policy checks do not establish visual transition quality.
 The user authorized one isolated sample-data demo for review; the main app must
 not be restarted or unsolicited test windows opened. Native presentation,
 interrupted switching and live drag/rename remain unverified until that review.
+
+## File-list interaction recovery — November 2026
+
+- `TorrentWantedCheckbox` owns native checkbox input and drag painting. A drag
+  applies the first checkbox's new wanted value to every crossed enabled row,
+  once per gesture, within that file browser only. Native keyboard/accessibility
+  activation remains available; completed-file restrictions remain unchanged.
+- `TorrentFileListLayout.checkboxGap` derives from the shared document margin.
+  The left row interior stays separate, making the checkbox-to-name gap slightly
+  smaller than the inspector-edge-to-checkbox distance. Hierarchy and metadata
+  retain their own columns.
+- Displayed episode filenames retain their SxxExx codes. File-name cleanup and
+  actual path repairs remain owned by naming/services, not display-only aliases.
+- `GlassLoadingFeedback.delay` is six seconds. Fast operations retain their normal
+  artwork and names; rename feedback cannot briefly replace the icon with an
+  invisible spinner. Inspector waiting feedback uses the same deadline once.
+- Cached group details are projected onto current members before display. Removed
+  seasons cannot reappear from the inspector cache. File-section demand made while
+  core details are loading must be fulfilled without another selection click.
+- Local multi-file storage errors expose a native folder picker from the state
+  button. Choosing existing data rechecks pieces, then restores the requested
+  folder name. Local display aliases must not bypass physical renaming.
+- A folder-name conflict is resolved automatically only when a saved creation
+  receipt identifies the destination as Glass-created for the same torrent and
+  every file is duplicated byte-for-byte in the selected source. Unknown files,
+  symlinks, unique partial bytes, or missing ownership evidence preserve both
+  folders and produce an explicit conflict message. Old folders are never claimed
+  retrospectively merely because their names or file inventories match.
+
+- Unresolved local folder-name conflicts persist as a question-mark state control.
+  Clicking opens `GlassFolderConflictAlert`, a native NSAlert sheet with Cancel,
+  Open Existing Folder in Finder, and a red destructive Delete Folder action.
+  Opening Finder or cancelling preserves the pending rename. Delete moves only
+  the exact confirmed destination object to Trash and retries the rename; a
+  changed token, source, or destination requires fresh review. Resolving the
+  collision externally lets the next refresh finish the pending rename.
